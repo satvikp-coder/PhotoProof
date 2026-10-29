@@ -25,10 +25,20 @@ class DiscoveredPlugin:
 
 
 def implementation_digest(directory: Path) -> str:
-    """SHA-256 over the plugin package's ``*.py`` files (name + bytes), in sorted order."""
+    """SHA-256 over every file in the plugin package (relative path + bytes), sorted.
+
+    Covers subpackages and data files (tables, weights), so any change to what the
+    plugin ships invalidates cached results. Bytecode caches are excluded.
+    """
     digest = hashlib.sha256()
-    for path in sorted(directory.glob("*.py")):
-        digest.update(path.name.encode() + b"\0" + path.read_bytes() + b"\0")
+    files = (
+        p
+        for p in directory.rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts and p.suffix not in {".pyc", ".pyo"}
+    )
+    for path in sorted(files, key=lambda p: p.relative_to(directory).as_posix()):
+        relative = path.relative_to(directory).as_posix()
+        digest.update(relative.encode() + b"\0" + path.read_bytes() + b"\0")
     return digest.hexdigest()
 
 

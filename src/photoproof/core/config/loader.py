@@ -58,11 +58,18 @@ def _validate(model: type[M], data: object, source: Path) -> M:
         raise ConfigurationError(_format_validation(source, error)) from error
 
 
+MAX_CONFIG_BYTES = 1 << 20  # configuration files are small; refuse anything larger
+
+
 def read_yaml(path: Path) -> object:
     try:
+        if path.stat().st_size > MAX_CONFIG_BYTES:
+            raise ConfigurationError(f"{path}: larger than {MAX_CONFIG_BYTES} bytes")
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError as error:
         raise ConfigurationError(f"{path}: file not found") from error
+    except UnicodeDecodeError as error:
+        raise ConfigurationError(f"{path}: not valid UTF-8: {error}") from error
     try:
         return _yaml().load(text)
     except YAMLError as error:

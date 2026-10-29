@@ -1,9 +1,10 @@
 """Typed configuration models. Unknown keys are rejected everywhere (``extra="forbid"``)."""
 
+import re
 from pathlib import PurePosixPath
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
 from photoproof.contracts.enums import AnalysisMode, Severity
 from photoproof.versioning.version import SemVer
@@ -13,6 +14,13 @@ _PLUGIN_ID = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$"
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+def _plugin_ids(values: tuple[str, ...], what: str) -> tuple[str, ...]:
+    bad = [v for v in values if not re.match(_PLUGIN_ID, v)]
+    if bad:
+        raise ValueError(f"invalid plugin identifiers in {what}: {', '.join(bad)}")
+    return _unique(values, what)
 
 
 def _unique(values: tuple[str, ...], what: str) -> tuple[str, ...]:
@@ -105,7 +113,7 @@ class RuntimeSettings(_Strict):
 
 class SchedulingSettings(_Strict):
     executor: Literal["sequential"]
-    strict_priority_barriers: bool
+    strict_priority_barriers: StrictBool
     default_plugin_timeout_seconds: float = Field(gt=0, le=86_400)
     random_seed: int = Field(ge=0)
 
@@ -120,17 +128,17 @@ class FailurePolicySettings(_Strict):
 
 class FeatureSettings(_Strict):
     unknown_flags: Literal["error", "warn"]
-    flags: dict[str, bool]
+    flags: dict[str, StrictBool]
 
 
 class PluginSettings(_Strict):
     blacklist: tuple[str, ...]
-    allow_profile_overrides: bool
+    allow_profile_overrides: StrictBool
 
     @field_validator("blacklist")
     @classmethod
     def _ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        return _unique(value, "blacklist entries")
+        return _plugin_ids(value, "blacklist entries")
 
 
 class ProfileSettings(_Strict):
@@ -138,7 +146,7 @@ class ProfileSettings(_Strict):
 
 
 class CacheSettings(_Strict):
-    enabled: bool
+    enabled: StrictBool
 
 
 class LoggingSettings(_Strict):
@@ -153,7 +161,7 @@ class HealthSettings(_Strict):
 
 
 class RecoverySettings(_Strict):
-    auto_repair_safe: bool
+    auto_repair_safe: StrictBool
 
 
 class ResourceSettings(_Strict):
@@ -164,12 +172,12 @@ class ResourceSettings(_Strict):
 
 class SecuritySettings(_Strict):
     forbidden_plugins: tuple[str, ...]
-    allow_blacklist_bypass: bool
+    allow_blacklist_bypass: StrictBool
 
     @field_validator("forbidden_plugins")
     @classmethod
     def _ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        return _unique(value, "forbidden plugin entries")
+        return _plugin_ids(value, "forbidden plugin entries")
 
 
 class FormatSettings(_Strict):
@@ -182,7 +190,7 @@ class FormatSettings(_Strict):
 
 
 class ReportingSettings(_Strict):
-    include_effective_settings: bool
+    include_effective_settings: StrictBool
 
 
 class ServiceSettings(_Strict):
@@ -195,7 +203,7 @@ class UISettings(_Strict):
 
 
 class DevelopmentSettings(_Strict):
-    debug: bool
+    debug: StrictBool
 
 
 class Settings(_Strict):
@@ -265,3 +273,15 @@ class Profile(_Strict):
     plugins: ProfilePluginOverrides = ProfilePluginOverrides()
     required_plugins: tuple[str, ...] = ()
     required_outputs: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _consistent(self) -> "Profile":
+        _plugin_ids(self.plugins.enable, "plugins.enable")
+        _plugin_ids(self.plugins.disable, "plugins.disable")
+        _plugin_ids(self.required_plugins, "required_plugins")
+        contradictory = set(self.required_plugins) & set(self.plugins.disable)
+        if contradictory:
+            raise ValueError(
+                f"plugins both required and disabled: {', '.join(sorted(contradictory))}"
+            )
+        return self

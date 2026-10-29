@@ -4,13 +4,16 @@ A check never changes anything. Repairs are separate callables attached to the
 result and are executed only by ``health.repair``.
 """
 
+import re
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING
 
 from photoproof.contracts.enums import Repairability, Severity
-from photoproof.contracts.exceptions import DatabaseError, PlanningError
+from photoproof.contracts.exceptions import DatabaseError, MigrationRequiredError, PlanningError
 from photoproof.core.cache.run_cache import RunCache
 from photoproof.core.database.store import LATEST_VERSION, Database
 from photoproof.core.pipeline.planner import validate_graph
@@ -19,6 +22,8 @@ from photoproof.versioning.build import distribution_version
 
 if TYPE_CHECKING:
     from photoproof.core.bootstrap import Application
+
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -152,9 +157,13 @@ def check_stale_temp(app: "Application") -> CheckResult:
     )
 
 
-def check_cache_integrity(app: "Application") -> CheckResult:
+def check_cache_integrity(app: "Application", *, deep: bool = True) -> CheckResult:
     cache = RunCache(app.storage, None)
-    broken = {key: problem for key in cache.entry_keys() if (problem := cache.problem(key))}
+    broken = {
+        key: problem
+        for key in cache.entry_keys()
+        if (problem := cache.problem(key, verify_artifacts=deep))
+    }
     if not broken:
         return _ok("cache.integrity", f"{len(cache.entry_keys())} cache entries valid")
 
@@ -191,21 +200,21 @@ def check_database(app: "Application") -> CheckResult:
         )
     try:
         db = app.database()
+    except MigrationRequiredError as error:
+
+        def migrate() -> str:
+            Database.open(path, allow_migration=True).close()
+            return f"backed up and migrated {path.name} to schema {LATEST_VERSION}"
+
+        return CheckResult(
+            "database.integrity",
+            Severity.ERROR,
+            str(error),
+            repair=RepairAction(
+                "back up and migrate the database", Repairability.CONTROLLED, migrate
+            ),
+        )
     except DatabaseError as error:
-        if "needs migration" in str(error):
-
-            def migrate() -> str:
-                Database.open(path, allow_migration=True).close()
-                return f"backed up and migrated {path.name} to schema {LATEST_VERSION}"
-
-            return CheckResult(
-                "database.integrity",
-                Severity.ERROR,
-                str(error),
-                repair=RepairAction(
-                    "back up and migrate the database", Repairability.CONTROLLED, migrate
-                ),
-            )
         return CheckResult(
             "database.integrity",
             Severity.CRITICAL,
@@ -224,12 +233,15 @@ def check_database(app: "Application") -> CheckResult:
     return _ok("database.integrity", f"schema version {db.schema_version()}, integrity ok")
 
 
-def check_stored_blobs(app: "Application") -> CheckResult:
+def check_stored_blobs(app: "Application", *, deep: bool = True) -> CheckResult:
+    """Deep: re-hash every blob (doctor/repair). Quick (preflight): only check that each
+    file sits at a well-formed content address, so startup does not scale with storage."""
     corrupt: list[str] = []
     kinds: tuple[BlobKind, ...] = ("objects", "artifacts")
     for kind in kinds:
         for path in app.storage.iter_blobs(kind):
-            if not app.storage.verify_blob(kind, path.name):
+            well_formed = bool(_SHA256.match(path.name)) and path.name[:2] == path.parent.name
+            if not well_formed or (deep and not app.storage.verify_blob(kind, path.name)):
                 corrupt.append(f"{kind}/{path.parent.name}/{path.name}")
     if not corrupt:
         return _ok("storage.integrity", "all stored blobs match their hashes")
@@ -282,7 +294,63 @@ def check_plugins(app: "Application") -> CheckResult:
     return _ok("plugins.graph", f"{len(app.registry)} plugins registered, graph valid")
 
 
-def default_registry() -> HealthRegistry:
+STALE_RUN_AGE = timedelta(hours=1)
+
+
+def check_stale_runs(app: "Application") -> CheckResult:
+    """Runs that never finished (process killed or crashed before finalizing)."""
+    db = app.database_or_none() if app.database_path.is_file() else None  # never create it
+    if db is None:
+        return _ok("database.stale_runs", "database unavailable; skipped")
+    cutoff = (datetime.now(UTC) - STALE_RUN_AGE).isoformat()
+    stale = db.unfinished_runs(older_than=cutoff)
+    if not stale:
+        return _ok("database.stale_runs", "no unfinished runs")
+    ids = [str(run["run_id"]) for run in stale]
+
+    def mark() -> str:
+        db.mark_runs_aborted(ids)
+        return f"marked {len(ids)} unfinished runs ABORTED"
+
+    return CheckResult(
+        "database.stale_runs",
+        Severity.WARNING,
+        f"{len(ids)} runs never finished (older than {STALE_RUN_AGE})",
+        tuple(f"{run['run_id']} ({run['status']}, created {run['created_at']})" for run in stale),
+        RepairAction("mark them ABORTED", Repairability.CONTROLLED, mark),
+    )
+
+
+def check_policy_references(app: "Application") -> CheckResult:
+    """Policy entries naming plugins that do not exist are almost always typos — and a
+    typo in a blacklist means the intended plugin is *not* blocked."""
+    known = app.registry.known_ids
+    unknown = [
+        f"{where}: {pid}"
+        for where, ids in (
+            ("plugins.blacklist", app.settings.plugins.blacklist),
+            ("security.forbidden_plugins", app.settings.security.forbidden_plugins),
+            *(
+                (f"profile {name}.required_plugins", profile.required_plugins)
+                for name, profile in app.profiles.items()
+            ),
+        )
+        for pid in ids
+        if pid not in known
+    ]
+    if not unknown:
+        return _ok("plugins.policy", "every policy entry names a known plugin")
+    return CheckResult(
+        "plugins.policy",
+        Severity.WARNING,
+        f"{len(unknown)} policy entries name unknown plugins (typo?)",
+        tuple(unknown),
+        RepairAction("correct or remove the entries", Repairability.MANUAL),
+    )
+
+
+def default_registry(*, deep: bool = True) -> HealthRegistry:
+    """``deep=False`` (preflight) skips re-hashing stored data; ``doctor`` runs deep."""
     registry = HealthRegistry()
     for check_id, check in (
         ("runtime.directories", check_runtime_directories),
@@ -290,10 +358,12 @@ def default_registry() -> HealthRegistry:
         ("runtime.disk_space", check_disk_space),
         ("runtime.stale_temp", check_stale_temp),
         ("database.integrity", check_database),
-        ("cache.integrity", check_cache_integrity),
-        ("storage.integrity", check_stored_blobs),
+        ("database.stale_runs", check_stale_runs),
+        ("cache.integrity", partial(check_cache_integrity, deep=deep)),
+        ("storage.integrity", partial(check_stored_blobs, deep=deep)),
         ("application.version", check_version_consistency),
         ("plugins.graph", check_plugins),
+        ("plugins.policy", check_policy_references),
     ):
         registry.register(check_id, check)
     return registry

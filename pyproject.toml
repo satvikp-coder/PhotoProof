@@ -69,7 +69,8 @@ ignore = ["PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "PLR2004"]
 
 [tool.mypy]
 strict = true
-files = ["src"]
+files = ["src", "main.py", ".github/scripts"]
+mypy_path = "src"
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]

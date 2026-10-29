@@ -78,7 +78,8 @@ def preflight(app: "Application", registry: HealthRegistry) -> PreflightReport:
     """Run all checks, apply SAFE repairs if enabled, then re-check.
 
     Startup is blocked by any remaining finding at or above
-    ``health.preflight_fail_on``.
+    ``health.preflight_fail_on``. Findings are *not* published here: call
+    ``publish_findings`` after ``Application.start()`` so they are persisted too.
     """
     results = registry.run_all(app)
     repairs: list[RepairRecord] = []
@@ -87,7 +88,12 @@ def preflight(app: "Application", registry: HealthRegistry) -> PreflightReport:
         results = registry.run_all(app)
     threshold = Severity(app.settings.health.preflight_fail_on).rank
     blocking = [r for r in results if r.severity.rank >= threshold]
+    return PreflightReport(results, repairs, blocking)
+
+
+def publish_findings(app: "Application", results: list[CheckResult]) -> None:
+    """Emit ``HEALTH_CHECK_FAILED`` for every non-OK result (audited; persisted once the
+    application has started)."""
     for result in results:
         if not result.ok:
             app.bus.emit(EventType.HEALTH_CHECK_FAILED, data=result.to_dict())
-    return PreflightReport(results, repairs, blocking)

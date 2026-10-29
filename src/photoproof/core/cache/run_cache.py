@@ -51,7 +51,9 @@ class RunCache:
             raise StorageError(f"invalid cache key {key!r}")
         return ("cache", "runs", f"{key}.json")
 
-    def _read(self, key: str) -> tuple[CacheEntry | None, str | None]:
+    def _read(
+        self, key: str, *, verify_artifacts: bool = True
+    ) -> tuple[CacheEntry | None, str | None]:
         """Parse and validate an entry: ``(entry, None)`` or ``(None, problem)``."""
         try:
             entry = CacheEntry.model_validate(self._storage.read_json(*self._parts(key)))
@@ -63,14 +65,16 @@ class RunCache:
             return None, "entry format or key does not match"
         if entry.status != "COMPLETED":
             return None, "entry records a run that did not complete"
-        for artifact in entry.artifacts:
+        for artifact in entry.artifacts if verify_artifacts else ():
             if not self._storage.verify_blob("artifacts", artifact.sha256):
                 return None, f"artifact {artifact.sha256} is missing or fails its hash check"
         return entry, None
 
-    def problem(self, key: str) -> str | None:
-        """Why the entry for ``key`` is unusable, or ``None`` if it is valid."""
-        return self._read(key)[1]
+    def problem(self, key: str, *, verify_artifacts: bool = True) -> str | None:
+        """Why the entry for ``key`` is unusable, or ``None`` if it is valid. Without
+        ``verify_artifacts`` only the entry itself is checked (fast; used at startup —
+        ``lookup`` always verifies before reuse)."""
+        return self._read(key, verify_artifacts=verify_artifacts)[1]
 
     def lookup(self, key: str) -> CacheEntry | None:
         if not self._storage.path(*self._parts(key)).is_file():

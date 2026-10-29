@@ -30,8 +30,9 @@ from photoproof.core.config.policy import (
 )
 from photoproof.core.controller import AnalysisController
 from photoproof.core.health.checks import CheckResult, default_registry
-from photoproof.core.health.repair import preflight, run_repairs
+from photoproof.core.health.repair import preflight, publish_findings, run_repairs
 from photoproof.core.security.inputs import hash_input_file
+from photoproof.core.storage.store import sha256_file
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_CONFIG, EXIT_HEALTH, EXIT_NOT_COMPLETED = 0, 1, 2, 4, 6, 7
 _MARK = {"ok": "✓", "warning": "!", "error": "✗", "critical": "✗✗"}
@@ -84,18 +85,23 @@ def _override(args: argparse.Namespace) -> BlacklistOverride | None:
 
 
 def _start(app: Application) -> int | None:
-    report = preflight(app, default_registry())
+    report = preflight(app, default_registry(deep=False))
     for record in report.repairs:
         print(
             f"repair {record.outcome}: {record.check_id}: {record.changes or record.action}",
             file=sys.stderr,
         )
     if not report.passed:
+        publish_findings(app, report.results)  # audit trail only; persistence is not up
         print("Preflight failed:", file=sys.stderr)
         _print_checks(report.blocking)
         print("Run `python main.py --doctor` for details.", file=sys.stderr)
         return EXIT_HEALTH
     app.start()
+    publish_findings(app, report.results)
+    for result in report.results:  # non-blocking findings must not be invisible
+        if not result.ok:
+            print(f"warning: {result.check_id}: {result.message}", file=sys.stderr)
     return None
 
 
@@ -149,7 +155,10 @@ def cmd_repair(app: Application, dry_run: bool) -> int:
 def cmd_plugins(
     app: Application, profile: str | None, override: BlacklistOverride | None, as_json: bool
 ) -> int:
-    selected = app.profiles[profile or app.settings.profiles.default]
+    name = profile or app.settings.profiles.default
+    if name not in app.profiles:
+        raise ConfigurationError(f"unknown profile {name!r}; known: {sorted(app.profiles)}")
+    selected = app.profiles[name]
     decisions = decide_all(
         (p.metadata for p in app.registry),
         settings=app.settings,
@@ -248,7 +257,21 @@ def cmd_analyze(app: Application, args: argparse.Namespace) -> int:
 
 
 def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
+    path = app.storage.path("manifests", f"{run_id}.json")
     manifest = app.storage.read_json("manifests", f"{run_id}.json")
+    run = app.database().get_run(run_id)
+    recorded = run.get("manifest_sha256") if run else None
+    if recorded is None:
+        print(
+            "warning: no database record of this manifest's hash; cannot verify it", file=sys.stderr
+        )
+    elif sha256_file(path) != recorded:
+        print(
+            f"error: {path} does not match the SHA-256 recorded for run {run_id}; "
+            "the manifest was modified after the run",
+            file=sys.stderr,
+        )
+        return EXIT_ERROR
     if as_json or not isinstance(manifest, dict):
         print(json.dumps(manifest, indent=2, sort_keys=True))
         return EXIT_OK

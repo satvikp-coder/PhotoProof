@@ -33,8 +33,21 @@ from photoproof.core.pipeline.scheduler import PluginExecution
 Invoke = Callable[[RegisteredPlugin, Mapping[str, object]], Mapping[str, object]]
 
 
+# Outputs are embedded in manifests and cache entries; bulk data belongs in artifacts.
+MAX_OUTPUT_BYTES = 1 << 20
+
+
 class InvalidOutputError(Exception):
     pass
+
+
+def event_for(state: S, *, started: bool) -> EventType:
+    """The event published when a plugin reaches terminal ``state``."""
+    if state is S.SUCCESS:
+        return EventType.PLUGIN_COMPLETED
+    if state in {S.FAILED, S.TIMEOUT} or (state is S.ABORTED and started):
+        return EventType.PLUGIN_FAILED
+    return EventType.PLUGIN_SKIPPED
 
 
 class _Timeout(Exception):
@@ -85,6 +98,12 @@ def normalize_outputs(plugin: RegisteredPlugin, raw: object) -> dict[str, object
             raise InvalidOutputError(
                 f"output {name!r} is not JSON-serializable: {error}"
             ) from error
+    size = len(json.dumps(normalized))
+    if size > MAX_OUTPUT_BYTES:
+        raise InvalidOutputError(
+            f"outputs are {size} bytes (limit {MAX_OUTPUT_BYTES}); store bulk data with "
+            "ctx.write_artifact and return the ArtifactRef"
+        )
     return normalized
 
 
@@ -218,13 +237,7 @@ class SequentialExecutor:
         error: BaseException | None = None,
     ) -> None:
         ex.transition(state, category=category, message=message, error=error)
-        event = {
-            S.SUCCESS: EventType.PLUGIN_COMPLETED,
-            S.FAILED: EventType.PLUGIN_FAILED,
-            S.TIMEOUT: EventType.PLUGIN_FAILED,
-        }.get(state, EventType.PLUGIN_SKIPPED)
-        if state is S.ABORTED and ex.started_at is not None:
-            event = EventType.PLUGIN_FAILED
+        event = event_for(state, started=ex.started_at is not None)
         self._bus.emit(event, run_id=run_id, plugin_id=ex.plugin_id, data=ex.to_dict())
 
 

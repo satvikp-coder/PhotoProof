@@ -49,6 +49,10 @@ class DatabaseError(PhotoProofError):
     """Persistent state could not be read, written or migrated."""
 
 
+class MigrationRequiredError(DatabaseError):
+    """The database schema is older than this release and needs a CONTROLLED migration."""
+
+
 class EventDeliveryError(PhotoProofError):
     """A critical event subscriber failed; the operation must not continue silently."""
 

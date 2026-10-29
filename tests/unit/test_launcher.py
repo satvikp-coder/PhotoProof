@@ -202,18 +202,44 @@ def test_preflight_failure_stops_launch(root: Path, monkeypatch: pytest.MonkeyPa
     _patch_host(monkeypatch)
     calls: list[list[str]] = []
     monkeypatch.setattr(launcher, "ensure_environment", lambda *a, **k: Path("python"))
-    monkeypatch.setattr(launcher, "run_app", lambda python, args: calls.append(args) or 6)
-    assert launcher.main([], root=root) == launcher.EXIT_PREFLIGHT
-    assert calls == [["preflight"]]
+    monkeypatch.setattr(
+        launcher, "run_app", lambda python, args, root=None: calls.append(args) or 6
+    )
+    assert launcher.main([], root=root) == launcher.EXIT_PREFLIGHT  # CLI preflight exit code
+    assert calls == [["status"]]
 
 
 def test_commands_and_bypass_are_forwarded(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_host(monkeypatch)
     calls: list[list[str]] = []
     monkeypatch.setattr(launcher, "ensure_environment", lambda *a, **k: Path("python"))
-    monkeypatch.setattr(launcher, "run_app", lambda python, args: calls.append(args) or 0)
+    monkeypatch.setattr(
+        launcher, "run_app", lambda python, args, root=None: calls.append(args) or 0
+    )
     assert launcher.main(["--ignore-blacklist", "plugins", "--json"], root=root) == 0
-    assert calls == [["preflight"], ["--ignore-blacklist", "plugins", "--json"]]
+    assert calls == [["--ignore-blacklist", "plugins", "--json"]]
+
+
+def test_command_flags_are_not_swallowed(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: `repair --dry-run` used to lose --dry-run to the launcher's parser and
+    run a real repair."""
+    _patch_host(monkeypatch)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(launcher, "ensure_environment", lambda *a, **k: Path("python"))
+    monkeypatch.setattr(
+        launcher, "run_app", lambda python, args, root=None: calls.append(args) or 0
+    )
+    assert launcher.main(["repair", "--dry-run"], root=root) == 0
+    assert calls == [["repair", "--dry-run"]]
+
+
+def test_unlocked_packages_reported(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    fake = subprocess.CompletedProcess([], 0, stdout="photoproof\npip\nPyYAML\npydantic\n")
+    monkeypatch.setattr(launcher.subprocess, "run", lambda *a, **k: fake)
+    (root / "requirements.lock").write_text("pydantic==2.0 \\\n    --hash=sha256:00\n")
+    assert launcher.unlocked_packages(root, Path("python")) == ["pyyaml"]
 
 
 def test_repair_dry_run_changes_nothing(

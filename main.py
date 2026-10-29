@@ -11,6 +11,9 @@ Prepares a reproducible environment and starts the application:
     python main.py --version        print the version from app.toml
     python main.py <command> ...    forward a command to the CLI (e.g. plugins, analyze IMG)
 
+Launcher flags must come before the command; everything from the command onwards is
+passed to the CLI unchanged (``python main.py repair --dry-run``).
+
 Requires an already-installed compatible Python interpreter; it never installs Python,
 never uses administrator privileges, and never downloads anything except the
 hash-verified packages in requirements.lock.
@@ -31,6 +34,9 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+Identity = dict[str, Any]  # parsed app.toml
 
 EXIT_OK, EXIT_USAGE, EXIT_UNSUPPORTED, EXIT_IDENTITY, EXIT_DEPS, EXIT_PREFLIGHT = 0, 2, 3, 4, 5, 6
 
@@ -40,6 +46,7 @@ APP_FILE = "app.toml"
 LOCKFILE = "requirements.lock"
 VENV_DIR = ".venv"
 STATE_FILE = ".photoproof-env.json"  # inside .venv
+_PROJECT_NAME = "photoproof"
 
 _ARCH_ALIASES = {
     "amd64": "x86_64",
@@ -74,7 +81,7 @@ class Report:
 # --------------------------------------------------------------------- identity
 
 
-def load_identity(root: Path) -> dict:
+def load_identity(root: Path) -> Identity:
     if sys.version_info < (3, 11):  # tomllib is required to read app.toml
         raise LauncherError(
             f"Python {platform.python_version()} is too old; PhotoProof needs Python >= 3.11",
@@ -120,7 +127,7 @@ def _minor(text: str) -> tuple[int, int]:
     return int(major), int(minor)
 
 
-def check_python(identity: dict, version_info: tuple[int, ...] | None = None) -> str:
+def check_python(identity: Identity, version_info: tuple[int, ...] | None = None) -> str:
     current = tuple((version_info or sys.version_info)[:2])
     low, high = _minor(identity["python"]["minimum"]), _minor(identity["python"]["maximum"])
     text = ".".join(map(str, current))
@@ -134,7 +141,7 @@ def check_python(identity: dict, version_info: tuple[int, ...] | None = None) ->
 
 
 def check_platform(
-    identity: dict, system: str | None = None, machine: str | None = None
+    identity: Identity, system: str | None = None, machine: str | None = None
 ) -> tuple[str, str]:
     system = system or platform.system()
     arch = _ARCH_ALIASES.get((machine or platform.machine()).lower(), machine or platform.machine())
@@ -187,7 +194,7 @@ def total_memory_mb() -> int | None:
 
 
 def check_hardware(
-    identity: dict,
+    identity: Identity,
     root: Path,
     report: Report,
     *,
@@ -288,9 +295,10 @@ def environment_fingerprint(
     ).hexdigest()
 
 
-def read_state(venv: Path) -> dict:
+def read_state(venv: Path) -> dict[str, Any]:
     try:
-        return json.loads((venv / STATE_FILE).read_text(encoding="utf-8"))
+        state: dict[str, Any] = json.loads((venv / STATE_FILE).read_text(encoding="utf-8"))
+        return state
     except (OSError, ValueError):
         return {}
 
@@ -334,7 +342,7 @@ def installed_version(python: Path, package: str) -> str | None:
 
 
 def ensure_environment(
-    root: Path, identity: dict, *, force: bool, rebuild: bool, report: Report
+    root: Path, identity: Identity, *, force: bool, rebuild: bool, report: Report
 ) -> Path:
     venv = root / VENV_DIR
     package, version = identity["application"]["package"], identity["application"]["version"]
@@ -405,8 +413,15 @@ def ensure_environment(
 # ------------------------------------------------------------------------- main
 
 
-def run_app(python: Path, args: list[str]) -> int:
-    return subprocess.run([str(python), "-m", "photoproof", *args], check=False).returncode
+def run_app(python: Path, args: list[str], root: Path = ROOT) -> int:
+    # Put src/ on the path explicitly: the editable install's .pth file can be ignored
+    # (e.g. macOS hides files in iCloud-synced folders and Python >= 3.13 skips hidden
+    # .pth files), and the launched app must not depend on it.
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        filter(None, [str(root / "src"), env.get("PYTHONPATH", "")])
+    )
+    return subprocess.run([str(python), "-m", "photoproof", *args], check=False, env=env).returncode
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -426,8 +441,18 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def split_argv(argv: list[str]) -> tuple[list[str], list[str]]:
+    """Launcher flags come before the first positional argument; everything from the
+    command onwards is forwarded untouched (so ``repair --dry-run`` keeps its flag)."""
+    for index, arg in enumerate(argv):
+        if not arg.startswith("-"):
+            return argv[:index], argv[index:]
+    return argv, []
+
+
 def main(argv: list[str] | None = None, root: Path = ROOT) -> int:
-    args, forwarded = _parser().parse_known_args(argv)
+    own, forwarded = split_argv(sys.argv[1:] if argv is None else argv)
+    args = _parser().parse_args(own)
     try:
         identity = load_identity(root)
         app = identity["application"]
@@ -452,7 +477,7 @@ def main(argv: list[str] | None = None, root: Path = ROOT) -> int:
                 print("  - rebuild .venv (controlled)")
             print("  - reinstall locked dependencies")
             if existing:
-                return run_app(venv_python(root / VENV_DIR), ["repair", "--dry-run"])
+                return run_app(venv_python(root / VENV_DIR), ["repair", "--dry-run"], root)
             return EXIT_OK
 
         python = ensure_environment(
@@ -460,14 +485,13 @@ def main(argv: list[str] | None = None, root: Path = ROOT) -> int:
         )
         if args.repair:
             print(report.render())
-            return run_app(python, ["repair"])
+            return run_app(python, ["repair"], root)
         if os.environ.get("PHOTOPROOF_LAUNCHER_VERBOSE"):
             print(report.render(), file=sys.stderr)
         prefix = ["--ignore-blacklist"] if args.ignore_blacklist else []
-        code = run_app(python, ["preflight"])
-        if code != EXIT_OK:
-            return code
-        return run_app(python, [*prefix, *(forwarded or ["status"])])
+        # The CLI runs preflight itself for commands that start the application;
+        # doctor/repair/config/plugins deliberately skip it (and its SAFE repairs).
+        return run_app(python, [*prefix, *(forwarded or ["status"])], root)
     except LauncherError as error:
         print(f"error: {error}", file=sys.stderr)
         return error.code
@@ -475,7 +499,31 @@ def main(argv: list[str] | None = None, root: Path = ROOT) -> int:
         return 130
 
 
-def doctor(root: Path, identity: dict, report: Report, forwarded: list[str]) -> int:
+_TOOLING = {"pip", "setuptools", "wheel"}
+
+
+def unlocked_packages(root: Path, python: Path) -> list[str]:
+    """Distributions in the venv that no lockfile pins (left over from older locks or
+    installed by hand). They are reported, never removed automatically."""
+
+    def norm(name: str) -> str:
+        return "-".join(name.replace("_", "-").replace(".", "-").lower().split("-"))
+
+    locked = {norm(_PROJECT_NAME)} | _TOOLING
+    for lock in root.glob("requirements*.lock"):
+        for line in lock.read_text(encoding="utf-8").splitlines():
+            if "==" in line and not line.startswith((" ", "#")):
+                locked.add(norm(line.split("==", 1)[0]))
+    code = (
+        "import importlib.metadata as m; "
+        "print('\\n'.join(d.metadata['Name'] for d in m.distributions()))"
+    )
+    result = subprocess.run([str(python), "-c", code], capture_output=True, text=True, check=False)
+    installed = {norm(n) for n in result.stdout.split() if n}
+    return sorted(installed - locked)
+
+
+def doctor(root: Path, identity: Identity, report: Report, forwarded: list[str]) -> int:
     """Launcher-level diagnostics, then the application's own ``doctor``. Changes nothing."""
     app = identity["application"]
     venv = root / VENV_DIR
@@ -499,13 +547,17 @@ def doctor(root: Path, identity: dict, report: Report, forwarded: list[str]) -> 
             "dependencies",
             "match lockfile" if in_sync else "drift detected; run main.py to sync",
         )
-    print(f"{app['name']} {app['version']} launcher doctor\n{report.render()}")
+    if existing:
+        extra = unlocked_packages(root, venv_python(venv))
+        if extra:
+            report.add("warn", "unlocked", "installed but in no lockfile: " + ", ".join(extra))
+    print(f"{app['name']} {app['version']} launcher doctor\n{report.render()}", flush=True)
     if not existing:
         return EXIT_PREFLIGHT
-    return run_app(venv_python(venv), ["doctor", *forwarded])
+    return run_app(venv_python(venv), ["doctor", *forwarded], root)
 
 
-def _supported(identity: dict, version: str) -> bool:
+def _supported(identity: Identity, version: str) -> bool:
     try:
         check_python(identity, tuple(int(p) for p in version.split(".")))
     except LauncherError:

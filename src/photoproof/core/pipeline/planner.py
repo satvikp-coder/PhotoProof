@@ -18,6 +18,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from itertools import groupby
 
+from photoproof.contracts.enums import AnalysisMode
 from photoproof.contracts.exceptions import PlanningError
 from photoproof.contracts.plugins import RUN_INPUTS
 from photoproof.core.config.policy import PolicyDecision
@@ -168,8 +169,14 @@ def plan(
             for pid, reason in will_skip.items()
         ]
 
+    needs_reference = profile.mode is not AnalysisMode.COMPARISON
     for pid in sorted(required):
-        if pid not in active:
+        if pid in active and needs_reference and "input.reference" in active[pid].metadata.inputs:
+            blocked.append(
+                f"required plugin {pid} needs a reference image, but profile "
+                f"{profile.name!r} is single-image"
+            )
+        elif pid not in active:
             blocked.append(
                 f"required plugin {pid} cannot run: {excluded.get(pid, 'not installed')}"
             )

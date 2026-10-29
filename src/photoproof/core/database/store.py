@@ -7,11 +7,11 @@ migration is applied to it.
 
 import sqlite3
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
-from photoproof.contracts.exceptions import DatabaseError
+from photoproof.contracts.exceptions import DatabaseError, MigrationRequiredError
 
 MIGRATIONS: Sequence[str] = (
     # 1: initial schema
@@ -89,7 +89,11 @@ class Database:
         except sqlite3.Error as error:
             raise DatabaseError(f"{path}: cannot open database: {error}") from error
         db = cls(conn, path)
-        version = db.schema_version()
+        try:
+            version = db.schema_version()
+        except sqlite3.DatabaseError as error:  # e.g. the file is not a SQLite database
+            conn.close()
+            raise DatabaseError(f"{path}: unreadable database: {error}") from error
         if version > LATEST_VERSION:
             conn.close()
             raise DatabaseError(
@@ -98,7 +102,7 @@ class Database:
             )
         if 0 < version < LATEST_VERSION and not allow_migration:
             conn.close()
-            raise DatabaseError(
+            raise MigrationRequiredError(
                 f"{path}: schema version {version} needs migration to {LATEST_VERSION}. "
                 "Run `python main.py --repair` (a backup is taken first)."
             )
@@ -122,13 +126,16 @@ class Database:
         for version in range(current + 1, LATEST_VERSION + 1):
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
+                # ponytail: naive ";" split — migrations must not contain ";" inside
+                # string literals or triggers; switch to a statement parser if they do.
                 for statement in MIGRATIONS[version - 1].split(";"):
                     if statement.strip():
                         self._conn.execute(statement)
                 self._conn.execute(f"PRAGMA user_version = {version}")
                 self._conn.execute("COMMIT")
             except sqlite3.Error as error:
-                self._conn.execute("ROLLBACK")
+                with suppress(sqlite3.Error):  # never mask the original failure
+                    self._conn.execute("ROLLBACK")
                 raise DatabaseError(
                     f"{self.path}: migration to version {version} failed and was rolled back: "
                     f"{error}. The database is unchanged; see `python main.py --doctor`."
@@ -149,7 +156,8 @@ class Database:
         try:
             yield self._conn
         except BaseException:
-            self._conn.execute("ROLLBACK")
+            with suppress(sqlite3.Error):  # never mask the original failure
+                self._conn.execute("ROLLBACK")
             raise
         self._conn.execute("COMMIT")
 
@@ -177,6 +185,28 @@ class Database:
             "VALUES (?, ?, 'CREATED', ?, ?, ?)",
             (run_id, _now(), mode, profile, cache_key),
         )
+
+    def set_run_status(self, run_id: str, status: str) -> None:
+        self._write("UPDATE runs SET status = ? WHERE run_id = ?", (status, run_id))
+
+    def unfinished_runs(self, *, older_than: str) -> list[dict[str, object]]:
+        """Runs without ``finished_at`` created before the ISO timestamp ``older_than``."""
+        rows = self._conn.execute(
+            "SELECT * FROM runs WHERE finished_at IS NULL AND created_at < ? ORDER BY created_at",
+            (older_than,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_runs_aborted(self, run_ids: Sequence[str]) -> None:
+        try:
+            with self.transaction() as conn:
+                conn.executemany(
+                    "UPDATE runs SET status = 'ABORTED', finished_at = ? "
+                    "WHERE run_id = ? AND finished_at IS NULL",
+                    [(_now(), run_id) for run_id in run_ids],
+                )
+        except sqlite3.Error as error:
+            raise DatabaseError(f"{self.path}: write failed: {error}") from error
 
     def finish_run(
         self, run_id: str, *, status: str, cache_hit: bool, manifest_sha256: str | None

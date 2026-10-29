@@ -5,7 +5,9 @@ Flow: resolve profile → authorize overrides → decide policy → plan → (ca
 never knows what any individual forensic plugin computes.
 """
 
+import copy
 import logging
+import sys
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -20,18 +22,18 @@ from photoproof.contracts.exceptions import ConfigurationError, InputRejectedErr
 from photoproof.contracts.plugins import PluginContext
 from photoproof.core.bootstrap import Application
 from photoproof.core.cache.run_cache import RunCache, cache_key
-from photoproof.core.config.loader import load_plugin_config
+from photoproof.core.config.loader import PLUGIN_CONFIG_DIR
 from photoproof.core.config.policy import (
     BlacklistOverride,
     PolicyDecision,
     authorize_blacklist_override,
     decide_all,
 )
-from photoproof.core.pipeline.executor import ExecutionReport, SequentialExecutor
+from photoproof.core.pipeline.executor import ExecutionReport, SequentialExecutor, event_for
 from photoproof.core.pipeline.manifest import build_manifest
 from photoproof.core.pipeline.planner import ExecutionPlan, plan
 from photoproof.core.pipeline.registry import RegisteredPlugin
-from photoproof.core.storage.store import canonical_json, sha256_bytes
+from photoproof.core.storage.store import sha256_bytes, sha256_file
 from photoproof.versioning.build import build_info, distribution_version
 
 
@@ -92,7 +94,7 @@ class AnalysisController:
         if request.reference is not None:
             run_inputs["input.reference"] = request.reference.model_dump(mode="json")
 
-        use_cache = (
+        use_cache = bool(
             app.settings.cache.enabled
             and app.flags.is_enabled("cache.run_level")
             and request.use_cache
@@ -107,7 +109,36 @@ class AnalysisController:
             run_id=run_id,
             data={"mode": profile.mode.value, "profile": profile_name, "cache_key": key},
         )
+        try:
+            return self._run(
+                request,
+                run_id,
+                created_at,
+                profile_name,
+                execution_plan,
+                decisions,
+                override,
+                run_inputs,
+                key,
+            )
+        except BaseException as error:
+            self._finalize_unfinished(run_id, error)
+            raise
 
+    def _run(
+        self,
+        request: AnalysisRequest,
+        run_id: str,
+        created_at: str,
+        profile_name: str,
+        execution_plan: ExecutionPlan,
+        decisions: Mapping[str, PolicyDecision],
+        override: BlacklistOverride | None,
+        run_inputs: Mapping[str, object],
+        key: str | None,
+    ) -> AnalysisResult:
+        app = self.app
+        profile = app.profiles[profile_name]
         artifacts: list[ArtifactRef] = []
         executions: dict[str, dict[str, Any]] = {}
         outputs: dict[str, Any] = {}
@@ -129,6 +160,7 @@ class AnalysisController:
                 status = RunStatus.COMPLETED
                 executions, outputs = cached.executions, cached.outputs
                 artifacts = list(cached.artifacts)
+                self._record_cached(run_id, executions, artifacts)
             else:
                 app.bus.emit(
                     EventType.RUN_STARTED, run_id=run_id, data={"order": list(execution_plan.order)}
@@ -211,6 +243,48 @@ class AnalysisController:
 
     # ----------------------------------------------------------------- helpers
 
+    def _finalize_unfinished(self, run_id: str, error: BaseException) -> None:
+        """Best effort: mark a run ABORTED when it dies before finishing normally, so it
+        is never left in a non-terminal state. Secondary failures are logged; the
+        original exception is re-raised by the caller."""
+        try:
+            self.app.bus.emit(
+                EventType.RUN_ABORTED,
+                run_id=run_id,
+                data={
+                    "status": RunStatus.ABORTED.value,
+                    "cache_hit": False,
+                    "manifest_sha256": None,
+                    "error": repr(error),
+                },
+            )
+        except Exception:
+            logging.getLogger(__name__).exception("could not record run %s as aborted", run_id)
+
+    def _record_cached(
+        self,
+        run_id: str,
+        executions: Mapping[str, Mapping[str, object]],
+        artifacts: list[ArtifactRef],
+    ) -> None:
+        """Persist plugin states and artifact references reused from the cache."""
+        app = self.app
+        for pid, ex in executions.items():
+            state = ExecutionState(str(ex["state"]))
+            app.bus.emit(
+                event_for(state, started=ex.get("started_at") is not None),
+                run_id=run_id,
+                plugin_id=pid,
+                data={**ex, "cached": True},
+            )
+        for ref in artifacts:
+            app.bus.emit(
+                EventType.ARTIFACT_CREATED,
+                run_id=run_id,
+                plugin_id=ref.producer,
+                data={**ref.model_dump(mode="json"), "cached": True},
+            )
+
     def _execute(
         self,
         run_id: str,
@@ -235,6 +309,8 @@ class AnalysisController:
             config = plugin.load_config(app.root)
 
             def write_artifact(name: str, data: bytes, media_type: str) -> ArtifactRef:
+                if any(ref.name == name for ref in staged.get(plugin.id, [])):
+                    raise ValueError(f"{plugin.id}: artifact name {name!r} already written")
                 sha = app.storage.put_blob("artifacts", data)
                 ref = ArtifactRef(
                     sha256=sha, name=name, media_type=media_type, size=len(data), producer=plugin.id
@@ -245,7 +321,8 @@ class AnalysisController:
             ctx = PluginContext(
                 run_id=run_id,
                 plugin_id=plugin.id,
-                inputs=dict(inputs),
+                # Deep copy: a plugin must not be able to mutate another plugin's outputs.
+                inputs=copy.deepcopy(dict(inputs)),
                 config=config,
                 seed=app.settings.scheduling.random_seed,
                 write_artifact=write_artifact,
@@ -306,10 +383,17 @@ class AnalysisController:
                 "policy": {pid: d.enabled for pid, d in sorted(decisions.items())},
                 "pipeline": execution_plan.fingerprint(),
                 "plugins": self._plugin_identities(execution_plan),
+                # Raw file bytes, not parsed YAML: a malformed config must fail only its
+                # plugin at run time, exactly as it does with the cache disabled.
                 "plugin_configs": {
-                    pid: canonical_json(load_plugin_config(root, pid)).decode()
+                    pid: _file_digest(root / PLUGIN_CONFIG_DIR / f"{pid}.yaml")
                     for pid in execution_plan.order
                 },
                 "application": app.identity.application.version,
+                "python": list(sys.version_info[:2]),
             }
         )
+
+
+def _file_digest(path: Path) -> str | None:
+    return sha256_file(path) if path.is_file() else None

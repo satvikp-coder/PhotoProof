@@ -1,6 +1,6 @@
 """Analysis request and result contracts."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from photoproof.contracts.enums import AnalysisMode, RunStatus
 
@@ -23,6 +23,14 @@ class AnalysisRequest(BaseModel):
     reference: InputDescriptor | None = None
     profile: str | None = None  # None = settings.profiles.default
     use_cache: bool = True
+
+    @model_validator(mode="after")
+    def _roles(self) -> "AnalysisRequest":
+        if self.target.role != "target":
+            raise ValueError("target descriptor must have role 'target'")
+        if self.reference is not None and self.reference.role != "reference":
+            raise ValueError("reference descriptor must have role 'reference'")
+        return self
 
 
 class PluginSummary(BaseModel):

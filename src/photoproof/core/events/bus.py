@@ -11,6 +11,7 @@ import logging
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import ParamSpec, TypeVar
 
 from photoproof.contracts.events import Event, EventType
@@ -85,7 +86,10 @@ class EventBus:
         plugin_id: str | None = None,
         data: Mapping[str, object] | None = None,
     ) -> Event:
-        event = Event(type_, run_id=run_id, plugin_id=plugin_id, data=dict(data or {}))
+        # Read-only payload: one subscriber cannot alter what the next one sees.
+        event = Event(
+            type_, run_id=run_id, plugin_id=plugin_id, data=MappingProxyType(dict(data or {}))
+        )
         self.publish(event)
         return event
 

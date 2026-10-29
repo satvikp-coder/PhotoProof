@@ -18,7 +18,11 @@ from photoproof.core.config.loader import load_identity, load_profiles, load_set
 from photoproof.core.config.validator import AppIdentity, Profile, Settings
 from photoproof.core.database.store import Database
 from photoproof.core.events.bus import EventBus
-from photoproof.core.logging.setup import attach_event_logging, configure_logging
+from photoproof.core.logging.setup import (
+    attach_event_logging,
+    configure_logging,
+    shutdown_logging,
+)
 from photoproof.core.pipeline.discovery import BUILTIN_PLUGIN_PACKAGE, discover
 from photoproof.core.pipeline.registry import PluginRegistry
 from photoproof.core.storage.store import RuntimeStorage
@@ -74,6 +78,7 @@ class Application:
         if self._db is not None:
             self._db.close()
             self._db = None
+        shutdown_logging()
 
 
 def validate_package_layout(identity: AppIdentity) -> None:
@@ -136,6 +141,8 @@ def attach_persistence(bus: EventBus, db: Database) -> None:
                 profile=str(data["profile"]),
                 cache_key=_opt(data.get("cache_key")),
             )
+        elif event.type is EventType.RUN_STARTED and event.run_id:
+            db.set_run_status(event.run_id, "RUNNING")
         elif event.type in {EventType.RUN_COMPLETED, EventType.RUN_ABORTED} and event.run_id:
             db.finish_run(
                 event.run_id,

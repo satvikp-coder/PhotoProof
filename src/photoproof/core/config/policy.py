@@ -7,6 +7,7 @@ Precedence, highest first:
 3. Global plugin blacklist (``plugins.blacklist``) — overrides ``required=True``
 4. Global feature flags (``plugin.<id>``)
 5. Analysis-profile overrides, when ``plugins.allow_profile_overrides`` is true
+   (``required_plugins`` count as ``enable``)
 6. Plugin metadata default (``enabled_default``)
 """
 
@@ -89,7 +90,9 @@ def decide(
         decision = PolicyDecision(
             pid, flag, DecisionSource.FEATURE_FLAG, f"flag plugin.{pid}={flag}"
         )
-    elif settings.plugins.allow_profile_overrides and pid in profile.plugins.enable:
+    elif settings.plugins.allow_profile_overrides and (
+        pid in profile.plugins.enable or pid in profile.required_plugins
+    ):  # a profile that requires a plugin implicitly enables it
         decision = PolicyDecision(pid, True, DecisionSource.PROFILE, f"enabled by {profile.name}")
     elif settings.plugins.allow_profile_overrides and pid in profile.plugins.disable:
         decision = PolicyDecision(pid, False, DecisionSource.PROFILE, f"disabled by {profile.name}")

@@ -23,6 +23,53 @@ All notable changes to this project are documented here. The format follows
   now lists work waves for a four-person team.
 - Docs and security tooling moved to `requirements-tools.lock`. `requirements-dev.lock`
   now holds only tools that install on every supported Python.
+- Preflight runs quick integrity checks, so startup time no longer grows with stored
+  data. `doctor` and `repair` still re-hash every blob and cached artifact.
+- The launcher no longer runs a separate preflight before every command. Commands that
+  start the application run it themselves; `doctor`, `repair`, `config` and `plugins`
+  skip it, so they no longer apply SAFE repairs as a side effect.
+- Profile `required_plugins` now implicitly enable those plugins.
+- Plugin implementation digests cover every file in the plugin package (subpackages
+  and data files), not just top-level `*.py` files.
+- Runs move through a `RUNNING` status in the database.
+
+### Fixed
+
+- `python main.py repair --dry-run` performed a real repair: the launcher consumed
+  `--dry-run`. Launcher flags must now precede the command, and everything after it is
+  forwarded unchanged.
+- A run that failed unexpectedly (for example a critical subscriber error) stayed
+  `CREATED` forever. It is now marked `ABORTED`, and a new `database.stale_runs` check
+  reports runs that never finished.
+- A malformed plugin configuration file aborted the whole analysis when the cache was
+  enabled, but failed only that plugin with `--no-cache`. It now fails only its plugin
+  in both cases.
+- Plugins received shallow copies of their inputs and could mutate other plugins'
+  recorded outputs.
+- Cache hits recorded no plugin states or artifact references in the database.
+- Health-check findings were never written to the `health_checks` table, and
+  non-blocking warnings were never shown at startup.
+- An unreadable (non-SQLite) database file crashed the CLI with a traceback.
+- A failing `ROLLBACK` could mask the original database error.
+- `plugins --profile <unknown>` crashed with a `KeyError`.
+- Log file handlers were left open after shutdown (file locks on Windows).
+- Atomic writes now also fsync the directory, so a completed rename survives power loss.
+
+### Security
+
+- Booleans and feature flags in configuration must be real booleans (`"yes"` or `1`
+  are rejected).
+- Plugin IDs in the blacklist, denylist and profiles must be well-formed. The new
+  `plugins.policy` check reports entries naming unknown plugins, because a misspelled
+  blacklist entry blocks nothing.
+- `manifest` verifies the manifest file against the SHA-256 recorded at the end of the
+  run, and refuses modified manifests.
+- Event payloads are read-only, so one subscriber cannot alter what others see.
+- Plugin outputs are capped at 1 MiB, artifact names must be unique per plugin run,
+  and configuration files are capped at 1 MiB.
+- Analysis requests validate the roles of the target and reference descriptors.
+- A required plugin that needs a reference image now blocks a single-image profile at
+  planning time instead of aborting mid-run.
 
 ## [0.1.0] - 2026-10-29
 

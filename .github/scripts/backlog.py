@@ -19,6 +19,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ruamel.yaml import YAML
 
@@ -263,7 +264,7 @@ def render(item: Item, numbers: dict[str, int]) -> str:
     return f"{MARKER.format(item.id)}\n{body}\n{DEFINITION_OF_DONE}"
 
 
-def existing_issues(repo: str) -> dict[str, dict[str, object]]:
+def existing_issues(repo: str) -> dict[str, dict[str, Any]]:
     raw = gh(
         "issue",
         "list",
@@ -319,7 +320,7 @@ def publish(items: list[Item], repo: str) -> None:
             )
 
     found = existing_issues(repo)
-    numbers = {pid: int(issue["number"]) for pid, issue in found.items()}  # type: ignore[call-overload]
+    numbers = {pid: int(issue["number"]) for pid, issue in found.items()}
     # Pass 1: create missing issues (references resolved where possible).
     for item in items:
         if item.id in numbers:
@@ -363,7 +364,7 @@ def publish(items: list[Item], repo: str) -> None:
             )
             print(f"updated {item.id} -> #{numbers[item.id]}", flush=True)
             time.sleep(1)
-        current_labels = {label["name"] for label in found[item.id]["labels"]}  # type: ignore[union-attr]
+        current_labels = {label["name"] for label in found[item.id]["labels"]}
         if sync_labels(repo, numbers[item.id], item.labels, current_labels):
             print(f"relabelled {item.id}", flush=True)
     # Pass 3: native GitHub "blocked by" relationships mirror depends_on exactly.
@@ -474,7 +475,7 @@ def main() -> int:
         publish(items, args.repo)
     else:
         found = existing_issues(args.repo)
-        write_index(items, {k: int(v["number"]) for k, v in found.items()}, args.repo)  # type: ignore[call-overload]
+        write_index(items, {k: int(v["number"]) for k, v in found.items()}, args.repo)
     return 0
 
 

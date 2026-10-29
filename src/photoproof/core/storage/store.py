@@ -70,6 +70,12 @@ def atomic_write(path: Path, data: bytes, *, mode: int = 0o600) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+    if _POSIX:  # persist the rename itself across power loss
+        dir_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
 
 class RuntimeStorage:

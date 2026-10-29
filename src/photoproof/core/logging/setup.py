@@ -62,6 +62,15 @@ def configure_logging(settings: LoggingSettings, log_dir: Path | None) -> None:
         root.addHandler(file_handler)
 
 
+def shutdown_logging() -> None:
+    """Close the file handlers (releases file locks on Windows)."""
+    root = logging.getLogger("photoproof")
+    for handler in list(root.handlers):
+        if isinstance(handler, logging.FileHandler):
+            root.removeHandler(handler)
+            handler.close()
+
+
 def attach_event_logging(bus: EventBus, log_dir: Path | None) -> None:
     """Log every event; append audited events to the audit trail."""
     events_log = logging.getLogger("photoproof.events")
