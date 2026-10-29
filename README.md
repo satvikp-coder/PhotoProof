@@ -1,107 +1,94 @@
-# PhotoProof — Image Forgery Detection and Localization
+# PhotoProof
 
-PhotoProof is an educational digital-image-forensics project exploring how classical image-processing techniques can surface regions that deserve closer inspection. The initial prototype provides **Error Level Analysis (ELA)** and **noise-residual visualization**. Later milestones will add copy-move matching, annotated-dataset evaluation, and learned localization.
+[![CI](https://github.com/satvikp-coder/PhotoProof/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/satvikp-coder/PhotoProof/actions/workflows/ci.yml)
+[![Security](https://github.com/satvikp-coder/PhotoProof/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/satvikp-coder/PhotoProof/actions/workflows/security.yml)
+[![Docs](https://github.com/satvikp-coder/PhotoProof/actions/workflows/docs.yml/badge.svg?branch=main)](https://github.com/satvikp-coder/PhotoProof/actions/workflows/docs.yml)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-3776AB)
+[![License](https://img.shields.io/github/license/satvikp-coder/PhotoProof)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/satvikp-coder/PhotoProof?include_prereleases&sort=semver)](https://github.com/satvikp-coder/PhotoProof/releases)
 
-> **Important:** PhotoProof is a research/learning tool, not a definitive authenticity detector. ELA and noise residuals can highlight normal compression, texture, resizing, or camera-processing artifacts. A highlighted region is not proof of forgery, and a clean result does not prove an image is authentic.
+PhotoProof is a modular framework for **digital image forgery detection and
+localization**. Detectors are independent plugins that a dependency-aware pipeline
+plans, runs, records and caches reproducibly.
 
-## Current features
+> **Status: 0.1.0, foundation only.** The architecture is implemented and tested.
+> **No forensic detector, image decoder or web interface exists yet.** An analysis
+> reports `NO_DETECTORS` and never produces an authenticity verdict. The remaining
+> work is tracked as [GitHub issues](https://github.com/satvikp-coder/PhotoProof/issues)
+> and summarized in [docs/planning](docs/planning/index.md).
 
-- Upload a JPEG, PNG, WEBP, or BMP image in a local Streamlit interface.
-- View the original image beside an ELA visualization.
-- View a noise-residual visualization derived from a Gaussian-smoothed image.
-- Inspect image dimensions and download-ready visual outputs from the interface.
-- Reproducible, small unit tests for the image-processing functions.
+## What exists today
 
-## Planned roadmap
-
-- [ ] Add copy-move detection with feature matching and geometric verification.
-- [ ] Add a dataset loader for images and pixel-level manipulation masks.
-- [ ] Evaluate localization with precision, recall, F1, and Intersection over Union (IoU).
-- [ ] Add held-out test splits and false-positive testing on authentic images.
-- [ ] Compare classical methods with a segmentation model as an optional extension.
-- [ ] Add a structured, exportable analysis report and more comprehensive test coverage.
-
-See [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) for the project phases and evaluation plan.
+- **Stdlib-only launcher** (`main.py`): checks the interpreter, OS, architecture,
+  CPU, memory and disk; creates `.venv/`; installs **hash-pinned** dependencies only
+  when the lockfile fingerprint changes; runs preflight health checks.
+- **Validated configuration:** `app.toml` (identity, single version source),
+  `settings.yaml`, analysis profiles and per-plugin configs, all schema-checked with
+  strict unknown-key rejection.
+- **Plugin policy:** security denylist › authorized `--ignore-blacklist` › blacklist ›
+  feature flags › profile › metadata default, with every decision recorded.
+- **Plugin framework:** trusted discovery, metadata validation, lazy loading, DAG
+  planner (cycles, missing dependencies, priority inversions and contract errors are
+  rejected), deterministic `(priority, discovery order)` scheduling, typed state
+  machine, sequential executor with failure isolation, timeouts and abort/degrade
+  policies.
+- **Persistence and reproducibility:** SQLite with migrations, content-addressed
+  read-only artifacts, a run-level cache keyed on every result-affecting identity, and
+  deterministic execution manifests.
+- **Operations:** event bus, structured JSON logs, an audit trail, and `--doctor` /
+  `--repair` with SAFE, CONTROLLED and MANUAL repair classes.
+- **Automation:** CI on 3 OSes × 3 Python versions, security scanning (pip-audit,
+  Bandit, CodeQL, TruffleHog), strict docs builds, PR governance and tag-driven
+  releases.
 
 ## Quick start
 
-### 1. Create and activate a virtual environment
-
-**Windows PowerShell**
-
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements-dev.txt
-pip install -e .
-```
-
-**macOS/Linux**
+Requires an installed **Python 3.11–3.13**. The launcher does not install Python.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements-dev.txt
-pip install -e .
+git clone git@github.com:satvikp-coder/PhotoProof.git
+cd PhotoProof
+python3.12 main.py                   # set up the environment and show status
+python3.12 main.py --doctor          # diagnose; changes nothing
+python3.12 main.py plugins           # registered plugins and effective policy
+python3.12 main.py analyze photo.jpg # runs the pipeline (currently: NO_DETECTORS)
+python3.12 main.py manifest <run-id> # inspect the execution manifest
 ```
 
-Python 3.10 or newer is supported; Python 3.11 is a conservative choice for the initial setup.
+| Launcher flag | Purpose |
+|---|---|
+| `--version` | Print the version from `app.toml` |
+| `--doctor` | Environment and application diagnostics |
+| `--repair [--dry-run]` | Controlled repair (may rebuild `.venv/`) |
+| `--force-setup` | Reinstall locked dependencies |
+| `--ignore-blacklist` | Audited, local-only bypass of `plugins.blacklist` |
 
-### 2. Run the application
-
-On Windows, you can double-click `run_photoproof.bat` after setup. Or run:
-
-```bash
-streamlit run app.py
-```
-
-Streamlit will print a local URL, usually `http://localhost:8501`. The initial version processes the uploaded image in the app process; do not upload sensitive images to a hosted deployment.
-
-### 3. Run tests
-
-```bash
-pytest
-```
-
-## How the prototype works
-
-### Error Level Analysis (ELA)
-
-The input is converted to RGB, re-encoded as JPEG at a chosen quality, and compared pixel-by-pixel with that re-encoded copy. The difference is amplified for visualization. PNG and other non-JPEG inputs are also re-encoded to JPEG, so their ELA view is only a recompression experiment—not proof of editing.
-
-### Noise-residual visualization
-
-A Gaussian-smoothed image is subtracted from the input to expose high-frequency detail. The residual is amplified for display. Texture, sharpening, sensor noise, and resizing can all affect this map.
-
-Neither method independently establishes that an image has been manipulated. Findings should be corroborated with additional signals and appropriate ground-truth evaluation.
-
-## Repository structure
+## Repository layout
 
 ```text
-PhotoProof/
-├── app.py
-├── src/photoproof/forensics.py
-├── tests/test_forensics.py
-├── docs/PROJECT_PLAN.md
-├── data/README.md
-├── requirements.txt
-├── requirements-dev.txt
-└── pyproject.toml
+main.py            launcher            app.toml        identity and version
+settings.yaml      global settings     configs/        profiles and plugin parameters
+src/photoproof/    application         tests/          unit … e2e, mock plugins
+docs/              MkDocs site         WebKit/         web UI (planned)
+ARE/               runtime data (generated, Git-ignored)
 ```
 
-## Dataset and research notes
+## Documentation
 
-Start with a public image-forgery dataset that provides manipulation masks, such as [DEFACTO](https://defactodataset.github.io/), and review its terms before use. Keep original source images and their masks paired, prevent source-image leakage between training and test splits, and include authentic images to measure false positives. Do not commit large datasets or private photographs to Git; keep them outside the repository and document your local data paths.
+The docs are built with MkDocs Material (`mkdocs serve`). Read the Docs hosting is
+configured (`.readthedocs.yaml`) but not yet connected. Key pages:
 
-## Responsible use
+- [Architecture](docs/architecture/index.md) and [execution lifecycle](docs/architecture/lifecycle.md)
+- [Plugin development](docs/plugins/index.md)
+- [Configuration](docs/configuration/index.md) and [settings reference](docs/configuration/settings.md)
+- [Operations](docs/operations/index.md) and [security model](docs/security/index.md)
 
-- Use only images you have permission to analyse.
-- Do not present visual anomalies as conclusive evidence of fraud.
-- Report the methods, thresholds, dataset split, and limitations alongside measurements.
-- Do not use PhotoProof as the sole basis for legal, financial, or other high-stakes decisions.
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md). In short: issue → branch → tests → docs →
+changelog → version bump → PR → review → squash merge. Report vulnerabilities
+privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
-This project is released under the MIT License. See [`LICENSE`](LICENSE).
+[MIT](LICENSE)

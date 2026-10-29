@@ -1,0 +1,87 @@
+site_name: PhotoProof
+site_description: Modular digital image forgery detection and localization framework
+repo_url: https://github.com/satvikp-coder/PhotoProof
+repo_name: satvikp-coder/PhotoProof
+edit_uri: edit/main/docs/
+copyright: PhotoProof contributors · MIT License
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  font: false  # system fonts: no external requests
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+  links:
+    not_found: warn
+    anchors: warn
+    absolute_links: info
+    unrecognized_links: warn
+
+nav:
+  - Home: index.md
+  - Architecture:
+      - architecture/index.md
+      - Execution lifecycle: architecture/lifecycle.md
+      - Repository structure: architecture/repository.md
+      - Architectural decisions: architecture/decisions.md
+  - Plugins:
+      - plugins/index.md
+  - Configuration:
+      - configuration/index.md
+      - app.toml: configuration/app-toml.md
+      - settings.yaml: configuration/settings.md
+      - Flags, blacklist and profiles: configuration/policy.md
+  - Operations:
+      - operations/index.md
+      - Health checks and repair: operations/health.md
+      - Runtime storage, cache, logs, manifests: operations/runtime.md
+      - Troubleshooting: operations/troubleshooting.md
+  - Security:
+      - security/index.md
+  - Development:
+      - development/index.md
+      - Versioning and releases: development/releases.md
+      - CI/CD and repository settings: development/ci.md
+  - Testing:
+      - testing/index.md
