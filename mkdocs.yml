@@ -31,6 +31,10 @@ theme:
     - search.highlight
     - content.code.copy
 
+# Issue sources are published to GitHub Issues; the generated backlog page indexes them.
+exclude_docs: |
+  planning/backlog/
+
 plugins:
   - search
 
@@ -85,3 +89,6 @@ nav:
       - CI/CD and repository settings: development/ci.md
   - Testing:
       - testing/index.md
+  - Planning:
+      - Roadmap: planning/index.md
+      - Backlog: planning/backlog.md

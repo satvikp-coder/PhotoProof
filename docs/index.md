@@ -8,7 +8,8 @@ localization**, built by a four-person university team.
     caching, health checks and automation are implemented and tested.
     **No forensic detector is installed yet.** An analysis today reports
     `NO_DETECTORS` and never produces an authenticity verdict. Every detector,
-    image decoder and user interface is tracked as [GitHub issues](https://github.com/satvikp-coder/PhotoProof/issues).
+    image decoder and user interface is tracked as [GitHub issues](https://github.com/satvikp-coder/PhotoProof/issues) and
+    summarized in the [roadmap](planning/index.md).
 
 ## What works today
 
