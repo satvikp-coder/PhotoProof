@@ -13,7 +13,7 @@ generated from `docs/planning/backlog/*.md` and indexed on the [backlog page](ba
 | M3 · Reference Image Comparison | Comparison requests, registration, SSIM difference maps, change masks, reporting | 5 |
 | M4 · Localization and Evidence Fusion | Score normalization, rule-based fusion, inconclusive logic, segmentation, heatmaps, calibration | 6 |
 | M5 · Web Application and Reporting | WebKit shell and pages, structured and PDF reports, manifest and diagnostics tooling | 12 |
-| M6 · Security, Evaluation and Performance | Jobs and workers, process isolation, retention and privacy, fuzzing, backups, datasets, benchmarks, team process | 22 |
+| M6 · Security, Evaluation and Performance | Jobs and workers, process isolation, retention and privacy, fuzzing, backups, datasets, benchmarks, team process, dependency automation, tamper evidence, concurrency | 28 |
 | M7 · Research Extensions | Optional TruFor integration and dense block matching | 2 |
 
 Milestones are delivery targets, not dates. Each issue lists two kinds of dependency:
@@ -50,7 +50,7 @@ flowchart LR
 
 ## Work waves for a four-person team
 
-**Wave 1: 21 issues that can start today.**
+**Wave 1: 26 issues that can start today.**
 
 | Area | Issues |
 |---|---|
@@ -58,7 +58,8 @@ flowchart LR
 | Enablers (small, unlock wave 2) | [#72](https://github.com/satvikp-coder/PhotoProof/issues/72) synthetic image toolkit, [#73](https://github.com/satvikp-coder/PhotoProof/issues/73) isolation helper, [#74](https://github.com/satvikp-coder/PhotoProof/issues/74) plugin scaffold |
 | Ingestion | [#1](https://github.com/satvikp-coder/PhotoProof/issues/1), [#2](https://github.com/satvikp-coder/PhotoProof/issues/2), [#3](https://github.com/satvikp-coder/PhotoProof/issues/3), [#4](https://github.com/satvikp-coder/PhotoProof/issues/4), [#5](https://github.com/satvikp-coder/PhotoProof/issues/5) (design) |
 | Web and reporting | [#38](https://github.com/satvikp-coder/PhotoProof/issues/38) WebKit shell, [#46](https://github.com/satvikp-coder/PhotoProof/issues/46) structured reports, [#48](https://github.com/satvikp-coder/PhotoProof/issues/48) and [#49](https://github.com/satvikp-coder/PhotoProof/issues/49) manifest and diagnostic tooling |
-| Operations | [#50](https://github.com/satvikp-coder/PhotoProof/issues/50) job queue, [#55](https://github.com/satvikp-coder/PhotoProof/issues/55) retention, [#62](https://github.com/satvikp-coder/PhotoProof/issues/62) backups |
+| Operations | [#50](https://github.com/satvikp-coder/PhotoProof/issues/50) job queue, [#55](https://github.com/satvikp-coder/PhotoProof/issues/55) retention, [#62](https://github.com/satvikp-coder/PhotoProof/issues/62) backups, [#82](https://github.com/satvikp-coder/PhotoProof/issues/82) concurrency, [#83](https://github.com/satvikp-coder/PhotoProof/issues/83) venv sync |
+| Hardening (from the code review) | [#78](https://github.com/satvikp-coder/PhotoProof/issues/78) dependency automation, [#80](https://github.com/satvikp-coder/PhotoProof/issues/80) Windows ACLs, [#81](https://github.com/satvikp-coder/PhotoProof/issues/81) tamper-evident audit trail, [#79](https://github.com/satvikp-coder/PhotoProof/issues/79) installed-wheel decision (design) |
 | Evaluation | [#64](https://github.com/satvikp-coder/PhotoProof/issues/64), [#65](https://github.com/satvikp-coder/PhotoProof/issues/65) datasets, [#66](https://github.com/satvikp-coder/PhotoProof/issues/66) metrics harness |
 
 **Wave 2: 27 issues unlocked by wave 1**, mostly by the small enablers #72 (most

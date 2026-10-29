@@ -39,6 +39,14 @@ explicitly, see PP-056).
 - Reference counting: an artifact is deletable only if no retained manifest references it.
 - Health check `storage.quota`: WARNING at `warn_at_percent`, ERROR at 100%.
 - Every deletion is audited (`HOUSEKEEPING_APPLIED` event).
+- Per-run artifact quota (`quotas.max_run_artifacts_mb`): a plugin that exceeds it fails
+  with `resource_limit`, so a misbehaving plugin cannot fill the disk.
+- Log rotation already exists for `photoproof.log`. `audit.jsonl` gets size-based
+  rotation into numbered files that are never deleted automatically, preserving the
+  hash chain once PP-081 lands.
+- Blobs are written read-only (0400), so deletion must explicitly restore write
+  permission on the parent directory entry only. Never `chmod` evidence blobs that are
+  being kept.
 
 ## Technical Implementation
 

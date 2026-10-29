@@ -18,6 +18,8 @@ the request when:
 **2. Policy application.** Disabled and unavailable plugins are excluded. The plan is
 **blocked** (status `BLOCKED`, nothing runs) when:
 
+- a required plugin needs `input.reference` but the profile is single-image;
+
 - a required plugin (`required: true` or listed in the profile's `required_plugins`)
   is disabled, blacklisted, forbidden or unavailable — the blacklist wins over
   `required`, but the run is never presented as complete;
@@ -74,9 +76,11 @@ Illegal transitions raise `InvalidTransitionError`. Terminal states are final.
 
 - Every plugin call is isolated: exceptions become `FAILED` with category, exception
   type, traceback (truncated), start/end timestamps and the status of each dependency.
-- Outputs must match the declared `outputs` exactly and be JSON-serializable (an
-  `ArtifactRef` is allowed and normalized to `{"artifact": {...}}`); otherwise
-  `FAILED` / `invalid_output`.
+- Outputs must match the declared `outputs` exactly, be JSON-serializable (an
+  `ArtifactRef` is allowed and normalized to `{"artifact": {...}}`) and total at most
+  1 MiB; otherwise `FAILED` / `invalid_output`. Bulk data belongs in artifacts.
+- Plugins receive a deep copy of their inputs, so they cannot alter another plugin's
+  recorded outputs. Artifact names must be unique per plugin and run.
 - Timeouts (`timeout_seconds` or `scheduling.default_plugin_timeout_seconds`) mark the
   plugin `TIMEOUT`. **Limitation:** the in-process thread cannot be killed and keeps
   running in the background; its late artifacts are never attached to the run.
@@ -87,6 +91,13 @@ Illegal transitions raise `InvalidTransitionError`. Terminal states are final.
   (`aborted_by_policy`); `degrade` continues and the run ends `INCOMPLETE`.
 - A failing **critical** event subscriber (state persistence, audit trail) raises
   `EventDeliveryError` — it is never treated as a plugin failure.
+- Any unexpected exception after a run is created (including the above) marks the run
+  `ABORTED` on a best-effort basis before re-raising, so runs are not left unfinished.
+  Runs that still never finished (for example after a hard kill) are reported by the
+  `database.stale_runs` health check.
+
+In the database a run moves `CREATED → RUNNING → terminal status`. A cache hit records
+the reused plugin states and artifact references for the new run (marked `cached`).
 
 ## Run status
 

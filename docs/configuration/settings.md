@@ -1,6 +1,8 @@
 # settings.yaml reference
 
-Every key is required unless noted. Unknown keys are rejected.
+Every key is required unless noted. Unknown keys are rejected. Booleans (including
+feature flags) must be real YAML booleans: `true`/`false`, not `"yes"`, `1` or
+`"false"`. Configuration files larger than 1 MiB are rejected.
 
 !!! note "Reserved sections"
     `formats`, `services` and `ui` are validated now but consumed by planned

@@ -39,8 +39,14 @@ Exit codes: `0` ok · `2` usage · `3` unsupported interpreter/OS/architecture/h
 9. On macOS, clear the `UF_HIDDEN` flag on `.pth` files (Python ≥ 3.13 ignores hidden
    `.pth` files, which would silently break the editable install).
 10. Verify the package **imports** at the `app.toml` version.
-11. Run `photoproof preflight`: health checks, SAFE auto-repair (creates `ARE/`), re-check.
-12. Start the requested command (`status` by default).
+11. Start the requested command (`status` by default). Commands that start the
+    application (`status`, `analyze`, `manifest`, `preflight`) first run preflight:
+    quick health checks, SAFE auto-repair (creates `ARE/`), re-check. `doctor`,
+    `repair`, `config` and `plugins` deliberately skip preflight and its repairs.
+
+Launcher flags must come **before** the command. Everything from the command onwards
+goes to the CLI unchanged: `python main.py repair --dry-run` is a dry run.
 
 Hard requirements fail; recommended resources warn; the GPU is informational.
+`--doctor` also lists packages installed in `.venv` that no lockfile pins.
 Set `PHOTOPROOF_LAUNCHER_VERBOSE=1` to print the launcher report on every start.

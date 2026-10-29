@@ -87,8 +87,10 @@ def run(ctx: PluginContext) -> dict[str, object]:
 ```
 
 Plugins get no filesystem paths. Binary output goes through `write_artifact`, which
-stores it content-addressed and read-only under `ARE/artifacts/`. Return values must
-match `outputs` exactly and be JSON-serializable or `ArtifactRef`s.
+stores it content-addressed and read-only under `ARE/artifacts/`; artifact names must
+be unique within one plugin run. Return values must match `outputs` exactly, be
+JSON-serializable or `ArtifactRef`s, and total at most 1 MiB. `ctx.inputs` is a private
+deep copy.
 
 To decline an input, raise `photoproof.contracts.exceptions.NotApplicableError`.
 Raise any other exception to fail; the framework records it. Do not catch and hide
@@ -115,7 +117,8 @@ dependency semantics, the state machine and failure policies. In short:
 
 - Bump the plugin's `version` when its outputs or behaviour change (PATCH for fixes,
   MINOR for compatible additions, MAJOR for changed output semantics).
-- The implementation digest (SHA-256 of the package's `*.py` files) is recorded in
-  manifests and cache keys, so any code change invalidates cached results.
+- The implementation digest (SHA-256 over every file in the plugin package, including
+  subpackages and data files, excluding bytecode) is recorded in manifests and cache
+  keys, so any change to what the plugin ships invalidates cached results.
 - A plugin is compatible with host API `X.Z.*` if it was built for `X.Y.*` with
   `Y <= Z`. During `0.x` the minor version must match exactly.

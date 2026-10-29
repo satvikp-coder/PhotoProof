@@ -10,7 +10,9 @@
 | Runtime data | Path traversal | `safe_join` on every runtime path | — |
 | Configuration | Code execution through config | Safe YAML loader, strict schemas, no dynamic imports from config | — |
 | Plugin policy | Unauthorized bypass of the blacklist | Local-CLI-only, settings-gated, forbidden in production, audited | WebKit authentication |
-| Supply chain | Tampered dependencies | Hash-pinned lockfiles, `--only-binary`, pip-audit, Dependabot, pinned action SHAs | — |
+| Supply chain | Tampered dependencies | Hash-pinned lockfiles, `--only-binary`, pip-audit, Dependabot, pinned action SHAs; `doctor` reports unlocked packages | Automated relocking (#78), exact venv sync (#83) |
+| Results | Edited manifests or audit entries | Manifests verified against the DB hash | Hash-chained audit trail (#81) |
+| Runtime data on Windows | Other local users reading evidence | — (POSIX modes only) | Owner-only ACLs (#80) |
 | Users' privacy | Retained uploads and metadata | Runtime data is local and Git-ignored | Retention controls, metadata-free previews |
 
 ## Trust boundaries and assumptions

@@ -11,11 +11,16 @@
 | 2 | Authorized `--ignore-blacklist` | Skips rule 3 only. |
 | 3 | `plugins.blacklist` | Disabled. Overrides flags, profiles and `required: true`. |
 | 4 | Feature flag `plugin.<id>` | Explicit enable/disable. |
-| 5 | Profile `plugins.enable` / `plugins.disable` | Only if `plugins.allow_profile_overrides`. |
+| 5 | Profile `plugins.enable` / `plugins.disable` (`required_plugins` count as enable) | Only if `plugins.allow_profile_overrides`. |
 | 6 | Metadata `enabled_default` | Fallback. |
 
 A bypass removes the blacklist; it does not force-enable a plugin that a flag or the
 default disables.
+
+Plugin IDs in the blacklist, the denylist and profiles must be well-formed, and
+entries that name no installed plugin are reported by the `plugins.policy` health
+check, because a misspelled blacklist entry would block nothing. A profile may not both
+require and disable the same plugin.
 
 !!! warning "Disabled required plugins block the run"
     If a required plugin is disabled at any level, the run is `BLOCKED` with a

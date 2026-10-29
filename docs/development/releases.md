@@ -33,4 +33,7 @@ MAJOR. Plugin versions are independent.
    refuses duplicate releases, runs the tests, builds the sdist and wheel, and creates
    the GitHub release with the changelog section as notes.
 
-Nothing is published to PyPI.
+Nothing is published to PyPI. The attached wheel and sdist are build-verification
+artifacts: PhotoProof currently runs only from a repository checkout (bootstrap needs
+`app.toml`, the configuration directories and the `src/` layout). Running from an
+installed wheel is tracked as a backlog issue.

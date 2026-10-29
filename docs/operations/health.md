@@ -16,8 +16,20 @@ checks **never** change anything; repairs are separate, classified actions.
 | `storage.integrity` | Blobs in `objects/` (evidence, critical) or `artifacts/` (error) whose hash mismatches | — | MANUAL, never modified |
 | `application.version` | Installed package version ≠ `app.toml` | error | CONTROLLED: `python main.py --repair` |
 | `plugins.graph` | Invalid plugin graph (error) or unavailable plugins (warning) | — | MANUAL |
+| `plugins.policy` | Blacklist, denylist or profile `required_plugins` entries naming unknown plugins (likely typos — a misspelled blacklist entry blocks nothing) | warning | MANUAL |
+| `database.stale_runs` | Runs older than one hour that never finished (killed process) | warning | CONTROLLED: mark them `ABORTED` |
 
-A check that crashes is itself reported as a critical finding.
+**Quick and deep mode.** Preflight (every launch) runs the checks in quick mode:
+`storage.integrity` only verifies that blobs sit at well-formed content addresses and
+`cache.integrity` only parses entries, so startup time does not grow with stored data.
+`doctor` and `repair` run deep mode and re-hash every blob and cached artifact. The
+cache always verifies artifacts before reusing them, whatever the mode.
+
+Non-blocking findings are printed as warnings at startup and recorded in the audit
+trail and the `health_checks` table.
+
+A check that crashes is itself reported as a critical finding. Checks never create or
+change anything (they do not even create a missing database file).
 
 ## Repair categories
 

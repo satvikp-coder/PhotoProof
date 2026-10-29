@@ -29,6 +29,11 @@ input and reference hashes, mode, profile, effective settings, feature flags, po
 decisions, plugin versions, implementation digests, plugin configs, declared
 distribution versions, the pipeline fingerprint and the application version.
 
+A cache hit records the reused plugin states and artifact references for the new run,
+so the database is complete for cached runs too. Plugin configuration enters the key
+as the SHA-256 of the raw file, so a malformed file fails only its plugin (exactly as
+with the cache disabled).
+
 Bypass with `analyze --no-cache`, the `cache.run_level` flag or `cache.enabled: false`.
 Failed, incomplete, aborted and blocked runs are never cached.
 
@@ -54,6 +59,9 @@ with hashes, outputs and software versions.
 `computational_fingerprint` hashes only reproducible state (no run ID, timestamps,
 messages, tracebacks or software patch levels), so identical computations share a
 fingerprint.
+
+`manifest` verifies the file against the SHA-256 recorded in the database when the run
+finished, and refuses to display a manifest that was modified afterwards.
 
 ```bash
 python main.py manifest <run_id>         # summary
