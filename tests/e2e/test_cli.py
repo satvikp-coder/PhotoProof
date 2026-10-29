@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from helpers import REPO
+from helpers import APP_VERSION, REPO
 
 
 def _cli(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -26,7 +26,7 @@ def test_launcher_version() -> None:
         check=False,
         timeout=60,
     )
-    assert result.returncode == 0 and result.stdout.strip() == "PhotoProof 0.1.0"
+    assert result.returncode == 0 and result.stdout.strip() == f"PhotoProof {APP_VERSION}"
 
 
 def test_cli_status_doctor_analyze_manifest(app_root: Path, target_file: Path) -> None:

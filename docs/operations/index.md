@@ -1,7 +1,7 @@
 # Launcher and environment setup
 
 `main.py` uses only the standard library, so it can run before any dependency exists.
-It **requires an already installed Python 3.11–3.13**; it never installs Python, never
+It **requires an already installed Python 3.11–3.15**; it never installs Python, never
 uses administrator rights and only downloads the hash-verified packages listed in
 `requirements.lock`.
 

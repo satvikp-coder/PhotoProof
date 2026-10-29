@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from helpers import update_settings
+from helpers import APP_VERSION, update_settings
 
 from photoproof.cli import main
 
@@ -16,7 +16,7 @@ def _run(root: Path, capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[in
 
 
 def test_commands(app_root: Path, target_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert _run(app_root, capsys, "version")[1].strip() == "0.1.0"
+    assert _run(app_root, capsys, "version")[1].strip() == APP_VERSION
     code, out, _ = _run(app_root, capsys, "doctor")
     assert code == 6 and "runtime.directories" in out  # before first preflight
     code, out, _ = _run(app_root, capsys, "repair", "--dry-run")

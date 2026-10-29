@@ -15,7 +15,7 @@ Keep it accurate. If a rule here no longer matches the repository, open a
 
 | Requirement | Notes |
 |---|---|
-| Python **3.11, 3.12 or 3.13** | Declared in `app.toml` (`[python]`). The launcher refuses other versions. |
+| Python **3.11 – 3.15** | Declared in `app.toml` (`[python]`). The launcher refuses other versions. |
 | Git ≥ 2.30 and Git LFS | LFS is used for binary files under `media/`. Run `git lfs install` once. |
 | Linux, macOS or Windows | x86_64 or arm64. See `app.toml` `[platform]`. |
 | ~1 GB free disk | Virtual environment plus runtime data. |
@@ -51,8 +51,12 @@ Useful launcher modes:
 
 ### 1.3 Development dependencies
 
-Development tools (pytest, Ruff, mypy, MkDocs, Bandit, pip-audit) live in a second
-hash-pinned lockfile:
+Development tools live in two more hash-pinned lockfiles:
+
+- `requirements-dev.lock`: pytest, Ruff, mypy, build. Installs on every supported Python.
+- `requirements-tools.lock`: the dev tools plus MkDocs, Bandit and pip-audit. These
+  depend on PyYAML and watchdog, which do not yet publish wheels for the newest
+  Pythons, so use Python 3.11–3.13 for docs and security tooling (CI uses 3.12).
 
 ```bash
 # macOS / Linux
@@ -119,9 +123,11 @@ uv pip compile pyproject.toml --group build --universal --python-version 3.11 \
     --generate-hashes -o requirements.lock
 uv pip compile pyproject.toml --group build --group dev --universal --python-version 3.11 \
     --generate-hashes -o requirements-dev.lock
+uv pip compile pyproject.toml --group build --group dev --group docs --group security \
+    --universal --python-version 3.11 --generate-hashes -o requirements-tools.lock
 ```
 
-Both files are universal (one file for every supported OS and Python version) and
+All three files are universal (one file for every supported OS and Python version) and
 every requirement carries `--hash` values. Never hand-edit them.
 
 ---
@@ -267,7 +273,10 @@ ISSUE → BRANCH → IMPLEMENTATION → TESTS → DOCUMENTATION → CHANGELOG �
 ```
 
 1. **Find or open an issue.** Use the issue templates. Large or unclear work gets
-   `status:needs-design` until the approach is agreed.
+   `status:needs-design` until the approach is agreed. Pick `status:ready` issues.
+   *Blocked by* means you cannot start yet. *Integrates with* means you can start now
+   against the documented contract, and finish the integration when the other issue
+   lands (detectors: `algorithm.py` PR first, `processor.py` wiring PR second).
 2. **Discuss scope** in the issue when the acceptance criteria are ambiguous.
 3. **Assign yourself** (or ask a maintainer) and set `status:in-progress`.
 4. **Branch** using the naming rules above.

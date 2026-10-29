@@ -2,7 +2,7 @@
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `Python 3.x is not supported` (exit 3) | Interpreter outside 3.11–3.13 | Run with a supported interpreter: `python3.12 main.py` |
+| `Python 3.x is not supported` (exit 3) | Interpreter outside 3.11–3.15 | Run with a supported interpreter: `python3.12 main.py` |
 | `.venv uses Python …, which is unsupported` | venv built with another interpreter | `python3.12 main.py --repair` |
 | `dependency installation failed` (exit 5) | Network, or no wheel for your platform | Check connectivity. `--only-binary :all:` is deliberate: report the platform in an issue rather than building from source. |
 | `photoproof is not importable` | Broken editable install; on macOS possibly hidden `.pth` files | `python main.py --force-setup` (the launcher clears hidden flags) |

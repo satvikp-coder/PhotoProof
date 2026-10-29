@@ -1,6 +1,7 @@
 """Read ``app.toml``, ``settings.yaml``, profiles and plugin configs into validated models.
 
-YAML is parsed with a safe loader that also rejects duplicate keys. No configuration
+YAML is parsed with ruamel.yaml's safe, pure-Python loader, which also rejects
+duplicate keys. No configuration
 value is ever evaluated, imported or executed.
 """
 
@@ -8,10 +9,11 @@ import os
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TypeVar
 
-import yaml
 from pydantic import BaseModel, ValidationError
+from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
 
 from photoproof.contracts.exceptions import ConfigurationError, IdentityError
 from photoproof.core.config.validator import AppIdentity, Profile, Settings
@@ -35,23 +37,10 @@ ENV_OVERRIDES: Mapping[str, tuple[str, str]] = {
 LAUNCHER_ENV = frozenset({"PHOTOPROOF_LAUNCHER_VERBOSE"})  # read by main.py, ignored here
 
 
-class _UniqueKeyLoader(yaml.SafeLoader):
-    pass
-
-
-def _construct_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode) -> dict[Any, Any]:
-    mapping: dict[Any, Any] = {}
-    for key_node, value_node in node.value:
-        key = loader.construct_object(key_node)
-        if key in mapping:
-            raise yaml.constructor.ConstructorError(
-                None, None, f"duplicate key {key!r}", key_node.start_mark
-            )
-        mapping[key] = loader.construct_object(value_node, deep=True)
-    return mapping
-
-
-_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping)
+def _yaml() -> YAML:
+    # "safe" never constructs arbitrary objects; "pure" avoids the optional C extension so
+    # behaviour is identical on every Python version. Duplicate keys raise by default.
+    return YAML(typ="safe", pure=True)
 
 
 def _format_validation(source: Path, error: ValidationError) -> str:
@@ -75,9 +64,8 @@ def read_yaml(path: Path) -> object:
     except FileNotFoundError as error:
         raise ConfigurationError(f"{path}: file not found") from error
     try:
-        # _UniqueKeyLoader subclasses SafeLoader, so this is a safe load.
-        return yaml.load(text, Loader=_UniqueKeyLoader)  # noqa: S506  # nosec B506
-    except yaml.YAMLError as error:
+        return _yaml().load(text)
+    except YAMLError as error:
         raise ConfigurationError(f"{path}: malformed YAML: {error}") from error
 
 

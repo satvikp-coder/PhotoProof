@@ -1,6 +1,7 @@
 """main.py tests. Everything runs in temporary directories with subprocess mocked."""
 
 import importlib.util
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -8,7 +9,7 @@ from types import ModuleType
 from typing import Any
 
 import pytest
-from helpers import REPO
+from helpers import APP_VERSION, REPO
 
 _spec = importlib.util.spec_from_file_location("photoproof_launcher", REPO / "main.py")
 assert _spec and _spec.loader
@@ -34,7 +35,7 @@ def identity(root: Path) -> dict[str, Any]:
 
 def test_version(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert launcher.main(["--version"], root=root) == 0
-    assert capsys.readouterr().out.strip() == "PhotoProof 0.1.0"
+    assert capsys.readouterr().out.strip() == f"PhotoProof {APP_VERSION}"
 
 
 def test_identity_mismatch(root: Path) -> None:
@@ -51,7 +52,7 @@ def test_missing_package_directory(root: Path) -> None:
         launcher.load_identity(root)
 
 
-@pytest.mark.parametrize("version", [(3, 10), (3, 14), (4, 0)])
+@pytest.mark.parametrize("version", [(3, 10), (3, 16), (4, 0)])
 def test_wrong_interpreter(identity: dict[str, Any], version: tuple[int, int]) -> None:
     with pytest.raises(launcher.LauncherError) as error:
         launcher.check_python(identity, version)
@@ -105,10 +106,10 @@ def test_unhashed_lockfile(root: Path) -> None:
 
 def test_fingerprint_detects_drift(root: Path) -> None:
     lock = launcher.verify_lockfile(root)
-    base = launcher.environment_fingerprint(root, lock, "3.12", "0.1.0")
-    assert launcher.environment_fingerprint(root, lock, "3.13", "0.1.0") != base
+    base = launcher.environment_fingerprint(root, lock, "3.12", APP_VERSION)
+    assert launcher.environment_fingerprint(root, lock, "3.13", APP_VERSION) != base
     assert launcher.environment_fingerprint(root, lock, "3.12", "0.1.1") != base
-    assert launcher.environment_fingerprint(root, "x" * 64, "3.12", "0.1.0") != base
+    assert launcher.environment_fingerprint(root, "x" * 64, "3.12", APP_VERSION) != base
 
 
 class FakeEnv:
@@ -121,7 +122,7 @@ class FakeEnv:
         monkeypatch.setattr(launcher, "venv_version", lambda venv: self.version)
         monkeypatch.setattr(launcher, "create_venv", self._create)
         monkeypatch.setattr(launcher, "_pip", lambda python, *args: self.pip_calls.append(args))
-        monkeypatch.setattr(launcher, "installed_version", lambda python, package: "0.1.0")
+        monkeypatch.setattr(launcher, "installed_version", lambda python, package: APP_VERSION)
 
     def _create(self, venv: Path) -> None:
         venv.mkdir()
@@ -183,7 +184,9 @@ def test_package_version_mismatch(
 ) -> None:
     FakeEnv(monkeypatch, None)
     monkeypatch.setattr(launcher, "installed_version", lambda python, package: "0.0.9")
-    with pytest.raises(launcher.LauncherError, match=r"not importable at version 0\.1\.0"):
+    with pytest.raises(
+        launcher.LauncherError, match=rf"not importable at version {re.escape(APP_VERSION)}"
+    ):
         launcher.ensure_environment(
             root, identity, force=False, rebuild=False, report=launcher.Report()
         )

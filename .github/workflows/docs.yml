@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install locked documentation tooling
-        run: "python -m pip install --require-hashes --only-binary :all: -r requirements-dev.lock"
+        run: "python -m pip install --require-hashes --only-binary :all: -r requirements-tools.lock"
       - name: Validate backlog issue sources
         run: python .github/scripts/backlog.py check
       - name: Build (warnings, broken links and nav problems fail the build)

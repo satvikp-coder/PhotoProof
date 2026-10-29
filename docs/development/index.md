@@ -9,7 +9,8 @@ This page is the quick reference.
 
 ```bash
 python3.12 main.py                                         # runtime environment
-.venv/bin/python -m pip install --require-hashes -r requirements-dev.lock
+.venv/bin/python -m pip install --require-hashes -r requirements-dev.lock    # any Python
+# or, for docs and security tools (Python 3.11–3.13): -r requirements-tools.lock
 .venv/bin/python -m pip install --no-deps --no-build-isolation -e .
 source .venv/bin/activate
 ```

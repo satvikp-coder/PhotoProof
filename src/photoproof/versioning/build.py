@@ -33,7 +33,7 @@ def git_commit(root: Path) -> str | None:
 
 
 def build_info(
-    root: Path, distributions: tuple[str, ...] = ("pydantic", "PyYAML")
+    root: Path, distributions: tuple[str, ...] = ("pydantic", "ruamel.yaml")
 ) -> dict[str, object]:
     return {
         "python": platform.python_version(),

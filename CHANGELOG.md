@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Support for Python 3.14 and 3.15 in the launcher, packaging and the CI matrix
+  (3 OSes × Python 3.11–3.15). The launcher smoke test covers the oldest and newest.
+
+### Changed
+
+- Configuration parsing uses ruamel.yaml's safe, pure-Python loader instead of PyYAML,
+  because PyYAML has no wheels for Python 3.15 and the launcher installs wheels only.
+  Duplicate keys and Python tags are still rejected.
+- The backlog separates hard dependencies (*blocked by*) from integration gates
+  (*integrates with*), so 21 issues can start immediately instead of 9. Six enabling
+  issues were added (synthetic test toolkit, shared isolation helper, copy-move
+  contracts, plugin scaffold, team ownership, work-allocation guide), and the roadmap
+  now lists work waves for a four-person team.
+- Docs and security tooling moved to `requirements-tools.lock`. `requirements-dev.lock`
+  now holds only tools that install on every supported Python.
+
 ## [0.1.0] - 2026-10-29
 
 ### Added

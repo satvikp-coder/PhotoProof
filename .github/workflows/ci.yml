@@ -52,12 +52,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.11", "3.12", "3.13"]
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
+          allow-prereleases: true
       - name: Install locked development dependencies
         run: |
           python -m pip install --require-hashes --only-binary :all: -r requirements-dev.lock
@@ -98,17 +99,19 @@ jobs:
           retention-days: 14
 
   launcher:
-    name: Launcher smoke · ${{ matrix.os }}
+    name: Launcher smoke · ${{ matrix.os }} · py${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.15"]  # oldest and newest supported
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
+          allow-prereleases: true
       - name: Version
         run: python main.py --version
       - name: First launch (creates .venv from requirements.lock)
@@ -153,7 +156,7 @@ jobs:
             echo "| Job | Result |"
             echo "|---|---|"
             echo "| Quality (lint, format, types, config) | $(icon "$QUALITY") $QUALITY |"
-            echo "| Tests (3 OS × 3 Python) | $(icon "$TEST") $TEST |"
+            echo "| Tests (3 OS × 5 Python) | $(icon "$TEST") $TEST |"
             echo "| Package build | $(icon "$BUILD") $BUILD |"
             echo "| Launcher smoke | $(icon "$LAUNCHER") $LAUNCHER |"
             echo ""

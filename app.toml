@@ -3,7 +3,7 @@
 
 [application]
 name = "PhotoProof"
-version = "0.1.0"
+version = "0.2.0"
 package = "photoproof"
 description = "Modular digital image forgery detection and localization framework."
 release_channel = "development"   # development | preview | stable
@@ -29,7 +29,7 @@ github = ""
 
 [python]
 minimum = "3.11"   # inclusive
-maximum = "3.13"   # inclusive (minor version)
+maximum = "3.15"   # inclusive (minor version)
 
 [platform]
 operating_systems = ["Linux", "Darwin", "Windows"]

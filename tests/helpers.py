@@ -1,33 +1,46 @@
 """Test helpers (importable as ``helpers``; see pytest ``pythonpath``)."""
 
+import io
 import sys
+import tomllib
 import uuid
 from pathlib import Path
 from typing import Any
 
-import yaml
+from ruamel.yaml import YAML
 
 from photoproof.core.pipeline.discovery import DiscoveredPlugin
 from photoproof.core.pipeline.registry import PluginRegistry
 
 REPO = Path(__file__).resolve().parents[1]
+APP_VERSION: str = tomllib.loads((REPO / "app.toml").read_text())["application"]["version"]
+
+
+def _load(text: str) -> Any:
+    return YAML(typ="safe", pure=True).load(text)
+
+
+def _dump(data: object) -> str:
+    stream = io.StringIO()
+    YAML(typ="safe", pure=True).dump(data, stream)
+    return stream.getvalue()
 
 
 def update_settings(root: Path, **sections: dict[str, Any]) -> None:
     path = root / "settings.yaml"
-    data = yaml.safe_load(path.read_text())
+    data = _load(path.read_text())
     for section, values in sections.items():
         data[section].update(values)
-    path.write_text(yaml.safe_dump(data))
+    path.write_text(_dump(data))
 
 
 def write_profile(root: Path, name: str, **fields: Any) -> None:
     profile = {"name": name, "description": "test profile", "mode": "single", **fields}
-    (root / "configs" / "profiles" / f"{name}.yaml").write_text(yaml.safe_dump(profile))
+    (root / "configs" / "profiles" / f"{name}.yaml").write_text(_dump(profile))
 
 
 def plugin_config(root: Path, plugin_id: str, **values: Any) -> None:
-    (root / "configs" / "plugins" / f"{plugin_id}.yaml").write_text(yaml.safe_dump(values))
+    (root / "configs" / "plugins" / f"{plugin_id}.yaml").write_text(_dump(values))
 
 
 def meta(pid: str, **fields: Any) -> dict[str, Any]:

@@ -13,7 +13,7 @@ the version is written (see [releases](../development/releases.md)).
 | `application.plugin_api_version` | `1.0.0` | Host plugin API. Bump on contract changes. |
 | `application.config_schema_version` | `1` | Must match `settings.yaml` `schema_version`. |
 | `[[developers]]` | 4 entries | `name`, `github`. Placeholders are marked; replace them. |
-| `python.minimum` / `python.maximum` | `3.11` / `3.13` | Inclusive minor versions. |
+| `python.minimum` / `python.maximum` | `3.11` / `3.15` | Inclusive minor versions. |
 | `platform.operating_systems` | `Linux`, `Darwin`, `Windows` | As reported by `platform.system()`. |
 | `platform.architectures` | `x86_64`, `arm64` | `amd64`/`aarch64` are normalized. |
 | `hardware.min_cpu_cores` / `recommended_cpu_cores` | 1 / 2 | Below minimum: refuse; below recommended: warn. |

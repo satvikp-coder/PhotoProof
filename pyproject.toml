@@ -7,7 +7,7 @@ name = "photoproof"
 dynamic = ["version"]  # derived from app.toml, see [tool.hatch.version]
 description = "Modular digital image forgery detection and localization framework."
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11,<3.16"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "PhotoProof Contributors" }]
@@ -15,11 +15,13 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
   "Operating System :: OS Independent",
 ]
 dependencies = [
   "pydantic>=2.9,<3",
-  "PyYAML>=6.0.2,<7",
+  "ruamel.yaml>=0.18,<0.20",  # pure-Python wheel: installs on every supported version
 ]
 
 [project.scripts]
@@ -27,18 +29,18 @@ photoproof = "photoproof.cli:main"
 
 [dependency-groups]
 build = ["hatchling>=1.25"]
+# dev: installable on every supported Python (wheel-only). docs/security tools pull in
+# PyYAML and watchdog, which lack wheels for the newest Pythons, so they are locked
+# separately in requirements-tools.lock and run on Python 3.12 in CI.
 dev = [
   "pytest>=8.3",
   "pytest-cov>=6.0",
   "ruff>=0.8",
   "mypy>=1.13",
-  "types-PyYAML>=6.0",
-  "mkdocs>=1.6",
-  "mkdocs-material>=9.5",
-  "bandit>=1.8",
-  "pip-audit>=2.7",
   "build>=1.2",
 ]
+docs = ["mkdocs>=1.6", "mkdocs-material>=9.5"]
+security = ["bandit>=1.8", "pip-audit>=2.7"]
 
 [tool.hatch.version]
 path = "app.toml"

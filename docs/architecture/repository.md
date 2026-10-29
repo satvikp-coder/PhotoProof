@@ -7,7 +7,8 @@ PhotoProof/
 ├── settings.yaml           global behaviour
 ├── pyproject.toml          packaging (version derived from app.toml), tool config
 ├── requirements.lock       hash-pinned runtime + build-backend dependencies
-├── requirements-dev.lock   hash-pinned development/docs/security tooling
+├── requirements-dev.lock   hash-pinned test/lint/type tooling (all Pythons)
+├── requirements-tools.lock hash-pinned docs and security tooling (Python ≤ 3.13)
 ├── configs/profiles/       analysis profiles (standard, comparison, research)
 ├── configs/plugins/        optional per-plugin parameters (<plugin_id>.yaml)
 ├── src/photoproof/

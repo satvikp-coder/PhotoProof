@@ -32,7 +32,7 @@ jobs:
           launcher = importlib.util.module_from_spec(spec)
           sys.modules["launcher"] = launcher
           spec.loader.exec_module(launcher)
-          for lock in ("requirements.lock", "requirements-dev.lock"):
+          for lock in ("requirements.lock", "requirements-dev.lock", "requirements-tools.lock"):
               launcher.verify_lockfile(pathlib.Path("."), lock)
           locked = {m.lower().replace("_", "-") for m in re.findall(r"^([A-Za-z0-9_.-]+)==", pathlib.Path("requirements.lock").read_text(), re.M)}
           deps = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["dependencies"]
@@ -41,9 +41,11 @@ jobs:
           print("lockfiles OK")
           PY
       - name: Install audit tooling from the locked dev requirements
-        run: "python -m pip install --require-hashes --only-binary :all: -r requirements-dev.lock"
+        run: "python -m pip install --require-hashes --only-binary :all: -r requirements-tools.lock"
       - name: pip-audit (known vulnerabilities)
-        run: pip-audit --require-hashes --disable-pip -r requirements.lock -r requirements-dev.lock
+        run: >-
+          pip-audit --require-hashes --disable-pip -r requirements.lock -r requirements-dev.lock
+          -r requirements-tools.lock
 
   static-analysis:
     name: Static security analysis (Bandit) and security policy tests
@@ -54,7 +56,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: |
-          python -m pip install --require-hashes --only-binary :all: -r requirements-dev.lock
+          python -m pip install --require-hashes --only-binary :all: -r requirements-tools.lock
           python -m pip install --no-deps --no-build-isolation -e .
       - name: Bandit
         run: bandit -c pyproject.toml -r src main.py

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from helpers import REPO, update_settings, write_profile
+from helpers import APP_VERSION, REPO, update_settings, write_profile
 
 from photoproof.contracts.exceptions import ConfigurationError, IdentityError
 from photoproof.core.config.flags import FeatureFlags
@@ -10,7 +10,7 @@ from photoproof.core.config.loader import load_identity, load_profiles, load_set
 
 def test_repository_configuration_is_valid() -> None:
     identity = load_identity(REPO)
-    assert identity.application.version == "0.1.0"
+    assert identity.application.version == APP_VERSION
     assert identity.application.name.lower() == identity.application.package
     load_settings(REPO, identity, environ={})
     assert {"standard", "comparison", "research"} <= set(load_profiles(REPO))
