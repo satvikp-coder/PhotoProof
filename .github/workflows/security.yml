@@ -34,9 +34,10 @@ jobs:
           spec.loader.exec_module(launcher)
           for lock in ("requirements.lock", "requirements-dev.lock", "requirements-tools.lock"):
               launcher.verify_lockfile(pathlib.Path("."), lock)
-          locked = {m.lower().replace("_", "-") for m in re.findall(r"^([A-Za-z0-9_.-]+)==", pathlib.Path("requirements.lock").read_text(), re.M)}
+          norm = lambda name: re.sub(r"[-_.]+", "-", name).lower()  # PEP 503
+          locked = {norm(m) for m in re.findall(r"^([A-Za-z0-9_.-]+)==", pathlib.Path("requirements.lock").read_text(), re.M)}
           deps = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["dependencies"]
-          missing = [d for d in deps if re.split(r"[<>=!~ \[]", d)[0].lower().replace("_", "-") not in locked]
+          missing = [d for d in deps if norm(re.split(r"[<>=!~ \[]", d)[0]) not in locked]
           assert not missing, f"pyproject dependencies missing from requirements.lock: {missing}"
           print("lockfiles OK")
           PY
