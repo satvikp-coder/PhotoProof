@@ -3,7 +3,8 @@ id: PP-005
 title: "feat(imaging): define high-bit-depth and HDR working representations"
 milestone: M1
 labels: [type:feature, priority:P2, area:imaging, effort:medium, status:needs-design]
-depends_on: [PP-004]
+depends_on: []
+integrates_with: [PP-004]
 ---
 ## Summary
 
@@ -81,7 +82,11 @@ The plugin guide contract table and the imaging section of the architecture docs
 
 ## Dependencies
 
-PP-004. HEIF/AVIF inputs arrive with PP-006 and PP-008.
+**Blocked by** (merge these before starting): nothing. This can start now.
+
+**Integrates with** (start now; finish the integration once these land): PP-004.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

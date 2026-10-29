@@ -3,7 +3,8 @@ id: PP-036
 title: "feat(plugins): generate the final forensic heatmap artifact"
 milestone: M4
 labels: [type:feature, priority:P1, area:plugins, effort:medium, status:blocked]
-depends_on: [PP-035, PP-010]
+depends_on: [PP-032]
+integrates_with: [PP-035, PP-010]
 ---
 ## Summary
 
@@ -72,7 +73,11 @@ A fusion page section on visualization, and the WebKit viewer docs.
 
 ## Dependencies
 
-PP-035, PP-010.
+**Blocked by** (merge these before starting): PP-032.
+
+**Integrates with** (start now; finish the integration once these land): PP-035, PP-010.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

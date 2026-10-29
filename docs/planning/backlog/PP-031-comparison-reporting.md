@@ -3,7 +3,8 @@ id: PP-031
 title: "feat(reporting): interpret comparison evidence in reports"
 milestone: M3
 labels: [type:feature, priority:P2, area:core, effort:medium, status:blocked]
-depends_on: [PP-030, PP-046]
+depends_on: [PP-046]
+integrates_with: [PP-030]
 ---
 ## Summary
 
@@ -74,7 +75,11 @@ The report format documentation, and the comparison chain page.
 
 ## Dependencies
 
-PP-030, PP-046.
+**Blocked by** (merge these before starting): PP-046.
+
+**Integrates with** (start now; finish the integration once these land): PP-030.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

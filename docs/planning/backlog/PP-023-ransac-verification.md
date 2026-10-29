@@ -3,7 +3,8 @@ id: PP-023
 title: "feat(plugins): verify copy-move clusters with RANSAC affine estimation"
 milestone: M2
 labels: [type:feature, priority:P1, area:plugins, effort:medium, status:blocked]
-depends_on: [PP-022]
+depends_on: [PP-077]
+integrates_with: [PP-022]
 ---
 ## Summary
 
@@ -83,7 +84,11 @@ PP-067.
 
 ## Dependencies
 
-PP-022.
+**Blocked by** (merge these before starting): PP-077.
+
+**Integrates with** (start now; finish the integration once these land): PP-022.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

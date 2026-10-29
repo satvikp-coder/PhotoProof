@@ -3,7 +3,8 @@ id: PP-040
 title: "feat(WebKit): build the two-image comparison page"
 milestone: M5
 labels: [type:feature, priority:P1, area:WebKit, effort:medium, status:blocked]
-depends_on: [PP-039, PP-027, PP-030]
+depends_on: [PP-038]
+integrates_with: [PP-039, PP-027, PP-030]
 ---
 ## Summary
 
@@ -70,7 +71,11 @@ A user guide page for comparison.
 
 ## Dependencies
 
-PP-039, PP-027, PP-030.
+**Blocked by** (merge these before starting): PP-038.
+
+**Integrates with** (start now; finish the integration once these land): PP-039, PP-027, PP-030.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

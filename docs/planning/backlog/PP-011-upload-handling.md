@@ -83,7 +83,7 @@ Security model (untrusted input boundaries), operations runtime docs.
 
 ## Dependencies
 
-PP-001, PP-002.
+**Blocked by** (merge these before starting): PP-001, PP-002.
 
 ## Priority and Effort
 

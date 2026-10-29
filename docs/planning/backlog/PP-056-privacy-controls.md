@@ -3,7 +3,8 @@ id: PP-056
 title: "security(storage): add uploaded-image privacy and deletion controls"
 milestone: M6
 labels: [type:security, priority:P1, area:security, area:storage, effort:medium, status:blocked]
-depends_on: [PP-001, PP-055]
+depends_on: [PP-055]
+integrates_with: [PP-001]
 ---
 ## Summary
 
@@ -75,7 +76,11 @@ Security model (privacy section), user guide.
 
 ## Dependencies
 
-PP-001, PP-055.
+**Blocked by** (merge these before starting): PP-055.
+
+**Integrates with** (start now; finish the integration once these land): PP-001.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

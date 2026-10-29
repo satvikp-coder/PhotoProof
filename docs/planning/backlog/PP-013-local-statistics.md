@@ -3,7 +3,8 @@ id: PP-013
 title: "feat(imaging): add shared block tiling and robust local-anomaly statistics"
 milestone: M2
 labels: [type:feature, priority:P1, area:imaging, effort:small, status:blocked]
-depends_on: [PP-012]
+depends_on: [PP-072]
+integrates_with: [PP-012]
 ---
 ## Summary
 
@@ -79,7 +80,11 @@ A plugin guide section on producing an `AnomalyMap`.
 
 ## Dependencies
 
-PP-012 (NumPy and the image contracts).
+**Blocked by** (merge these before starting): PP-072.
+
+**Integrates with** (start now; finish the integration once these land): PP-012.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

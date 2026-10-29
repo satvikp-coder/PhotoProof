@@ -2,8 +2,9 @@
 id: PP-003
 title: "feat(imaging): decode JPEG, PNG and WebP through a Pillow adapter"
 milestone: M1
-labels: [type:feature, priority:P1, area:imaging, effort:medium, status:blocked]
-depends_on: [PP-002]
+labels: [type:feature, priority:P1, area:imaging, effort:medium, status:ready]
+depends_on: []
+integrates_with: [PP-002]
 ---
 ## Summary
 
@@ -95,7 +96,11 @@ model section on decoders.
 
 ## Dependencies
 
-PP-002 (format detection and registry).
+**Blocked by** (merge these before starting): nothing. This can start now.
+
+**Integrates with** (start now; finish the integration once these land): PP-002.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

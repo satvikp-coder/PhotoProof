@@ -3,7 +3,8 @@ id: PP-032
 title: "feat(pipeline): normalize detector scores to a common documented scale"
 milestone: M4
 labels: [type:feature, priority:P1, area:pipeline, area:plugins, effort:medium, status:needs-design]
-depends_on: [PP-013, PP-015, PP-019]
+depends_on: [PP-013]
+integrates_with: [PP-015, PP-019]
 ---
 ## Summary
 
@@ -81,7 +82,11 @@ A fusion design page (contract, scales, strength classes).
 
 ## Dependencies
 
-PP-013, plus at least two detectors (PP-015, PP-019) to validate the design.
+**Blocked by** (merge these before starting): PP-013.
+
+**Integrates with** (start now; finish the integration once these land): PP-015, PP-019.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

@@ -8,42 +8,74 @@ generated from `docs/planning/backlog/*.md` and indexed on the [backlog page](ba
 
 | Milestone | Goal | Issues |
 |---|---|---|
-| M1 · Secure Image Ingestion | Immutable evidence store, format detection, safe and isolated decoding, normalized working images exposed to plugins | 12 |
-| M2 · Classical Forensic Detection | Metadata, compression (ELA, DCT, grid), noise, copy-move chain, sharpness and edge detectors | 14 |
+| M1 · Secure Image Ingestion | Immutable evidence store, format detection, safe and isolated decoding, synthetic test toolkit, normalized working images exposed to plugins | 14 |
+| M2 · Classical Forensic Detection | Metadata, compression (ELA, DCT, grid), noise, copy-move chain and contracts, sharpness and edge detectors, plugin scaffold | 16 |
 | M3 · Reference Image Comparison | Comparison requests, registration, SSIM difference maps, change masks, reporting | 5 |
 | M4 · Localization and Evidence Fusion | Score normalization, rule-based fusion, inconclusive logic, segmentation, heatmaps, calibration | 6 |
 | M5 · Web Application and Reporting | WebKit shell and pages, structured and PDF reports, manifest and diagnostics tooling | 12 |
-| M6 · Security, Evaluation and Performance | Jobs and workers, process isolation, retention and privacy, fuzzing, backups, datasets, benchmarks | 20 |
+| M6 · Security, Evaluation and Performance | Jobs and workers, process isolation, retention and privacy, fuzzing, backups, datasets, benchmarks, team process | 22 |
 | M7 · Research Extensions | Optional TruFor integration and dense block matching | 2 |
 
-Milestones are delivery targets, not dates. Issues inside a milestone can proceed in
-parallel once their dependencies (shown as native GitHub "blocked by" links) are merged.
+Milestones are delivery targets, not dates. Each issue lists two kinds of dependency:
+
+- **Blocked by**: cannot start until these are merged (native GitHub *blocked by* links).
+- **Integrates with**: start now against documented contracts or synthetic data, and
+  finish the integration when those land. Detectors use a two-PR plan: a pure
+  `algorithm.py` first, then `processor.py` wiring once #12 exposes images to plugins.
 
 ## Critical path
 
+Solid arrows are hard dependencies; dotted arrows are integration gates.
+
 ```mermaid
 flowchart LR
-    E[#1 evidence store] --> F[#2 format detection] --> D[#3 Pillow decoders]
-    D --> N[#4 normalization] --> X[#12 plugin image access]
-    D --> I[#9 isolated decoder] --> X
-    F --> U[#11 ingestion] --> X
-    X --> S[#13 local statistics] --> DET[M2 detectors]
-    X --> C[#20 SIFT] --> CM[#21 → #24 copy-move chain]
+    T[#72 synthetic toolkit] --> S
+    T --> DET
+    T --> CC[#77 copy-move contracts] --> CM
+    H[#73 isolation helper] --> I
+    E[#1 evidence store] --> U
+    F[#2 format detection] --> U
+    D[#3 Pillow decoders] -.-> I
+    N[#4 normalization] --> X[#12 plugin image access]
+    I[#9 isolated decoder] --> X
+    U[#11 ingestion] --> X
+    S[#13 local statistics] --> DET[M2 detector algorithms]
+    CM[#20 → #24 copy-move chain]
+    X -. wiring PRs .-> DET
+    X -. wiring PRs .-> CM
     DET --> FU[#32 → #36 fusion and heatmap]
     CM --> FU
-    FU --> R[#46 reports] --> W[M5 WebKit pages]
+    FU -.-> R[#46 reports] --> W[M5 WebKit pages]
 ```
 
-**Next recommended issue: [#1](https://github.com/satvikp-coder/PhotoProof/issues/1)
-(evidence store).** It has no dependencies, builds directly on `RuntimeStorage.put_blob`,
-and unblocks the whole ingestion chain. In parallel, contributors can take
-[#66](https://github.com/satvikp-coder/PhotoProof/issues/66) (metrics harness),
-[#62](https://github.com/satvikp-coder/PhotoProof/issues/62) (database backups),
-[#48](https://github.com/satvikp-coder/PhotoProof/issues/48) and
-[#49](https://github.com/satvikp-coder/PhotoProof/issues/49) (manifest and diagnostic tooling),
-and [#38](https://github.com/satvikp-coder/PhotoProof/issues/38) (WebKit framework decision),
-none of which depend on decoding. An admin should do
-[#63](https://github.com/satvikp-coder/PhotoProof/issues/63) (branch protection) first.
+## Work waves for a four-person team
+
+**Wave 1: 21 issues that can start today.**
+
+| Area | Issues |
+|---|---|
+| Kickoff (do first) | [#75](https://github.com/satvikp-coder/PhotoProof/issues/75) team and ownership, [#63](https://github.com/satvikp-coder/PhotoProof/issues/63) branch protection (admin), [#76](https://github.com/satvikp-coder/PhotoProof/issues/76) workflow guide |
+| Enablers (small, unlock wave 2) | [#72](https://github.com/satvikp-coder/PhotoProof/issues/72) synthetic image toolkit, [#73](https://github.com/satvikp-coder/PhotoProof/issues/73) isolation helper, [#74](https://github.com/satvikp-coder/PhotoProof/issues/74) plugin scaffold |
+| Ingestion | [#1](https://github.com/satvikp-coder/PhotoProof/issues/1), [#2](https://github.com/satvikp-coder/PhotoProof/issues/2), [#3](https://github.com/satvikp-coder/PhotoProof/issues/3), [#4](https://github.com/satvikp-coder/PhotoProof/issues/4), [#5](https://github.com/satvikp-coder/PhotoProof/issues/5) (design) |
+| Web and reporting | [#38](https://github.com/satvikp-coder/PhotoProof/issues/38) WebKit shell, [#46](https://github.com/satvikp-coder/PhotoProof/issues/46) structured reports, [#48](https://github.com/satvikp-coder/PhotoProof/issues/48) and [#49](https://github.com/satvikp-coder/PhotoProof/issues/49) manifest and diagnostic tooling |
+| Operations | [#50](https://github.com/satvikp-coder/PhotoProof/issues/50) job queue, [#55](https://github.com/satvikp-coder/PhotoProof/issues/55) retention, [#62](https://github.com/satvikp-coder/PhotoProof/issues/62) backups |
+| Evaluation | [#64](https://github.com/satvikp-coder/PhotoProof/issues/64), [#65](https://github.com/satvikp-coder/PhotoProof/issues/65) datasets, [#66](https://github.com/satvikp-coder/PhotoProof/issues/66) metrics harness |
+
+**Wave 2: 27 issues unlocked by wave 1**, mostly by the small enablers #72 (most
+detector algorithms), #77 (the five copy-move stages in parallel) and #38 (all WebKit
+pages, built against mock data until their integrations land).
+
+Suggested starting split (to be confirmed in #75):
+
+| Person | First issues | Then |
+|---|---|---|
+| A: ingestion and security | #73, #1, #2 | #3, #4, #9, #11 → #12 |
+| B: compression and noise | #72, #74 | #13, #15, #18, #19, #16 |
+| C: copy-move and comparison | #66, #77 (after #72) | #20–#24, #28–#30 |
+| D: web, reports, operations | #38, #46, #48 | #39–#44, #50, #62 |
+
+#12 (plugin image access) is the main integration point. It is blocked only by the
+ingestion chain, so person A's track sets the pace for every detector's second PR.
 
 ## Planned forensic techniques
 

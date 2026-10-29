@@ -3,7 +3,8 @@ id: PP-045
 title: "feat(WebKit): preview and export forensic reports"
 milestone: M5
 labels: [type:feature, priority:P2, area:WebKit, effort:small, status:blocked]
-depends_on: [PP-046, PP-047]
+depends_on: [PP-038, PP-046]
+integrates_with: [PP-047]
 ---
 ## Summary
 
@@ -63,7 +64,11 @@ The user guide (reports).
 
 ## Dependencies
 
-PP-046, PP-047.
+**Blocked by** (merge these before starting): PP-038, PP-046.
+
+**Integrates with** (start now; finish the integration once these land): PP-047.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

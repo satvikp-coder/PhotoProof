@@ -72,7 +72,7 @@ Security model (privacy), plugin contract table.
 
 ## Dependencies
 
-PP-004.
+**Blocked by** (merge these before starting): PP-004.
 
 ## Priority and Effort
 

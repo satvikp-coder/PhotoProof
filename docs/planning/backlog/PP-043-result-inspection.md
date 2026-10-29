@@ -3,7 +3,8 @@ id: PP-043
 title: "feat(WebKit): show detailed per-detector forensic results"
 milestone: M5
 labels: [type:feature, priority:P2, area:WebKit, effort:medium, status:blocked]
-depends_on: [PP-042, PP-034]
+depends_on: [PP-038]
+integrates_with: [PP-034, PP-042]
 ---
 ## Summary
 
@@ -70,7 +71,11 @@ The user guide (interpreting results).
 
 ## Dependencies
 
-PP-042, PP-034.
+**Blocked by** (merge these before starting): PP-038.
+
+**Integrates with** (start now; finish the integration once these land): PP-034, PP-042.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

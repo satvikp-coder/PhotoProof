@@ -2,8 +2,9 @@
 id: PP-002
 title: "feat(imaging): detect image formats from magic bytes and register decoder adapters"
 milestone: M1
-labels: [type:feature, priority:P1, area:imaging, effort:medium, status:blocked]
-depends_on: [PP-001]
+labels: [type:feature, priority:P1, area:imaging, effort:medium, status:ready]
+depends_on: []
+integrates_with: [PP-001]
 ---
 ## Summary
 
@@ -94,7 +95,11 @@ available before decoding anything.
 
 ## Dependencies
 
-PP-001 (evidence store provides the bytes and descriptor).
+**Blocked by** (merge these before starting): nothing. This can start now.
+
+**Integrates with** (start now; finish the integration once these land): PP-001.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

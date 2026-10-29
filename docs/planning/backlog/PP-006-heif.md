@@ -3,7 +3,8 @@ id: PP-006
 title: "feat(imaging): implement HEIF and HEIC decoding"
 milestone: M1
 labels: [type:feature, priority:P2, area:imaging, effort:medium, status:blocked]
-depends_on: [PP-003, PP-005]
+depends_on: [PP-003]
+integrates_with: [PP-005, PP-009]
 ---
 ## Summary
 
@@ -80,7 +81,11 @@ Format-support table, troubleshooting entry for missing codecs.
 
 ## Dependencies
 
-PP-003, PP-005. Strongly recommended after PP-009.
+**Blocked by** (merge these before starting): PP-003.
+
+**Integrates with** (start now; finish the integration once these land): PP-005, PP-009.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

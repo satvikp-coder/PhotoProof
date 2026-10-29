@@ -3,7 +3,8 @@ id: PP-052
 title: "feat(pipeline): add a process-isolated executor for native-code crash isolation"
 milestone: M6
 labels: [type:security, priority:P1, area:pipeline, area:security, effort:large, status:blocked]
-depends_on: [PP-009]
+depends_on: [PP-073]
+integrates_with: [PP-009]
 ---
 ## Summary
 
@@ -83,7 +84,11 @@ model.
 
 ## Dependencies
 
-PP-009 (shared isolation helper).
+**Blocked by** (merge these before starting): PP-073.
+
+**Integrates with** (start now; finish the integration once these land): PP-009.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

@@ -2,8 +2,9 @@
 id: PP-055
 title: "feat(storage): enforce runtime retention policies and storage quotas"
 milestone: M6
-labels: [type:feature, priority:P2, area:storage, effort:medium, status:blocked]
-depends_on: [PP-001]
+labels: [type:feature, priority:P2, area:storage, effort:medium, status:ready]
+depends_on: []
+integrates_with: [PP-001]
 ---
 ## Summary
 
@@ -77,7 +78,11 @@ Settings reference, operations runtime docs.
 
 ## Dependencies
 
-PP-001.
+**Blocked by** (merge these before starting): nothing. This can start now.
+
+**Integrates with** (start now; finish the integration once these land): PP-001.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

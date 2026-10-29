@@ -3,7 +3,8 @@ id: PP-042
 title: "feat(WebKit): build a forensic heatmap viewer with image overlays"
 milestone: M5
 labels: [type:feature, priority:P1, area:WebKit, effort:medium, status:blocked]
-depends_on: [PP-039, PP-036]
+depends_on: [PP-038]
+integrates_with: [PP-036, PP-039]
 ---
 ## Summary
 
@@ -73,7 +74,11 @@ A user guide page on reading the heatmap, with caveats.
 
 ## Dependencies
 
-PP-039, PP-036.
+**Blocked by** (merge these before starting): PP-038.
+
+**Integrates with** (start now; finish the integration once these land): PP-036, PP-039.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
+from ruamel.yaml import YAML
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKLOG = ROOT / "docs" / "planning" / "backlog"
@@ -118,7 +118,8 @@ class Item:
     title: str
     milestone: str
     labels: list[str]
-    depends_on: list[str]
+    depends_on: list[str]  # hard: cannot start until these are merged
+    integrates_with: list[str]  # soft: start now, integrate once these land
     body: str
     path: Path
 
@@ -128,7 +129,7 @@ def load() -> list[Item]:
     for path in sorted(BACKLOG.glob("PP-*.md")):
         text = path.read_text(encoding="utf-8")
         _, front, body = text.split("---\n", 2)
-        meta = yaml.safe_load(front)
+        meta = YAML(typ="safe", pure=True).load(front)
         items.append(
             Item(
                 meta["id"],
@@ -136,6 +137,7 @@ def load() -> list[Item]:
                 meta["milestone"],
                 meta["labels"],
                 meta.get("depends_on", []),
+                meta.get("integrates_with", []),
                 body.strip(),
                 path,
             )
@@ -186,14 +188,57 @@ def check(items: list[Item]) -> list[str]:
                 problems.append(f"{where}: missing section {section!r}")
         if "- [ ]" not in item.body:
             problems.append(f"{where}: acceptance criteria need checkboxes")
-        for ref in set(REF.findall(item.body)) | set(item.depends_on):
+        if set(item.depends_on) & set(item.integrates_with):
+            problems.append(f"{where}: an ID cannot be both depends_on and integrates_with")
+        for ref in set(REF.findall(item.body)) | set(item.depends_on) | set(item.integrates_with):
             if ref not in ids:
                 problems.append(f"{where}: references unknown {ref}")
         if item.id in item.depends_on:
             problems.append(f"{where}: depends on itself")
         if item.depends_on and "status:ready" in item.labels:
             problems.append(f"{where}: has open dependencies, so it cannot be status:ready")
+    problems += _cycles(items)
     return problems
+
+
+def _cycles(items: list[Item]) -> list[str]:
+    graph = {i.id: i.depends_on for i in items}
+    state: dict[str, int] = {}
+
+    def visit(node: str, path: list[str]) -> str | None:
+        state[node] = 1
+        for dep in graph.get(node, []):
+            if state.get(dep) == 1:
+                return " -> ".join([*path, dep])
+            if dep not in state and (found := visit(dep, [*path, dep])):
+                return found
+        state[node] = 2
+        return None
+
+    for node in sorted(graph):
+        if node not in state and (cycle := visit(node, [node])):
+            return [f"hard dependency cycle: {cycle}"]
+    return []
+
+
+MANAGED_PREFIXES = ("type:", "priority:", "area:", "effort:", "status:")
+
+
+def sync_labels(repo: str, number: int, desired: list[str], current: set[str]) -> bool:
+    """Make managed labels match the source; never override a claimed issue's status."""
+    if "status:in-progress" in current:
+        desired = [label for label in desired if not label.startswith("status:")]
+        desired.append("status:in-progress")
+    managed = {label for label in current if label.startswith(MANAGED_PREFIXES)}
+    add, remove = set(desired) - current, managed - set(desired)
+    if add or remove:
+        args = ["issue", "edit", str(number), "--repo", repo]
+        for label in sorted(add):
+            args += ["--add-label", label]
+        for label in sorted(remove):
+            args += ["--remove-label", label]
+        gh(*args)
+    return bool(add or remove)
 
 
 def gh(*args: str, input_text: str | None = None) -> str:
@@ -229,7 +274,7 @@ def existing_issues(repo: str) -> dict[str, dict[str, object]]:
         "--limit",
         "1000",
         "--json",
-        "number,title,body,url",
+        "number,title,body,url,labels",
     )
     found = {}
     for issue in json.loads(raw):
@@ -318,7 +363,10 @@ def publish(items: list[Item], repo: str) -> None:
             )
             print(f"updated {item.id} -> #{numbers[item.id]}", flush=True)
             time.sleep(1)
-    # Pass 3: native GitHub "blocked by" relationships (idempotent).
+        current_labels = {label["name"] for label in found[item.id]["labels"]}  # type: ignore[union-attr]
+        if sync_labels(repo, numbers[item.id], item.labels, current_labels):
+            print(f"relabelled {item.id}", flush=True)
+    # Pass 3: native GitHub "blocked by" relationships mirror depends_on exactly.
     ids = {
         pid: json.loads(gh("api", f"repos/{repo}/issues/{n}"))["id"] for pid, n in numbers.items()
     }
@@ -340,6 +388,17 @@ def publish(items: list[Item], repo: str) -> None:
                     f"issue_id={ids[dep]}",
                 )
                 print(f"linked {item.id} blocked by {dep}", flush=True)
+        by_number = {n: pid for pid, n in numbers.items()}
+        for stale in sorted(current - {numbers[d] for d in item.depends_on}):
+            if stale in by_number:  # only remove links between backlog issues
+                gh(
+                    "api",
+                    "-X",
+                    "DELETE",
+                    f"repos/{repo}/issues/{numbers[item.id]}/dependencies/blocked_by/"
+                    f"{ids[by_number[stale]]}",
+                )
+                print(f"unlinked {item.id} from {by_number[stale]}", flush=True)
     write_index(items, numbers, repo)
 
 
@@ -353,6 +412,11 @@ def write_index(items: list[Item], numbers: dict[str, int], repo: str | None) ->
         "Issue sources are the single source of truth. Republishing updates the GitHub "
         "issues in place; the hidden `backlog-id` marker prevents duplicates.",
         "",
+        "**Blocked by**: cannot start until those are merged (mirrored as GitHub's native "
+        "*blocked by* links). **Integrates with**: start now against documented contracts "
+        "and finish the integration once those land. Pick any `ready` issue in your area; "
+        "the [roadmap](index.md) lists the first two waves.",
+        "",
     ]
     for key, (name, description) in MILESTONES.items():
         group = [i for i in items if i.milestone == key]
@@ -361,22 +425,23 @@ def write_index(items: list[Item], numbers: dict[str, int], repo: str | None) ->
             "",
             description,
             "",
-            "| ID | Issue | Priority | Effort | Area | Depends on |",
-            "|---|---|---|---|---|---|",
+            "| ID | Issue | Status | Priority | Effort | Area | Blocked by | Integrates with |",
+            "|---|---|---|---|---|---|---|---|",
         ]
         for item in group:
             label = {
                 p: next((x.split(":", 1)[1] for x in item.labels if x.startswith(p)), "")
-                for p in ("priority:", "effort:")
+                for p in ("priority:", "effort:", "status:")
             }
             areas = ", ".join(x.split(":", 1)[1] for x in item.labels if x.startswith("area:"))
             deps = ", ".join(_ref(d, numbers, repo) for d in item.depends_on) or "—"
+            soft = ", ".join(_ref(d, numbers, repo) for d in item.integrates_with) or "—"
             title = item.title.replace("|", "\\|")
             if repo and item.id in numbers:
                 title = f"[{title}](https://github.com/{repo}/issues/{numbers[item.id]})"
             lines.append(
-                f"| {_ref(item.id, numbers, repo)} | {title} | {label['priority:']} | "
-                f"{label['effort:']} | {areas} | {deps} |"
+                f"| {_ref(item.id, numbers, repo)} | {title} | {label['status:']} | "
+                f"{label['priority:']} | {label['effort:']} | {areas} | {deps} | {soft} |"
             )
         lines.append("")
     INDEX.write_text("\n".join(lines), encoding="utf-8")

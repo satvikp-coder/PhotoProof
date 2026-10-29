@@ -3,7 +3,8 @@ id: PP-030
 title: "feat(plugins): extract comparison change regions and binary change masks"
 milestone: M3
 labels: [type:feature, priority:P1, area:plugins, effort:medium, status:blocked]
-depends_on: [PP-029]
+depends_on: [PP-072]
+integrates_with: [PP-029]
 ---
 ## Summary
 
@@ -72,7 +73,11 @@ The comparison chain page.
 
 ## Dependencies
 
-PP-029.
+**Blocked by** (merge these before starting): PP-072.
+
+**Integrates with** (start now; finish the integration once these land): PP-029.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

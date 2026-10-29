@@ -3,7 +3,8 @@ id: PP-016
 title: "feat(plugins): analyze JPEG quantization tables and DCT histograms for double compression"
 milestone: M2
 labels: [type:feature, priority:P1, area:plugins, effort:large, status:needs-design]
-depends_on: [PP-012, PP-013]
+depends_on: [PP-072, PP-013]
+integrates_with: [PP-012, PP-007]
 ---
 ## Summary
 
@@ -90,7 +91,11 @@ misaligns the grid, see PP-017) and false-positive scenarios.
 
 ## Dependencies
 
-PP-012, PP-013. Uses PP-007 if available.
+**Blocked by** (merge these before starting): PP-072, PP-013.
+
+**Integrates with** (start now; finish the integration once these land): PP-012, PP-007.
+
+**Work plan (two PRs).** PR 1, mergeable now: implement the algorithm as a pure NumPy function in the plugin's `algorithm.py` (scaffold it with PP-074), unit-tested with the PP-072 synthetic generators; reference this issue with `Refs`. PR 2, after PP-012 is merged: add the `processor.py` wiring and an integration test through the controller; this PR uses `Closes`.
 
 ## Priority and Effort
 

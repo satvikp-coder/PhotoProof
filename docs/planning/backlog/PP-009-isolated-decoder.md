@@ -3,7 +3,8 @@ id: PP-009
 title: "security(imaging): run image decoders in an isolated, resource-limited worker process"
 milestone: M1
 labels: [type:security, priority:P1, area:security, area:imaging, effort:large, status:blocked]
-depends_on: [PP-003]
+depends_on: [PP-073]
+integrates_with: [PP-003]
 ---
 ## Summary
 
@@ -93,7 +94,11 @@ Security model (runtime isolation plan step 1 marked implemented), settings refe
 
 ## Dependencies
 
-PP-003 (an adapter to isolate).
+**Blocked by** (merge these before starting): PP-073.
+
+**Integrates with** (start now; finish the integration once these land): PP-003.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

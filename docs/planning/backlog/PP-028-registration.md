@@ -3,7 +3,8 @@ id: PP-028
 title: "feat(plugins): register reference and target images with feature matching and geometric transforms"
 milestone: M3
 labels: [type:feature, priority:P1, area:plugins, area:imaging, effort:large, status:blocked]
-depends_on: [PP-027, PP-020]
+depends_on: [PP-072]
+integrates_with: [PP-027, PP-020, PP-012]
 ---
 ## Summary
 
@@ -80,7 +81,11 @@ A comparison chain page (registration → SSIM → change mask → reporting).
 
 ## Dependencies
 
-PP-027, PP-020 (shared SIFT configuration and OpenCV dependency).
+**Blocked by** (merge these before starting): PP-072.
+
+**Integrates with** (start now; finish the integration once these land): PP-027, PP-020, PP-012.
+
+**Work plan (two PRs).** PR 1, mergeable now: implement the algorithm as a pure NumPy function in the plugin's `algorithm.py` (scaffold it with PP-074), unit-tested with the PP-072 synthetic generators; reference this issue with `Refs`. PR 2, after PP-012 is merged: add the `processor.py` wiring and an integration test through the controller; this PR uses `Closes`.
 
 ## Priority and Effort
 

@@ -2,8 +2,9 @@
 id: PP-004
 title: "feat(imaging): normalize ICC colour profiles and EXIF orientation into a working image"
 milestone: M1
-labels: [type:feature, priority:P1, area:imaging, effort:medium, status:blocked]
-depends_on: [PP-003]
+labels: [type:feature, priority:P1, area:imaging, effort:medium, status:ready]
+depends_on: []
+integrates_with: [PP-003]
 ---
 ## Summary
 
@@ -90,7 +91,11 @@ flow.
 
 ## Dependencies
 
-PP-003.
+**Blocked by** (merge these before starting): nothing. This can start now.
+
+**Integrates with** (start now; finish the integration once these land): PP-003.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

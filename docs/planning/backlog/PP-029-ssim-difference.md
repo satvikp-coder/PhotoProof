@@ -3,7 +3,8 @@ id: PP-029
 title: "feat(plugins): compute SSIM-based difference maps on aligned images"
 milestone: M3
 labels: [type:feature, priority:P1, area:plugins, effort:medium, status:blocked]
-depends_on: [PP-028]
+depends_on: [PP-072]
+integrates_with: [PP-028]
 ---
 ## Summary
 
@@ -77,7 +78,11 @@ The comparison chain page: SSIM interpretation and limitations.
 
 ## Dependencies
 
-PP-028.
+**Blocked by** (merge these before starting): PP-072.
+
+**Integrates with** (start now; finish the integration once these land): PP-028.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

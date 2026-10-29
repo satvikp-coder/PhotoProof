@@ -3,7 +3,7 @@ id: PP-012
 title: "feat(pipeline): expose decoded working images to plugins through the execution context"
 milestone: M1
 labels: [type:feature, priority:P1, area:pipeline, area:plugins, effort:medium, status:blocked]
-depends_on: [PP-004, PP-009, PP-011]
+depends_on: [PP-004, PP-009, PP-011, PP-072]
 ---
 ## Summary
 
@@ -86,7 +86,7 @@ change).
 
 ## Dependencies
 
-PP-004, PP-009, PP-011.
+**Blocked by** (merge these before starting): PP-004, PP-009, PP-011, PP-072.
 
 ## Priority and Effort
 

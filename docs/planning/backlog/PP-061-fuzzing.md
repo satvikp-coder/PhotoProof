@@ -4,6 +4,7 @@ title: "test(security): fuzz decoders and parsers and inject pipeline failures"
 milestone: M6
 labels: [type:testing, priority:P2, area:security, area:testing, effort:medium, status:blocked]
 depends_on: [PP-058]
+integrates_with: [PP-002]
 ---
 ## Summary
 
@@ -72,7 +73,11 @@ The testing page, security model.
 
 ## Dependencies
 
-PP-058.
+**Blocked by** (merge these before starting): PP-058.
+
+**Integrates with** (start now; finish the integration once these land): PP-002.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

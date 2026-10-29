@@ -3,7 +3,8 @@ id: PP-058
 title: "test(security): build a malformed and adversarial image corpus for decoder regression tests"
 milestone: M6
 labels: [type:testing, priority:P1, area:security, area:testing, effort:medium, status:blocked]
-depends_on: [PP-003, PP-009]
+depends_on: [PP-072]
+integrates_with: [PP-003, PP-009]
 ---
 ## Summary
 
@@ -84,7 +85,11 @@ Security model (testing section), and the testing page.
 
 ## Dependencies
 
-PP-003, PP-009.
+**Blocked by** (merge these before starting): PP-072.
+
+**Integrates with** (start now; finish the integration once these land): PP-003, PP-009.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

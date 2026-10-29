@@ -3,7 +3,8 @@ id: PP-018
 title: "feat(plugins): extract noise residuals with wavelet-based denoising"
 milestone: M2
 labels: [type:feature, priority:P1, area:plugins, effort:medium, status:blocked]
-depends_on: [PP-012]
+depends_on: [PP-072]
+integrates_with: [PP-012]
 ---
 ## Summary
 
@@ -79,7 +80,11 @@ noise, denoising in-camera, edge leakage).
 
 ## Dependencies
 
-PP-012.
+**Blocked by** (merge these before starting): PP-072.
+
+**Integrates with** (start now; finish the integration once these land): PP-012.
+
+**Work plan (two PRs).** PR 1, mergeable now: implement the algorithm as a pure NumPy function in the plugin's `algorithm.py` (scaffold it with PP-074), unit-tested with the PP-072 synthetic generators; reference this issue with `Refs`. PR 2, after PP-012 is merged: add the `processor.py` wiring and an integration test through the controller; this PR uses `Closes`.
 
 ## Priority and Effort
 

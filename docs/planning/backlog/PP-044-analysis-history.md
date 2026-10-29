@@ -3,7 +3,8 @@ id: PP-044
 title: "feat(WebKit): browse analysis history and stored results"
 milestone: M5
 labels: [type:feature, priority:P2, area:WebKit, area:database, effort:medium, status:blocked]
-depends_on: [PP-039]
+depends_on: [PP-038]
+integrates_with: [PP-039, PP-001]
 ---
 ## Summary
 
@@ -66,7 +67,11 @@ The user guide, and the database schema notes.
 
 ## Dependencies
 
-PP-039.
+**Blocked by** (merge these before starting): PP-038.
+
+**Integrates with** (start now; finish the integration once these land): PP-039, PP-001.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

@@ -3,7 +3,8 @@ id: PP-008
 title: "feat(imaging): implement AVIF and optional TIFF decoding"
 milestone: M1
 labels: [type:feature, priority:P2, area:imaging, effort:medium, status:blocked]
-depends_on: [PP-003, PP-005]
+depends_on: [PP-003]
+integrates_with: [PP-005]
 ---
 ## Summary
 
@@ -75,7 +76,11 @@ Format-support table, and `formats.accepted` guidance in the settings reference.
 
 ## Dependencies
 
-PP-003, PP-005.
+**Blocked by** (merge these before starting): PP-003.
+
+**Integrates with** (start now; finish the integration once these land): PP-005.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

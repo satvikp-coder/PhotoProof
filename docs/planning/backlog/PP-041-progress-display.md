@@ -3,7 +3,8 @@ id: PP-041
 title: "feat(WebKit): display analysis progress and plugin status"
 milestone: M5
 labels: [type:feature, priority:P2, area:WebKit, effort:medium, status:blocked]
-depends_on: [PP-039, PP-050]
+depends_on: [PP-038, PP-050]
+integrates_with: [PP-039]
 ---
 ## Summary
 
@@ -67,7 +68,11 @@ The user guide, and the architecture page (web ↔ jobs data flow).
 
 ## Dependencies
 
-PP-039, PP-050.
+**Blocked by** (merge these before starting): PP-038, PP-050.
+
+**Integrates with** (start now; finish the integration once these land): PP-039.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

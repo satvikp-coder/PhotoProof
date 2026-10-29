@@ -3,7 +3,8 @@ id: PP-039
 title: "feat(WebKit): build the single-image analysis upload page"
 milestone: M5
 labels: [type:feature, priority:P1, area:WebKit, effort:medium, status:blocked]
-depends_on: [PP-038, PP-011]
+depends_on: [PP-038]
+integrates_with: [PP-011]
 ---
 ## Summary
 
@@ -70,7 +71,11 @@ A user guide page for analysis in the web UI.
 
 ## Dependencies
 
-PP-038, PP-011.
+**Blocked by** (merge these before starting): PP-038.
+
+**Integrates with** (start now; finish the integration once these land): PP-011.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

@@ -3,7 +3,8 @@ id: PP-065
 title: "feat(evaluation): integrate COVERAGE, CASIA v2 and MICC-F220 datasets"
 milestone: M6
 labels: [type:research, priority:P2, area:testing, effort:medium, status:needs-design]
-depends_on: [PP-064]
+depends_on: []
+integrates_with: [PP-064]
 ---
 ## Summary
 
@@ -70,7 +71,11 @@ Diverse, documented evaluation data.
 
 ## Dependencies
 
-PP-064 (shared loader base).
+**Blocked by** (merge these before starting): nothing. This can start now.
+
+**Integrates with** (start now; finish the integration once these land): PP-064.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 

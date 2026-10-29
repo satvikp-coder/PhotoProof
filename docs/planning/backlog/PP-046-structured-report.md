@@ -2,8 +2,9 @@
 id: PP-046
 title: "feat(reporting): generate structured forensic reports with evidence traceability"
 milestone: M5
-labels: [type:feature, priority:P1, area:core, effort:large, status:blocked]
-depends_on: [PP-034]
+labels: [type:feature, priority:P1, area:core, effort:large, status:ready]
+depends_on: []
+integrates_with: [PP-034]
 ---
 ## Summary
 
@@ -76,7 +77,11 @@ A report-format reference page, and the CLI docs.
 
 ## Dependencies
 
-PP-034 (assessment categories).
+**Blocked by** (merge these before starting): nothing. This can start now.
+
+**Integrates with** (start now; finish the integration once these land): PP-034.
+
+**Work plan.** Start now against the documented contracts of the integrating issues (use mocks or synthetic fixtures). Complete the integration acceptance criteria when they land.
 
 ## Priority and Effort
 
