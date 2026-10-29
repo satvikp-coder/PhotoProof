@@ -1,29 +1,90 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
 
 [project]
 name = "photoproof"
-version = "0.1.0"
-description = "An educational image-forensics prototype for manipulation signal visualization"
+dynamic = ["version"]  # derived from app.toml, see [tool.hatch.version]
+description = "Modular digital image forgery detection and localization framework."
 readme = "README.md"
-requires-python = ">=3.10"
-license = { file = "LICENSE" }
+requires-python = ">=3.11,<3.14"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "PhotoProof Contributors" }]
+classifiers = [
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+]
 dependencies = [
-  "numpy>=1.26,<3.0",
-  "opencv-python-headless>=4.9,<5.0",
-  "Pillow>=10.0,<13.0",
-  "streamlit>=1.36,<2.0",
+  "pydantic>=2.9,<3",
+  "PyYAML>=6.0.2,<7",
 ]
 
-[tool.setuptools]
-package-dir = {"" = "src"}
+[project.scripts]
+photoproof = "photoproof.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[dependency-groups]
+build = ["hatchling>=1.25"]
+dev = [
+  "pytest>=8.3",
+  "pytest-cov>=6.0",
+  "ruff>=0.8",
+  "mypy>=1.13",
+  "types-PyYAML>=6.0",
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.5",
+  "bandit>=1.8",
+  "pip-audit>=2.7",
+  "build>=1.2",
+]
+
+[tool.hatch.version]
+path = "app.toml"
+pattern = '(?m)^version = "(?P<version>[^"]+)"'
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/photoproof"]
+dev-mode-dirs = ["src"]  # editable installs use a .pth file (no `editables` dependency)
+
+[tool.hatch.build.targets.sdist]
+include = ["src/photoproof", "app.toml", "README.md", "LICENSE"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["context"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "S", "BLE", "SIM", "RUF", "PL"]
+ignore = ["PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "PLR2004"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S603", "PLC0415"]
+"main.py" = ["S603", "PLC0415", "UP036"]  # must run (and fail clearly) on old interpreters
+".github/scripts/**" = ["S603", "S607"]
+
+[tool.mypy]
+strict = true
+files = ["src"]
+plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = "-q"
+pythonpath = ["tests", "tests/fixtures"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["photoproof"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+# subprocess is only used with argument lists (never shell=True, which B602 still flags)
+skips = ["B404", "B603"]

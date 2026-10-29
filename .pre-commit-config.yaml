@@ -1,0 +1,32 @@
+# pre-commit install --hook-type pre-commit --hook-type commit-msg
+# Local hooks use the tools pinned in requirements-dev.lock (run from the activated .venv).
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format
+        language: system
+        types: [python]
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check --fix
+        language: system
+        types: [python]
+      - id: mypy
+        name: mypy
+        entry: mypy
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: no-runtime-data
+        name: block runtime data and datasets
+        entry: Runtime data, models and datasets must not be committed
+        language: fail
+        files: ^(ARE/|models/(?!README\.md)|media/datasets/(?!README\.md))
+      - id: conventional-commit
+        name: conventional commit message
+        language: pygrep
+        entry: '\A(?!(feat|fix|docs|refactor|perf|test|build|ci|chore|style|revert)(\([A-Za-z0-9_./-]+\))?!?: \S)'
+        args: [--multiline]
+        stages: [commit-msg]

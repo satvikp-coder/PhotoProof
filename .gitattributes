@@ -1,0 +1,17 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+
+# Binary media under media/ go through Git LFS
+media/**/*.jpg  filter=lfs diff=lfs merge=lfs -text
+media/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+media/**/*.png  filter=lfs diff=lfs merge=lfs -text
+media/**/*.webp filter=lfs diff=lfs merge=lfs -text
+media/**/*.heic filter=lfs diff=lfs merge=lfs -text
+media/**/*.avif filter=lfs diff=lfs merge=lfs -text
+media/**/*.jxl  filter=lfs diff=lfs merge=lfs -text
+media/**/*.tif  filter=lfs diff=lfs merge=lfs -text
+media/**/*.tiff filter=lfs diff=lfs merge=lfs -text
+media/**/*.gif  filter=lfs diff=lfs merge=lfs -text
+
+# Lockfiles are generated
+requirements*.lock linguist-generated=true -diff

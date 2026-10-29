@@ -1,0 +1,8 @@
+name: standard
+description: Single-image analysis using every enabled detector.
+mode: single
+plugins:
+  enable: []
+  disable: []
+required_plugins: []
+required_outputs: []

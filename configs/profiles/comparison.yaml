@@ -1,0 +1,8 @@
+name: comparison
+description: Target-versus-reference analysis. The reference is user-supplied comparison material, not a trusted original.
+mode: comparison
+plugins:
+  enable: []
+  disable: []
+required_plugins: []
+required_outputs: []

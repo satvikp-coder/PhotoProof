@@ -1,0 +1,8 @@
+name: research
+description: Single-image analysis intended for experimental detectors. Results are not suitable for reporting.
+mode: single
+plugins:
+  enable: []
+  disable: []
+required_plugins: []
+required_outputs: []

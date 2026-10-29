@@ -1,0 +1,75 @@
+# Global application behaviour. Forensic algorithm parameters do NOT belong here;
+# they live in configs/plugins/<plugin_id>.yaml. Every key is documented in
+# docs/configuration/settings.md. Unknown keys are rejected.
+
+schema_version: 1
+
+environment:
+  mode: development            # development | testing | production
+
+runtime:
+  root: ARE                    # relative to the repository root
+  temp_max_age_hours: 24       # stale temporary files older than this are SAFE to remove
+
+scheduling:
+  executor: sequential         # sequential (only implemented executor)
+  strict_priority_barriers: true
+  default_plugin_timeout_seconds: 60
+  random_seed: 0               # passed to every plugin and recorded in the manifest
+
+dependencies:
+  on_unavailable_requirement: skip   # skip | block — when a `requires` dependency is disabled or unavailable
+
+failure_policy:
+  on_required_failure: abort   # abort | degrade
+
+features:
+  unknown_flags: error         # error | warn
+  flags: {}                    # e.g. "plugin.compression.ela": false
+
+plugins:
+  blacklist: []                # plugin IDs that must never run (bypass: --ignore-blacklist)
+  allow_profile_overrides: true
+
+profiles:
+  default: standard            # file name in configs/profiles/ without .yaml
+
+cache:
+  enabled: true
+
+logging:
+  level: INFO                  # DEBUG | INFO | WARNING | ERROR
+  console_format: text         # text | json
+  file_max_bytes: 5000000
+  file_backups: 3
+
+health:
+  preflight_fail_on: error     # warning | error | critical — lowest severity that blocks startup
+
+recovery:
+  auto_repair_safe: true       # apply SAFE repairs during preflight
+
+resources:
+  max_input_bytes: 104857600   # 100 MiB per input file
+  max_image_pixels: 178956970  # decompression-bomb ceiling for future decoders
+  min_free_disk_mb: 1024
+
+security:
+  forbidden_plugins: []        # non-bypassable; --ignore-blacklist does not affect these
+  allow_blacklist_bypass: true # must be false when environment.mode is production
+
+formats:
+  accepted: [jpeg, png, webp]  # reserved: enforced by the ingestion pipeline (planned)
+
+reporting:
+  include_effective_settings: true   # embed effective settings in execution manifests
+
+services:
+  background_workers: 0        # reserved: background job workers are planned; must be 0
+
+ui:
+  host: 127.0.0.1              # reserved for WebKit (planned)
+  port: 8501
+
+development:
+  debug: false                 # must be false when environment.mode is production

@@ -1,0 +1,44 @@
+# Authoritative application identity. `version` below is the ONLY place the
+# application version is written; packaging derives it from this file.
+
+[application]
+name = "PhotoProof"
+version = "0.1.0"
+package = "photoproof"
+description = "Modular digital image forgery detection and localization framework."
+release_channel = "development"   # development | preview | stable
+plugin_api_version = "1.0.0"
+config_schema_version = 1
+
+# Replace the placeholders with the real team members.
+[[developers]]
+name = "Varun Karthic"
+github = "varunkarthic"
+
+[[developers]]
+name = "Developer 2 (placeholder)"
+github = ""
+
+[[developers]]
+name = "Developer 3 (placeholder)"
+github = ""
+
+[[developers]]
+name = "Developer 4 (placeholder)"
+github = ""
+
+[python]
+minimum = "3.11"   # inclusive
+maximum = "3.13"   # inclusive (minor version)
+
+[platform]
+operating_systems = ["Linux", "Darwin", "Windows"]
+architectures = ["x86_64", "arm64"]
+
+[hardware]
+min_cpu_cores = 1
+recommended_cpu_cores = 2
+min_memory_mb = 2048
+recommended_memory_mb = 4096
+min_free_disk_mb = 1024
+gpu = "optional"

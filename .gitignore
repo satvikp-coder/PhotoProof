@@ -1,16 +1,41 @@
 # Python
 __pycache__/
 *.py[cod]
-*.pyd
 *.egg-info/
+build/
+dist/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .coverage
+coverage.xml
 htmlcov/
+reports/
 
-# Virtual environments
+# Environments
 .venv/
 venv/
-ENV/
+.env
+.env.*
+!.env.example
+
+# Application Runtime Environment (generated data, possibly sensitive images)
+/ARE/
+
+# Models and datasets are never committed (see models/README.md, media/datasets/README.md)
+/models/*
+!/models/README.md
+/media/datasets/*
+!/media/datasets/README.md
+*.onnx
+*.pt
+*.pth
+*.h5
+*.keras
+*.safetensors
+
+# Docs build
+/site/
 
 # Editors and OS
 .vscode/
@@ -18,18 +43,5 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Local secrets and environment
-.env
-.env.*
-!.env.example
-
-# Datasets and generated outputs
-/data/*
-!/data/README.md
-outputs/
-reports/
-*.onnx
-*.pt
-*.pth
-*.h5
-*.keras
+# Local context
+context/
