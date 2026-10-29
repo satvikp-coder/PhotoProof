@@ -1,0 +1,169 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUTF8: "1"
+  FORCE_COLOR: "1"
+
+jobs:
+  quality:
+    name: Quality · lint, format, types, config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install locked development dependencies
+        run: |
+          python -m pip install --require-hashes --only-binary :all: -r requirements-dev.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+      - name: Ruff lint
+        run: ruff check . --output-format github
+      - name: Ruff format
+        run: ruff format --check .
+      - name: Type check (mypy strict)
+        run: mypy
+      - name: Validate configuration and plugin graph
+        run: |
+          python -m photoproof config --json > /dev/null
+          python -m photoproof plugins
+      - name: Version and changelog consistency
+        run: python .github/scripts/governance.py version
+
+  test:
+    name: Test · ${{ matrix.os }} · py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install locked development dependencies
+        run: |
+          python -m pip install --require-hashes --only-binary :all: -r requirements-dev.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+      - name: Unit, plugin-contract and configuration tests
+        run: pytest tests/unit --junitxml=reports/unit.xml
+      - name: Integration, resilience, security and e2e tests
+        run: >-
+          pytest tests/integration tests/resilience tests/security tests/e2e
+          --junitxml=reports/integration.xml
+          --cov=photoproof --cov-report=xml:reports/coverage.xml --cov-report=term
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports-${{ matrix.os }}-py${{ matrix.python }}
+          path: reports/
+          retention-days: 14
+
+  build:
+    name: Package build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install locked development dependencies
+        run: "python -m pip install --require-hashes --only-binary :all: -r requirements-dev.lock"
+      - name: Build sdist and wheel
+        run: python -m build --no-isolation
+      - name: Verify built version matches app.toml
+        run: python .github/scripts/governance.py version --dist dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          retention-days: 14
+
+  launcher:
+    name: Launcher smoke · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Version
+        run: python main.py --version
+      - name: First launch (creates .venv from requirements.lock)
+        run: python main.py
+      - name: Second launch (must not reinstall)
+        shell: bash
+        run: python main.py 2>&1 | tee launch.log && ! grep -q "Installing locked dependencies" launch.log
+      - name: Doctor
+        run: python main.py --doctor
+      - name: Repair dry run
+        run: python main.py --repair --dry-run
+
+  summary:
+    name: Summary
+    if: always()
+    needs: [quality, test, build, launcher]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: reports-*
+          path: reports
+      - name: Job status
+        env:
+          QUALITY: ${{ needs.quality.result }}
+          TEST: ${{ needs.test.result }}
+          BUILD: ${{ needs.build.result }}
+          LAUNCHER: ${{ needs.launcher.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          icon() {
+            case "$1" in
+              success) echo "✅" ;;
+              skipped) echo "⏭️" ;;
+              *) echo "❌" ;;
+            esac
+          }
+          {
+            echo "# 🔎 PhotoProof CI"
+            echo ""
+            echo "| Job | Result |"
+            echo "|---|---|"
+            echo "| Quality (lint, format, types, config) | $(icon "$QUALITY") $QUALITY |"
+            echo "| Tests (3 OS × 3 Python) | $(icon "$TEST") $TEST |"
+            echo "| Package build | $(icon "$BUILD") $BUILD |"
+            echo "| Launcher smoke | $(icon "$LAUNCHER") $LAUNCHER |"
+            echo ""
+            echo "[Logs and artifacts]($RUN_URL)"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Test matrix
+        run: >-
+          python .github/scripts/governance.py summary --junit reports
+          --coverage reports/reports-ubuntu-latest-py3.12/coverage.xml --title "Test matrix"
+      - name: Fail if any job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

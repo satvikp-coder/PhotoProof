@@ -1,0 +1,4 @@
+# Default reviewers for everything. Refine per area once ownership is agreed.
+*                       @satvikp-coder @varunkarthic
+/.github/               @satvikp-coder @varunkarthic
+/src/photoproof/core/security/  @satvikp-coder @varunkarthic

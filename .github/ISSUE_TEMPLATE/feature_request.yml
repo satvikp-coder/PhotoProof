@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a new capability, detector or interface.
+title: "feat(<scope>): <concise description>"
+labels: ["type:feature", "status:needs-design"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: "Summary"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem statement"
+      description: "What limitation does this address and for whom?"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: For algorithms, name the actual method and cite the source.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives considered"
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Objective, verifiable checkboxes.
+      placeholder: "- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: "Security, privacy and forensic-integrity considerations"

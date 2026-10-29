@@ -1,0 +1,66 @@
+name: Bug report
+description: Something does not behave as documented.
+title: "fix(<scope>): <concise description>"
+labels: ["type:bug", "status:needs-design"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security problem?** Do not file it here — follow SECURITY.md.
+        Never attach photographs you do not have the right to share.
+  - type: textarea
+    id: summary
+    attributes:
+      label: "Summary"
+      description: "What is wrong?"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. python main.py analyze sample.jpg
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Expected behaviour"
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: "Actual behaviour"
+      description: "Include error output."
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Output of `python main.py --doctor` and, if relevant, `python main.py manifest <run-id> --json`.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: "PhotoProof version"
+      placeholder: "python main.py --version"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, macOS, Windows]
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: "Python version"
+      placeholder: "3.12.4"
+    validations:
+      required: true

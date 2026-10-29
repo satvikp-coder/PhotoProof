@@ -1,0 +1,91 @@
+name: Engineering task
+description: A fully specified implementation unit (backlog format).
+title: "<type>(<scope>): <concise description>"
+labels: ["status:needs-design"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: "Summary"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem statement"
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: "Objective"
+    validations:
+      required: true
+  - type: textarea
+    id: background
+    attributes:
+      label: "Technical background"
+  - type: textarea
+    id: functional
+    attributes:
+      label: "Functional requirements"
+    validations:
+      required: true
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Technical implementation
+      description: Files/modules, interfaces, inputs, outputs, data structures, dependencies, algorithm, configuration, error handling, resources.
+    validations:
+      required: true
+  - type: textarea
+    id: integration
+    attributes:
+      label: Integration requirements
+      description: For plugins — plugin ID, priority, requires, after, input/output contracts, applicability, failure behaviour, versioning.
+  - type: textarea
+    id: security
+    attributes:
+      label: "Security and edge cases"
+    validations:
+      required: true
+  - type: textarea
+    id: testing
+    attributes:
+      label: "Testing requirements"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: "Acceptance criteria"
+      placeholder: "- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: "Expected outcome"
+  - type: textarea
+    id: docs
+    attributes:
+      label: "Documentation requirements"
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: "Dependencies"
+      placeholder: "Blocked by #..."
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options: ["P0 — critical blocker or security", "P1 — needed for the next milestone", "P2 — planned", "P3 — optional / research"]
+    validations:
+      required: true
+  - type: dropdown
+    id: effort
+    attributes:
+      label: Effort
+      options: [small, medium, large]
+    validations:
+      required: true
