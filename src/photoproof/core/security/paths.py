@@ -15,7 +15,8 @@ def safe_join(root: Path, *parts: str) -> Path:
         if not part or "\x00" in part:
             raise UnsafePathError(f"empty or NUL-containing path component: {part!r}")
         pure = PurePath(part)
-        if pure.is_absolute() or pure.drive or ".." in pure.parts:
+        # `root` catches Windows root-relative parts like "\\etc" that are not "absolute".
+        if pure.is_absolute() or pure.drive or pure.root or ".." in pure.parts:
             raise UnsafePathError(f"path component escapes its root: {part!r}")
     base = root.resolve()
     candidate = base.joinpath(*parts).resolve()
