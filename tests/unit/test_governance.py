@@ -69,6 +69,153 @@ def test_changelog_sections() -> None:
     assert sections["0.1.0"][0] == "2026-10-29" and sections["Unreleased"][1] == "- a"
 
 
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("Closes #42", [42]),
+        ("Refs #7 and fixes #8", [7, 8]),
+        ("Part of #3. Resolved #4. closes #3", [3, 4]),  # no repeats
+        ("mentions #5 without a keyword", []),
+        ("", []),
+    ],
+)
+def test_linked_issues(body: str, expected: list[int]) -> None:
+    assert gov.linked_issues(body) == expected
+
+
+@pytest.mark.parametrize(
+    ("current", "linked", "expected"),
+    [
+        (None, [1], 1),
+        (None, [None, 2], 2),
+        (None, [3, 1, 2], 1),  # the earliest wins when issues disagree
+        (None, [None], None),
+        (None, [], None),
+        (5, [1], None),  # set by hand: never overwritten
+    ],
+)
+def test_choose_milestone(
+    current: int | None, linked: list[int | None], expected: int | None
+) -> None:
+    assert gov.choose_milestone(current=current, linked=linked) == expected
+
+
+class _FakeGh:
+    """Stands in for the gh CLI, recording what would change on GitHub."""
+
+    def __init__(
+        self, milestones: dict[int, int | None], *, write_fails: bool = False, read_error: str = ""
+    ) -> None:
+        self.milestones = {9: None, **milestones}  # 9 is the pull request
+        self.write_fails = write_fails
+        self.read_error = read_error
+        self.writes: list[tuple[str, ...]] = []
+
+    def __call__(self, *args: str) -> str:
+        if "PATCH" in args:
+            self.writes.append(args)
+            if self.write_fails:
+                raise OSError("Resource not accessible by integration")
+            return ""
+        number = int(args[1].rsplit("/", 1)[1])
+        if self.read_error and number != 9:
+            raise OSError(self.read_error)
+        if number not in self.milestones:
+            raise OSError("gh: Not Found (HTTP 404)")
+        value = self.milestones[number]
+        return "" if value is None else str(value)
+
+
+def _run_milestone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake: _FakeGh, body: str
+) -> int:
+    monkeypatch.setattr(gov, "_gh", fake)
+    path = tmp_path / "body.md"
+    path.write_text(body, encoding="utf-8")
+    arguments = ["milestone", "--repo", "o/r", "--pull-request", "9"]
+    return gov.main([*arguments, "--body-file", str(path)])  # type: ignore[no-any-return]
+
+
+def test_milestone_is_copied_from_the_linked_issue(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = _FakeGh({4: 1})
+    assert _run_milestone(monkeypatch, tmp_path, fake, "Closes #4") == 0
+    assert fake.writes == [("api", "-X", "PATCH", "repos/o/r/issues/9", "-F", "milestone=1")]
+
+
+def test_live_milestone_set_by_a_person_is_left_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Set after the event fired: the workflow reads it live, so it still wins."""
+    fake = _FakeGh({4: 1, 9: 6})
+    assert _run_milestone(monkeypatch, tmp_path, fake, "Closes #4") == 0
+    assert fake.writes == []
+
+
+@pytest.mark.parametrize("body", ["no reference at all", "Closes #404", "Closes #4"])
+def test_nothing_to_copy_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, body: str
+) -> None:
+    fake = _FakeGh({4: None})
+    assert _run_milestone(monkeypatch, tmp_path, fake, body) == 0
+    assert fake.writes == []
+
+
+@pytest.mark.parametrize(
+    "error", ["HTTP 403: API rate limit exceeded", "HTTP 502: Bad Gateway", "connection reset"]
+)
+def test_lookup_failure_fails_the_job_instead_of_looking_like_no_milestone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, error: str
+) -> None:
+    fake = _FakeGh({4: 1}, read_error=error)
+    assert _run_milestone(monkeypatch, tmp_path, fake, "Closes #4") == 1
+    assert fake.writes == []
+
+
+def test_partial_lookup_failure_does_not_pick_from_the_rest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = _FakeGh({4: 3})
+
+    def flaky(*args: str) -> str:
+        if args[1].endswith("/5"):
+            raise OSError("HTTP 502: Bad Gateway")
+        return fake(*args)
+
+    monkeypatch.setattr(gov, "_gh", flaky)
+    path = tmp_path / "body.md"
+    path.write_text("Closes #4 and refs #5", encoding="utf-8")
+    assert (
+        gov.main(["milestone", "--repo", "o/r", "--pull-request", "9", "--body-file", str(path)])
+        == 1
+    )
+    assert fake.writes == []
+
+
+def test_deleted_issue_is_treated_as_having_no_milestone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = _FakeGh({})
+    fake.read_error = "gh: Gone (HTTP 410)"
+    assert _run_milestone(monkeypatch, tmp_path, fake, "Closes #4") == 0
+    assert fake.writes == []
+
+
+def test_failed_write_fails_the_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    fake = _FakeGh({4: 1}, write_fails=True)
+    assert _run_milestone(monkeypatch, tmp_path, fake, "Closes #4") == 1
+
+
+def test_hostile_body_text_only_ever_yields_numbers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = _FakeGh({})
+    body = 'Closes #1; rm -rf / $(whoami) `id` "quoted"\nRefs #../../x'
+    assert _run_milestone(monkeypatch, tmp_path, fake, body) == 0
+    assert fake.writes == []
+
+
 def test_ordinary_pr_needs_no_version_change() -> None:
     assert _evaluate(head_app_toml=APP.format("0.1.0")) == ([], [])
 

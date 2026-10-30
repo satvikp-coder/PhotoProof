@@ -28,7 +28,9 @@ TITLE = re.compile(
     r"^(feat|fix|docs|refactor|perf|test|build|ci|chore|style|revert)"
     r"(\([A-Za-z0-9_./-]+\))?(!)?: [^A-Z\s].{2,}[^.]$"
 )
-ISSUE_REF = re.compile(r"(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?|refs?|part of)\s+#\d+")
+ISSUE_REF = re.compile(
+    r"(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?|refs?|part of)\s+#(?P<issue>\d+)"
+)
 SECTION = re.compile(r"^## \[(?P<version>[^\]]+)\](?: - (?P<date>\d{4}-\d{2}-\d{2}))?\s*$", re.M)
 EXEMPT_LABEL = "governance:exempt"
 RELEASE_TITLE = "chore(release):"
@@ -197,6 +199,76 @@ def cmd_pr(base: str, title: str, body_file: Path, labels: set[str]) -> int:
     return 1 if failures else 0
 
 
+def linked_issues(body: str) -> list[int]:
+    """Issue numbers the PR refers to, in order, without repeats."""
+    return list(dict.fromkeys(int(match["issue"]) for match in ISSUE_REF.finditer(body)))
+
+
+def choose_milestone(*, current: int | None, linked: list[int | None]) -> int | None:
+    """The milestone to set, or ``None`` to leave the PR alone.
+
+    A milestone already on the PR is a person's decision, so it stays. If the linked issues
+    disagree, the earliest milestone wins, because that work has to land first.
+    """
+    if current is not None:
+        return None
+    return min((number for number in linked if number is not None), default=None)
+
+
+def _gh(*args: str) -> str:
+    result = subprocess.run(["gh", *args], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise OSError(result.stderr.strip() or f"gh {args[0]} failed")
+    return result.stdout.strip()
+
+
+def _milestone_of(repo: str, number: int) -> int | None:
+    """The live milestone of an issue or PR, or ``None`` if it has none.
+
+    Raises ``OSError`` if the answer is unavailable, so a rate limit or outage fails the job
+    and can be retried, instead of looking like an issue with no milestone.
+    """
+    found = _gh("api", f"repos/{repo}/issues/{number}", "--jq", ".milestone.number // empty")
+    return int(found) if found else None
+
+
+def _linked_milestone(repo: str, number: int) -> int | None:
+    """Like ``_milestone_of``, but a reference to something that does not exist is fine."""
+    try:
+        return _milestone_of(repo, number)
+    except OSError as error:
+        if "HTTP 404" in str(error) or "HTTP 410" in str(error):
+            return None
+        raise
+
+
+def cmd_milestone(repo: str, pull_request: int, body_file: Path) -> int:
+    linked = linked_issues(body_file.read_text("utf-8"))
+    try:
+        # Read live, not from the event: a person may have set one since it fired.
+        current = _milestone_of(repo, pull_request)
+        chosen = choose_milestone(
+            current=current, linked=[_linked_milestone(repo, number) for number in linked]
+        )
+        if chosen is not None:
+            _gh(
+                "api",
+                "-X",
+                "PATCH",
+                f"repos/{repo}/issues/{pull_request}",
+                "-F",
+                f"milestone={chosen}",
+            )
+    except OSError as error:
+        summary(f"❌ PR #{pull_request}: could not check or set the milestone: {error}\n")
+        return 1
+    if chosen is None:
+        summary(f"PR #{pull_request}: milestone unchanged (linked issues: {linked or 'none'}).\n")
+    else:
+        summary(f"PR #{pull_request}: set milestone {chosen} from linked issues {linked}.\n")
+    return 0
+
+
 def cmd_summary(junit_dir: Path, coverage: Path | None, title: str) -> int:
     rows, totals = [], [0, 0, 0, 0]
     for report in sorted(junit_dir.glob("**/*.xml")):
@@ -239,6 +311,10 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--title", required=True)
     pr.add_argument("--body-file", type=Path, required=True)
     pr.add_argument("--labels", default="")
+    milestone = sub.add_parser("milestone")
+    milestone.add_argument("--repo", required=True)
+    milestone.add_argument("--pull-request", type=int, required=True)
+    milestone.add_argument("--body-file", type=Path, required=True)
     report = sub.add_parser("summary")
     report.add_argument("--junit", type=Path, required=True)
     report.add_argument("--coverage", type=Path)
@@ -252,6 +328,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_pr(
             args.base, args.title, args.body_file, set(filter(None, args.labels.split(",")))
         )
+    if args.command == "milestone":
+        return cmd_milestone(args.repo, args.pull_request, args.body_file)
     return cmd_summary(args.junit, args.coverage, args.title)
 
 

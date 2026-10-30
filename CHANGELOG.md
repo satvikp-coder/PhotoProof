@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Pull requests automatically get the milestone of the issue they reference, unless someone has
+  already set one.
 - 16-bit PNGs decode without loss. High-depth images get a `uint16` view with their transfer
   function and primaries, and an 8-bit derivative through a documented tone curve. The pipeline
   does not use these yet (#12).

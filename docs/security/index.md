@@ -75,7 +75,8 @@ GitHub Actions pinned to commit SHAs.
 
 The launcher never escalates privileges or runs shell strings (`subprocess` with
 argument lists only). Runtime directories are 0700; blobs are 0400. `GITHUB_TOKEN`
-permissions default to `contents: read`; only the release job can write.
+permissions default to `contents: read`. Only the release job can write contents, and the
+milestone job can write pull requests.
 
 ## Evidence preservation
 
