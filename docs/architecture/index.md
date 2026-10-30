@@ -66,6 +66,14 @@ plugins   →  contracts
 receive everything else through `PluginContext`. The scheduler never needs to know
 what a plugin computes.
 
+## Image pipeline (planned wiring)
+
+`bytes → detect_format → PillowDecoder → DecodedImage → normalize → WorkingImage`
+
+These steps exist as separate, tested functions. `analyze` does not call the decoder or
+`normalize` yet: #12 connects them, and #9 moves decoding into an isolated process. Normalizing
+never changes the `DecodedImage`, so unconverted pixels stay available.
+
 ## Data flow of one analysis
 
 1. The CLI stores the input in the evidence store (streamed, size-limited) and builds an
