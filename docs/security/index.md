@@ -27,10 +27,12 @@
 
 ## Runtime isolation plan
 
-Nothing is isolated yet beyond the policy checks above. In order:
+Decoders and plugins still run in-process. `core/isolation.py` provides the building block
+for changing that: `run_isolated` runs a callable in a spawned child process with limits and
+returns its result or a typed failure. Nothing uses it yet. In order:
 
 1. A decoder worker process that receives bytes plus `DecodeLimits` and returns
-   pixels, with OS resource limits and timeouts.
+   pixels, built on `run_isolated` (#9).
 2. A process-isolated executor implementing the `Executor` protocol, so native-code
    crashes in plugins cannot take down the application.
 3. Hardening: seccomp/sandbox profiles where the platform supports them, and dropping
@@ -38,6 +40,38 @@ Nothing is isolated yet beyond the policy checks above. In order:
 
 A module named `sandbox.py` that does none of these would be misleading, so none
 exists.
+
+### Child-process runner
+
+| Limit | Linux | macOS | Windows |
+|---|---|---|---|
+| Wall clock | Parent deadline | Parent deadline | Parent deadline |
+| Memory | `RLIMIT_AS` | RSS watchdog, polled every 100 ms | Job Object |
+| CPU time | `RLIMIT_CPU` | `RLIMIT_CPU` | Not enforced; the wall clock still applies |
+
+`python main.py --doctor` reports this as `isolation.capabilities`. macOS ignores
+`RLIMIT_AS`, so its watchdog can overshoot between polls, and it counts resident memory only.
+
+The child is treated as compromised:
+
+- **Results are plain data.** The parent's unpickler refuses to resolve any class or function,
+  so a forged reply cannot run code. A result containing anything else is `invalid_result`.
+- **The deadline cannot be blocked.** Pipe I/O runs off the main thread, so a child that sends
+  half a message and hangs still times out. Transfers have size caps in both directions.
+- **Nothing survives.** Each child leads its own process group (POSIX) or Job Object (Windows),
+  so its descendants die with it. A child that ignores `SIGTERM` is killed, and a child whose
+  parent died stops itself shortly after its deadline (POSIX) or with the Job Object (Windows).
+- **Little is inherited.** The child gets a minimal environment, a temporary working directory
+  and no core dumps. It receives no work until its limits are in place, and if a limit cannot
+  be applied, it does not run.
+
+This limits resources and contains crashes. It is **not** a sandbox: the child can still read
+files and use the network as your user until #59.
+
+**Overhead**, measured on an Apple M4 with Python 3.13 (median of 15 calls): about 105 ms per
+call, mostly starting the interpreter, and about 410 ms for a 100 MiB round trip. Results are
+copied through a pipe, so #9 should measure this against real decoding before adding shared
+memory.
 
 ## Dependency security
 

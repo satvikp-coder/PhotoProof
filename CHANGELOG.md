@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `core/isolation.py` runs a callable in a child process with wall-clock, CPU and memory limits
+  and reports typed failures. `doctor` reports which limits this platform can enforce. Decoders
+  and plugins do not use it yet (#9, #52).
 - Support for Python 3.14 and 3.15 in the launcher, packaging and the CI matrix
   (3 OSes × Python 3.11–3.15). The launcher smoke test covers the oldest and newest.
 - The team page (`docs/planning/team.md`), which allocates every backlog issue to an

@@ -13,6 +13,7 @@ checks **never** change anything; repairs are separate, classified actions.
 | `runtime.stale_temp` | Old files in `tmp/`, interrupted-write `.*.part` leftovers | warning | SAFE: delete exactly those files |
 | `database.integrity` | Missing DB (warning, SAFE init); pending migration (error, CONTROLLED: back up then migrate); newer/unknown schema or failed `PRAGMA integrity_check` (critical, MANUAL) | — | — |
 | `cache.integrity` | Unparseable entries, missing/corrupt referenced artifacts | warning | SAFE: invalidate entries |
+| `isolation.capabilities` | Which child-process limits this platform can enforce (informational) | — | — |
 | `storage.integrity` | Blobs in `objects/` (evidence, critical) or `artifacts/` (error) whose hash mismatches | — | MANUAL, never modified |
 | `application.version` | Installed package version ≠ `app.toml` | error | CONTROLLED: `python main.py --repair` |
 | `plugins.graph` | Invalid plugin graph (error) or unavailable plugins (warning) | — | MANUAL |
