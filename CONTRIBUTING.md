@@ -347,6 +347,17 @@ Complete every section of the PR template:
 - Compatibility and security considerations
 - Screenshots or execution examples where relevant
 
+Filling it in:
+
+- **Version impact and documentation changes are written as text.** State `PATCH`, `MINOR` or
+  `MAJOR`, and list the pages you updated, or say why none needed changing.
+- **Tick every box in the final checklist.** GitHub counts each `- [ ]` line in the description
+  as a task, so a complete PR shows all of them done. Don't add unticked boxes for alternatives.
+- **Link the issue with `Closes #…`.** Only closing keywords (`Closes`, `Fixes`, `Resolves`)
+  link a PR to its issue and close it on merge. `Refs #…` does neither, so use it only for
+  partial work, such as the first of a detector's two PRs. If a criterion moves to another
+  issue, say so in both places.
+
 Rules:
 
 - At least **one approving review from another developer**.
