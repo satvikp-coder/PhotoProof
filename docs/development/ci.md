@@ -78,6 +78,13 @@ administrator had no bypass. The temporary ruleset and branch were then deleted.
 No update to `main` was attempted. This verifies rejection on the equivalent test
 branch, not a literal push rejection on `main`.
 
+On **2026-10-31**, PR #93 had all CI checks successful and GitHub reported
+`reviewDecision: REVIEW_REQUIRED` and `mergeStateStatus: BLOCKED`. It remained a
+draft, so this is supporting evidence rather than an isolated approval-blocking
+test. A second developer is needed to approve a disposable test PR before testing
+the failing-check and unresolved-conversation gates independently. Self-approval
+cannot establish this behavior. No merge API call was used as a test.
+
 API readback and the isolated rejection test do not verify every acceptance scenario. Do not make a
 test push or attempt a merge on `main`. Use a disposable branch and a temporary
 ruleset with the same rules targeting only that branch. Confirm a non-bypass user's
@@ -109,7 +116,26 @@ To request a review by hand, comment `@codex review` or `@codex security review`
 PR. Reviews flag only P0 and P1 issues. They do not replace tests, branch protection or
 the required approval.
 
-## Read the Docs (pending authenticated setup)
+## Read the Docs
+
+Verified on **2026-10-31** using the public RTD API and published sites:
+
+- Project slug: `photoproof`, repository `https://github.com/satvikp-coder/PhotoProof.git`.
+- Default branch: `main`; `latest` identifies `main`, is active and built.
+- Canonical documentation URL: [photoproof.readthedocs.io](https://photoproof.readthedocs.io/)
+  (HTTP 200).
+- Successful main build: [35528958](https://app.readthedocs.org/projects/photoproof/builds/35528958/),
+  commit `5e4d8a0a49eb6a37b434a1580ab997f41e5a37ee`, finished 2026-10-30.
+- Successful PR #93 build: [35530144](https://app.readthedocs.org/projects/photoproof/builds/35530144/),
+  commit `962d79938f7d886b015c901e3a03784e876eebe6`, with a successful GitHub status
+  `docs/readthedocs.org:photoproof` and [public preview](https://photoproof--93.org.readthedocs.build/)
+  (HTTP 200). This demonstrates PR builds are enabled.
+- README now links the confirmed documentation URL and project badge (badge endpoint
+  also returned HTTP 200). No project URL was inferred from the repository name.
+
+The project was already connected; this work verified it rather than importing a
+second project. No authenticated RTD session was needed to verify public build evidence.
+For administrators reconnecting or reproducing the integration:
 
 1. Sign in at readthedocs.org with GitHub and **Import a Project** →
    `satvikp-coder/PhotoProof`.
@@ -128,10 +154,9 @@ the required approval.
 6. Only then copy that project's badge from its dashboard into README.md and update
    the README hosting status. Do not infer the slug from the repository name.
 
-As of **2026-10-30**, GitHub's repository hook list is empty and this session has no
-authenticated Read the Docs connection. A GitHub App installation is not ruled out
-by an empty hook list. No RTD project URL, successful hosted main build or PR preview
-has been verified, and no badge has been added. These actions remain pending; issue
-#63 must stay open until hosted builds and the enforcement scenarios are verified.
+GitHub's repository hook list was empty on **2026-10-30**; that did not indicate an
+absent GitHub App integration. Public RTD evidence above supersedes the initial
+unverified hosting status. Issue #63 still requires the remaining protection
+acceptance scenarios and normal human review before it can be completed.
 The existing YAML matches the [RTD configuration reference](https://docs.readthedocs.com/platform/stable/config-file/v2.html);
 preview setup follows [RTD pull request previews](https://docs.readthedocs.com/platform/stable/pull-requests.html).
