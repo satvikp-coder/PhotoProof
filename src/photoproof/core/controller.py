@@ -221,7 +221,10 @@ class AnalysisController:
             random_seed=app.settings.scheduling.random_seed,
             artifacts=[a.model_dump(mode="json") for a in artifacts],
             outputs=outputs,
-            software=build_info(app.root),
+            software={
+                **build_info(app.root),
+                "image_decoders": app.decoders.library_versions(),
+            },
         )
         manifest_path = app.storage.write_json(manifest, "manifests", f"{run_id}.json")
         manifest_sha = sha256_bytes(manifest_path.read_bytes())
@@ -392,6 +395,7 @@ class AnalysisController:
                 "policy": {pid: d.enabled for pid, d in sorted(decisions.items())},
                 "pipeline": execution_plan.fingerprint(),
                 "plugins": self._plugin_identities(execution_plan),
+                "image_decoders": app.decoders.library_versions(),
                 # Raw file bytes, not parsed YAML: a malformed config must fail only its
                 # plugin at run time, exactly as it does with the cache disabled.
                 "plugin_configs": {
