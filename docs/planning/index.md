@@ -100,7 +100,7 @@ insufficient. There is no "authentic" result category.
 
 | Format | Decoder | Issue | Default |
 |---|---|---|---|
-| JPEG, PNG, WebP | Pillow | #3 | accepted |
+| JPEG, PNG, WebP | Pillow | #3 | accepted; implemented, not yet used by the pipeline (#12) |
 | HEIF/HEIC | pillow-heif (libheif) | #6 | after isolation (#9) |
 | JPEG XL | libjxl binding | #7 | opt-in |
 | AVIF | Pillow / libavif | #8 | opt-in |

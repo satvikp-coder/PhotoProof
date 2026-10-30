@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 - `core/isolation.py` runs a callable in a child process with wall-clock, CPU and memory limits
   and reports typed failures. `doctor` reports which limits this platform can enforce. Decoders
   and plugins do not use it yet (#9, #52).
+- `PillowDecoder` decodes JPEG, PNG and WebP with size limits checked before any pixel is
+  allocated, and rejects truncated or corrupted files. Decoder versions are recorded in
+  manifests and cache keys. The pipeline does not use it yet (#12).
 - PhotoProof identifies image formats from file signatures. Formats outside
   `formats.accepted` are rejected before being stored, a plugin is `NOT_APPLICABLE` for formats
   outside its `supported_formats`, and `doctor` lists accepted formats with no decoder.

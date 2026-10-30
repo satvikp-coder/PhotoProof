@@ -266,7 +266,9 @@ def test_matching_extension_logs_nothing(
 def test_doctor_lists_accepted_formats_without_a_decoder(
     make_app: Callable[..., Application],
 ) -> None:
-    result = check_imaging_codecs(make_app())
+    app = make_app()
+    app.decoders = DecoderRegistry()  # as if the library were not installed
+    result = check_imaging_codecs(app)
     assert result.severity.value == "warning"
     assert "jpeg" in result.message and any("Pillow" in d for d in result.details)
 
@@ -274,9 +276,7 @@ def test_doctor_lists_accepted_formats_without_a_decoder(
 def test_doctor_is_quiet_when_every_format_has_a_decoder(
     make_app: Callable[..., Application],
 ) -> None:
-    app = make_app()
-    app.decoders.register(_Decoder("jpeg", "png", "webp"))
-    assert check_imaging_codecs(app).ok
+    assert check_imaging_codecs(make_app()).ok
 
 
 def test_decode_limits_come_from_settings(make_app: Callable[..., Application]) -> None:
