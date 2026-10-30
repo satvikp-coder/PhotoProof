@@ -7,7 +7,7 @@ depends_on: []
 ---
 ## Summary
 
-Replace the placeholder developers in `app.toml`, assign area owners in `CODEOWNERS`,
+Replace the placeholder developers in `app.toml`, set the reviewers in `CODEOWNERS`,
 and record who owns which area of the backlog, so reviews are routed automatically and
 the work is visibly shared.
 
@@ -37,9 +37,7 @@ Suggested area split for four people (adjust at kickoff):
 ## Functional Requirements
 
 - `app.toml` lists the four real names and GitHub handles.
-- `CODEOWNERS` has per-path owners for `src/photoproof/core/`, `src/photoproof/imaging/`,
-  `src/photoproof/plugins/<family>/`, `WebKit/`, `docs/`, `.github/`, with a secondary
-  reviewer for each.
+- `CODEOWNERS` requests review from Satvik, Varun and Garv on every pull request.
 - `docs/planning/team.md` records the area split and the review rotation (linked from
   the roadmap).
 
@@ -63,7 +61,7 @@ Only handles of people who consent. No personal email addresses in the repositor
 ## Acceptance Criteria
 
 - [ ] No placeholder developers remain in `app.toml`.
-- [ ] `CODEOWNERS` routes every top-level area to a primary and a secondary reviewer.
+- [ ] `CODEOWNERS` requests all three reviewers on every pull request.
 - [ ] `docs/planning/team.md` is published, and each team member has at least one assigned starting issue.
 
 ## Expected Outcome
