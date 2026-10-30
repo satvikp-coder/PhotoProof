@@ -117,9 +117,23 @@ def test_sixteen_bit_gray_keeps_its_depth_and_values() -> None:
     assert decoded.pixels == struct.pack("<HH", 1000, 65535)
 
 
-@pytest.mark.parametrize("colour", [2, 6])
+def test_sixteen_bit_gray_with_transparency_is_rejected_rather_than_made_opaque() -> None:
+    ihdr = struct.pack(">IIBBBBB", 2, 1, 16, 0, 0, 0, 0)
+    row = b"\x00" + struct.pack(">HH", 1000, 2000)
+    data = (
+        b"\x89PNG\r\n\x1a\n"
+        + png_chunk(b"IHDR", ihdr)
+        + png_chunk(b"tRNS", struct.pack(">H", 1000))
+        + png_chunk(b"IDAT", zlib.compress(row))
+        + png_chunk(b"IEND", b"")
+    )
+    with pytest.raises(InputRejectedError, match="16-bit grayscale with transparency"):
+        decode(data)
+
+
+@pytest.mark.parametrize("colour", [2, 4, 6])
 def test_sixteen_bit_colour_records_the_loss_of_depth(colour: int) -> None:
-    channels = 3 if colour == 2 else 4
+    channels = {2: 3, 4: 2, 6: 4}[colour]
     row = b"\x00" + b"\x12\x34" * channels
     ihdr = struct.pack(">IIBBBBB", 1, 1, 16, colour, 0, 0, 0)
     data = (
@@ -219,6 +233,81 @@ def test_bomb_header_is_rejected_before_any_pixel(
     _load_must_not_run(monkeypatch)
     with pytest.raises(InputRejectedError, match="over the limit"):
         decode(png_header_only(width, height))
+
+
+def _webp_vp8x(width: int, height: int) -> bytes:
+    canvas = (width - 1).to_bytes(3, "little") + (height - 1).to_bytes(3, "little")
+    body = b"VP8X" + struct.pack("<I", 10) + b"\x00" * 4 + canvas + b"\x00" * 8
+    return b"RIFF" + struct.pack("<I", 4 + len(body)) + b"WEBP" + body
+
+
+def _webp_vp8l(width: int, height: int) -> bytes:
+    bits = (width - 1) | ((height - 1) << 14)
+    body = b"VP8L" + struct.pack("<I", 5) + b"\x2f" + bits.to_bytes(4, "little") + b"\x00"
+    return b"RIFF" + struct.pack("<I", 4 + len(body)) + b"WEBP" + body
+
+
+def _webp_vp8(width: int, height: int) -> bytes:
+    frame = b"\x00\x00\x00\x9d\x01\x2a" + struct.pack("<HH", width, height) + b"\x00" * 8
+    body = b"VP8 " + struct.pack("<I", len(frame)) + frame
+    return b"RIFF" + struct.pack("<I", 4 + len(body)) + b"WEBP" + body
+
+
+@pytest.mark.parametrize(
+    "bomb",
+    [
+        _webp_vp8x(1 << 24, 1 << 24),
+        _webp_vp8x(16383, 16383),
+        _webp_vp8l(16384, 16384),
+        _webp_vp8(16383, 16383),
+    ],
+)
+def test_webp_bomb_is_rejected_before_the_native_decoder_is_built(
+    monkeypatch: pytest.MonkeyPatch, bomb: bytes
+) -> None:
+    def fail(*_: object, **__: object) -> None:
+        raise AssertionError("Image.open allocates the WebP canvas, so it must not run")
+
+    monkeypatch.setattr(Image, "open", fail)
+    with pytest.raises(InputRejectedError, match="over the limit"):
+        decode(bomb)
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        b"RIFF\x10\x00\x00\x00WEBPVP8Z" + b"\x00" * 32,  # unknown chunk
+        b"RIFF\x10\x00\x00\x00WEBPVP8L\x05\x00\x00\x00\x00" + b"\x00" * 8,  # bad signature
+        b"RIFF\x10\x00\x00\x00WEBPVP8 \x05\x00\x00\x00\x00\x00\x00" + b"\x00" * 8,  # bad start
+        b"RIFF\x10\x00\x00\x00WEBPVP8 ",  # no frame header
+    ],
+)
+def test_webp_with_no_valid_header_is_rejected(broken: bytes) -> None:
+    with pytest.raises(InputRejectedError, match="no valid image header"):
+        decode(broken)
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        encode(gradient(), "WEBP", lossless=True),
+        encode(gradient(), "WEBP", quality=80),
+        encode(with_alpha(), "WEBP", lossless=True),
+        encode(gradient(), "WEBP", icc_profile=b"x" * 16),
+    ],
+)
+def test_real_webp_files_pass_the_hand_written_size_check(image: bytes) -> None:
+    decoded = decode(image)
+    assert (decoded.width, decoded.height) == SIZE
+
+
+def test_webp_at_exactly_the_pixel_limit_is_allowed() -> None:
+    data = encode(gradient(), "WEBP", lossless=True)
+    limits = DecodeLimits(max_input_bytes=10 << 20, max_pixels=SIZE[0] * SIZE[1])
+    assert decode(data, limits).width == SIZE[0]
+    tight = DecodeLimits(max_input_bytes=10 << 20, max_pixels=SIZE[0] * SIZE[1] - 1)
+    with pytest.raises(InputRejectedError, match="over the limit"):
+        decode(data, tight)
 
 
 def test_exactly_at_the_pixel_limit_is_allowed() -> None:

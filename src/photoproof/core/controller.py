@@ -385,7 +385,9 @@ class AnalysisController:
         return cache_key(
             {
                 "target": request.target.sha256,
+                "target_format": request.target.media_format,  # decides which plugins apply
                 "reference": request.reference.sha256 if request.reference else None,
+                "reference_format": request.reference.media_format if request.reference else None,
                 "mode": app.profiles[profile_name].mode.value,
                 "profile": app.profiles[profile_name].model_dump(mode="json"),
                 # ponytail: whole settings snapshot — over-invalidates (e.g. on a log-level

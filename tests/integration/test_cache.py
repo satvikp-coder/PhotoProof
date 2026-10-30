@@ -90,3 +90,18 @@ def test_corrupted_entry_invalidates(make_app: Factory) -> None:
     entry = next((app.storage.root / "cache" / "runs").glob("*.json"))
     entry.write_text("{ truncated")
     assert not _run(app).cache_hit
+
+
+def test_key_depends_on_the_input_format(make_app: Factory) -> None:
+    """Format decides which plugins apply, so a cached run must not cross formats."""
+    app = make_app()
+    sha = "c" * 64
+
+    def run(media_format: str | None) -> AnalysisResult:
+        target = InputDescriptor(role="target", sha256=sha, size=1, media_format=media_format)
+        return AnalysisController(app).analyze(AnalysisRequest(target=target))
+
+    assert not run(None).cache_hit
+    assert not run("jpeg").cache_hit
+    assert run("jpeg").cache_hit
+    assert run(None).cache_hit

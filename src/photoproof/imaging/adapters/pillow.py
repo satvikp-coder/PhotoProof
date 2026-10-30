@@ -12,7 +12,7 @@ Working modes (``DecodedImage.conversion`` records what was done to get there):
     palette                     RGB or RGBA     palette_to_rgb, palette_to_rgba
     grayscale with alpha        RGBA            gray_alpha_to_rgba
     transparency chunk          RGBA            transparency_to_rgba
-    16-bit grayscale PNG        I;16            none (little-endian)
+    16-bit grayscale PNG        I;16            none (little-endian); rejected if transparent
     16-bit colour PNG           RGB or RGBA     16_bit_to_8_bit (Pillow keeps 8 bits; see #5)
     CMYK or YCCK JPEG           RGB             cmyk_to_rgb (naive, ignores any ICC profile)
 """
@@ -34,6 +34,12 @@ ImageFile.LOAD_TRUNCATED_IMAGES = False  # truncated input must be rejected, nev
 _PILLOW_FORMATS = {"jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _PNG_CHUNK_OVERHEAD = 12  # length, type and checksum
+_VP8X_END = 30
+_VP8L_END = 25
+_VP8_END = 30
+_VP8L_SIGNATURE = 0x2F
+_VP8_START_CODE = b"\x9d\x01\x2a"
+_WEBP_14_BITS = 0x3FFF
 _PNG_BIT_DEPTH_OFFSET = 24
 _PNG_COLOUR_TYPE_OFFSET = 25
 _PNG_GRAYSCALE = 0
@@ -69,6 +75,8 @@ class PillowDecoder:
         if media_format is None:
             raise InputRejectedError("not a JPEG, PNG or WebP file")
         _check_complete(data, media_format)
+        if media_format == "webp":
+            _check_webp_canvas(data, limits)
         try:
             with _open_header(data, media_format, limits) as image:
                 _check_header(image, media_format, limits)
@@ -93,6 +101,27 @@ def _check_complete(data: bytes, media_format: str) -> None:
     # truncation that loses pixels, so this only tightens the case of a lost end marker.
     elif media_format == "jpeg" and data.rfind(b"\xff\xd9") < 0:
         raise InputRejectedError("malformed jpeg: no end-of-image marker; the file is truncated")
+
+
+def _check_webp_canvas(data: bytes, limits: DecodeLimits) -> None:
+    """Check WebP dimensions by hand: ``Image.open`` is not header-only for WebP. It builds a
+    native decoder that allocates the canvas before Pillow's own size check can run."""
+    chunk = data[12:16]
+    width = height = 0
+    if chunk == b"VP8X" and len(data) >= _VP8X_END:
+        width = int.from_bytes(data[24:27], "little") + 1
+        height = int.from_bytes(data[27:30], "little") + 1
+    elif chunk == b"VP8L" and len(data) >= _VP8L_END and data[20] == _VP8L_SIGNATURE:
+        bits = int.from_bytes(data[21:25], "little")
+        width = (bits & _WEBP_14_BITS) + 1
+        height = ((bits >> 14) & _WEBP_14_BITS) + 1
+    elif chunk == b"VP8 " and len(data) >= _VP8_END and data[23:26] == _VP8_START_CODE:
+        width = int.from_bytes(data[26:28], "little") & _WEBP_14_BITS
+        height = int.from_bytes(data[28:30], "little") & _WEBP_14_BITS
+    if width <= 0 or height <= 0:
+        raise InputRejectedError("malformed webp: no valid image header")
+    if width * height > limits.max_pixels:
+        raise InputRejectedError(_too_many_pixels("webp", limits))
 
 
 def _check_png_chunks(data: bytes) -> None:
@@ -170,6 +199,10 @@ def _to_working_mode(
     mode = image.mode
     has_transparency = "transparency" in image.info
     if mode in _SIXTEEN_BIT_GRAY:
+        if has_transparency:  # no working mode can carry it, and dropping it would be silent
+            raise InputRejectedError(
+                f"{media_format}: 16-bit grayscale with transparency is not supported yet (#5)"
+            )
         return _to_sixteen_bit_little_endian(image), "none", 16
     if mode in {"RGB", "RGBA"}:
         if mode == "RGB" and has_transparency:
