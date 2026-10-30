@@ -161,3 +161,23 @@ def test_repair_migrates_an_older_database_then_analyze_works(
     assert (database.parent / "photoproof.db.v1.bak").is_file()
     assert _invoke(app_root, "analyze", str(target_file)) == 0
     assert len(objects(app_root)) == 1
+
+
+def test_manifest_records_the_detected_format(
+    app_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    image = tmp_path / "picture.dat"
+    image.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 32)
+    result = analyze_json(app_root, capsys, str(image))
+    manifest = json.loads(Path(str(result["manifest_path"])).read_text())
+    assert [entry["media_format"] for entry in manifest["inputs"]] == ["jpeg"]
+
+
+def test_disabled_format_is_rejected_by_the_cli(
+    app_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    image = tmp_path / "picture.tif"
+    image.write_bytes(b"II*\x00" + b"\x00" * 32)  # TIFF is not accepted by default
+    assert _invoke(app_root, "analyze", str(image)) != 0
+    assert "not accepted by settings.formats.accepted" in capsys.readouterr().err
+    assert objects(app_root) == []

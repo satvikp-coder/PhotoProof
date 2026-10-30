@@ -27,6 +27,8 @@ from photoproof.core.pipeline.discovery import BUILTIN_PLUGIN_PACKAGE, discover
 from photoproof.core.pipeline.registry import PluginRegistry
 from photoproof.core.storage.evidence import EvidenceStore
 from photoproof.core.storage.store import RuntimeStorage
+from photoproof.imaging.decoder import DecodeLimits
+from photoproof.imaging.registry import DecoderRegistry
 
 # Default repository root for a source checkout: src/photoproof/core/bootstrap.py -> repo
 DEFAULT_ROOT = Path(__file__).resolve().parents[3]
@@ -42,6 +44,7 @@ class Application:
     flags: FeatureFlags
     storage: RuntimeStorage
     bus: EventBus
+    decoders: DecoderRegistry = field(default_factory=DecoderRegistry)
     _db: Database | None = field(default=None, repr=False)
     started: bool = False
 
@@ -64,7 +67,16 @@ class Application:
     def evidence(self) -> EvidenceStore:
         """The verifying store for original evidence. Raises ``DatabaseError``."""
         return EvidenceStore(
-            self.storage, self.database(), max_input_bytes=self.settings.resources.max_input_bytes
+            self.storage,
+            self.database(),
+            max_input_bytes=self.settings.resources.max_input_bytes,
+            accepted_formats=self.settings.formats.accepted,
+        )
+
+    def decode_limits(self) -> DecodeLimits:
+        resources = self.settings.resources
+        return DecodeLimits(
+            max_input_bytes=resources.max_input_bytes, max_pixels=resources.max_image_pixels
         )
 
     def start(self) -> None:
