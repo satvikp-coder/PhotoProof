@@ -388,12 +388,29 @@ def check_isolation(app: "Application") -> CheckResult:
     return _ok("isolation.capabilities", f"{limits}, wall clock: enforced")
 
 
+def check_imaging_codecs(app: "Application") -> CheckResult:
+    missing = app.decoders.missing(app.settings.formats.accepted)
+    if not missing:
+        return _ok("imaging.codecs", "every accepted format has a decoder")
+    return CheckResult(
+        "imaging.codecs",
+        Severity.WARNING,
+        f"{len(missing)} accepted formats have no decoder: {', '.join(sorted(missing))}",
+        tuple(f"{name}: needs {package}" for name, package in sorted(missing.items())),
+        RepairAction(
+            "install what each format needs, or remove it from formats.accepted",
+            Repairability.MANUAL,
+        ),
+    )
+
+
 def default_registry(*, deep: bool = True) -> HealthRegistry:
     """``deep=False`` (preflight) skips re-hashing stored data; ``doctor`` runs deep."""
     registry = HealthRegistry()
     for check_id, check in (
         ("runtime.directories", check_runtime_directories),
         ("isolation.capabilities", check_isolation),
+        ("imaging.codecs", check_imaging_codecs),
         ("runtime.permissions", check_runtime_permissions),
         ("runtime.disk_space", check_disk_space),
         ("runtime.stale_temp", check_stale_temp),

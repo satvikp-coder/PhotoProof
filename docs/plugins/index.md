@@ -41,7 +41,7 @@ METADATA = {
     "inputs": ["image.working_rgb"],  # contracts consumed
     "outputs": ["compression.ela_map"],  # contracts produced (exactly these keys)
     "timeout_seconds": 30,  # default: scheduling.default_plugin_timeout_seconds
-    "supported_formats": ["jpeg"],  # empty = format-independent (enforcement planned)
+    "supported_formats": ["jpeg"],  # empty = format-independent
     "deterministic": True,
     "config_schema": "schema:Config",  # optional; validates configs/plugins/<id>.yaml
     "python_dependencies": ["numpy"],  # versions recorded in manifests and cache keys
@@ -53,6 +53,13 @@ SemVer, negative priority, self-dependency, an ID in both `requires` and `after`
 empty `outputs`, outputs named `input.*`, malformed entry points, an incompatible API
 version, or a missing entry module. Duplicate IDs across packages make the whole
 registry invalid (`RegistryError`).
+
+## Supported formats
+
+A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an
+image it declares in `inputs` has any other format. It is checked against `input.target` if it
+declares neither image. An input whose format could not be identified counts as unsupported.
+Leave the list empty for a format-independent plugin.
 
 ## Contracts
 

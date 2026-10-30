@@ -107,6 +107,24 @@ def normalize_outputs(plugin: RegisteredPlugin, raw: object) -> dict[str, object
     return normalized
 
 
+def _unsupported_format(plugin: RegisteredPlugin, run_inputs: Mapping[str, object]) -> str | None:
+    """Why this plugin cannot run on these inputs' formats, or ``None`` if it can.
+
+    A plugin with no declared formats is format-independent. An input whose format is unknown
+    cannot be confirmed as supported, so it does not run the plugin.
+    """
+    supported = plugin.metadata.supported_formats
+    if not supported:
+        return None
+    declared = [n for n in plugin.metadata.inputs if n in ("input.target", "input.reference")]
+    for name in declared or ["input.target"]:
+        descriptor = run_inputs.get(name)
+        found = descriptor.get("media_format") if isinstance(descriptor, Mapping) else None
+        if found not in supported:
+            return f"{name} has format {found or 'unknown'}; plugin supports {', '.join(supported)}"
+    return None
+
+
 def _call_with_timeout(func: Callable[[], object], timeout: float, name: str) -> object:
     # ponytail: an in-process thread cannot be killed; a timed-out plugin keeps running
     # in the background until the process exits. Process isolation is a backlog item.
@@ -170,6 +188,8 @@ class SequentialExecutor:
                 )
             elif "input.reference" in meta.inputs and "input.reference" not in run_inputs:
                 self._finish(run_id, ex, S.NOT_APPLICABLE, None, "no reference image supplied")
+            elif (unsupported := _unsupported_format(plugin, run_inputs)) is not None:
+                self._finish(run_id, ex, S.NOT_APPLICABLE, None, unsupported)
             else:
                 inputs = {name: _lookup(name, run_inputs, report.outputs) for name in meta.inputs}
                 ex.transition(S.READY)
