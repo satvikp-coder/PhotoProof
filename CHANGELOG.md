@@ -17,6 +17,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Record the verified main-branch ruleset, squash-only merges and private vulnerability
+  reporting, with reproducible settings and remaining Read the Docs setup steps (#63).
 - `SECURITY.md` adds review guidance (assets, trust boundaries, severity, known gaps) and
   lists `0.2.x` as the supported version.
 - `app.toml`, `pyproject.toml`, `mkdocs.yml` and `LICENSE` name the four developers
