@@ -45,6 +45,9 @@ if sys.platform != "win32":
 _MEBIBYTE = 1 << 20
 _DEFAULT_MAX_TRANSFER_BYTES = 1024 * _MEBIBYTE
 _MAX_DETAIL_CHARS = 2000
+# start() polls every other child in multiprocessing's shared table, so a concurrent close() of
+# one of them makes it fail with "the handle is invalid" on Windows.
+_child_table_lock = threading.Lock()
 _POLL_SECONDS = 0.01
 _WATCHDOG_SECONDS = 0.1
 _TERMINATE_GRACE_SECONDS = 0.5
@@ -147,7 +150,8 @@ def _supervise(
     exchange = None
     try:
         try:
-            process.start()
+            with _child_table_lock:
+                process.start()
         except OSError as error:
             return Failure(FailureKind.CRASHED, f"could not start the child: {error}")
         finally:
@@ -297,7 +301,7 @@ def _stop(process: BaseProcess) -> None:
     if sys.platform != "win32":  # the child leads its own process group; see _harden
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(process.pid, signal.SIGKILL)
-    with contextlib.suppress(ValueError):  # still alive after SIGKILL: the OS will reap it
+    with _child_table_lock, contextlib.suppress(ValueError):  # alive after SIGKILL: OS reaps it
         process.close()
 
 

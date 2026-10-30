@@ -8,8 +8,10 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import isolation_targets as targets
@@ -412,9 +414,39 @@ def test_watcher_is_reaped_and_kills_nothing_after_a_normal_call(
     assert [w.returncode for w in started] == [0, 0]  # reaped, so no zombies can pile up
 
 
-def test_concurrent_calls_do_not_interfere() -> None:
-    from concurrent.futures import ThreadPoolExecutor
+def test_starting_and_closing_children_never_overlap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """start() walks a table that close() changes, which fails on Windows if they overlap."""
+    guard = threading.Lock()
+    active = 0
+    overlaps = 0
 
+    def serialized(method: Callable[..., object]) -> Callable[..., object]:
+        def wrapper(*args: object, **kwargs: object) -> object:
+            nonlocal active, overlaps
+            with guard:
+                active += 1
+                overlaps += active > 1
+            try:
+                time.sleep(0.005)  # widen the window
+                return method(*args, **kwargs)
+            finally:
+                with guard:
+                    active -= 1
+
+        return wrapper
+
+    process_class = multiprocessing.context.SpawnProcess
+    monkeypatch.setattr(process_class, "start", serialized(process_class.start))
+    monkeypatch.setattr(process_class, "close", serialized(process_class.close))
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(
+            pool.map(lambda n: run_isolated(targets.double, n, limits=GENEROUS), range(12))
+        )
+    assert results == [Ok(n * 2) for n in range(12)]
+    assert overlaps == 0
+
+
+def test_concurrent_calls_do_not_interfere() -> None:
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(
             pool.map(lambda n: run_isolated(targets.double, n, limits=GENEROUS), range(16))
