@@ -7,7 +7,7 @@
 | `docs.yml` | PR, push, manual | Backlog source validation, `mkdocs build --strict` (broken links, nav and anchors fail), site artifact |
 | `release.yml` | Tag `vX.Y.Z` pushed by a maintainer | Validate tag, version and changelog; refuse duplicates; test; build; create GitHub release |
 | `pr-milestone.yml` | PR opened, edited, reopened or marked ready | Copies the milestone from the issue the PR references (`Closes`, `Refs` and so on). A milestone set by hand is never overwritten, and if linked issues disagree the earliest wins. PRs from forks are skipped, because their token cannot write |
-| `pr-governance.yml` | PR events | Conventional title, issue reference, exactly-one version bump, changelog entry; warnings for missing docs/tests |
+| `pr-governance.yml` | PR events | Conventional title, issue reference, changelog entry; warnings for missing docs/tests |
 
 All actions are pinned to full commit SHAs (with the tag in a comment). Workflows
 default to `permissions: contents: read`, and `pr-milestone.yml` adds `pull-requests: write`
