@@ -181,3 +181,11 @@ def test_disabled_format_is_rejected_by_the_cli(
     assert _invoke(app_root, "analyze", str(image)) != 0
     assert "not accepted by settings.formats.accepted" in capsys.readouterr().err
     assert objects(app_root) == []
+
+
+def test_manifest_records_the_decoder_versions(
+    app_root: Path, target_file: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    result = analyze_json(app_root, capsys, str(target_file))
+    manifest = json.loads(Path(str(result["manifest_path"])).read_text())
+    assert manifest["software"]["image_decoders"]["Pillow"]
