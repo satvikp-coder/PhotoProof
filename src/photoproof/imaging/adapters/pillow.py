@@ -13,7 +13,9 @@ Working modes. ``DecodedImage.conversion`` records how each was reached, as comm
     grayscale with alpha        RGBA            gray_alpha_to_rgba
     transparency chunk          RGBA            transparency_to_rgba
     16-bit grayscale PNG        I;16            none (little-endian); rejected if transparent
-    16-bit colour PNG           RGB or RGBA     16_bit_to_8_bit (Pillow keeps 8 bits; see #5)
+    16-bit colour PNG           RGB;16, RGBA;16 none (little-endian, lossless)
+    16-bit gray with alpha      RGBA            16_bit_to_8_bit
+    16-bit colour, interlaced   RGB or RGBA     16_bit_to_8_bit
     16-bit colour with tRNS     RGBA            16_bit_to_8_bit,transparency_to_rgba
     CMYK or YCCK JPEG           RGB             cmyk_to_rgb (naive, ignores any ICC profile)
 """
@@ -22,6 +24,7 @@ import io
 import threading
 import warnings
 import zlib
+from collections.abc import Iterator
 
 import PIL
 from PIL import Image, ImageFile, features
@@ -43,6 +46,13 @@ _VP8_START_CODE = b"\x9d\x01\x2a"
 _WEBP_14_BITS = 0x3FFF
 _PNG_BIT_DEPTH_OFFSET = 24
 _PNG_COLOUR_TYPE_OFFSET = 25
+_PNG_INTERLACE_OFFSET = 28
+_PNG_COLOUR_WITH_LOSSLESS_PATH = frozenset({2, 6})  # RGB and RGBA
+_MAX_CHANNELS = 4
+_CICP_BYTES = 4
+_CICP_PRIMARIES = {1: "bt709", 9: "bt2020", 12: "p3"}  # ITU-T H.273
+_CICP_TRANSFERS = {1: "bt709", 6: "bt709", 8: "linear", 13: "srgb", 14: "bt709", 15: "bt709"}
+_CICP_TRANSFERS |= {16: "pq", 18: "hlg"}
 _PNG_GRAYSCALE = 0
 _ORIENTATION_TAG = 0x0112
 _SIXTEEN_BIT_GRAY = frozenset({"I;16", "I;16L", "I;16B", "I"})
@@ -81,6 +91,9 @@ class PillowDecoder:
         try:
             with _open_header(data, media_format, limits) as image:
                 _check_header(image, media_format, limits)
+                _check_memory(image, data, media_format, limits)
+                if _is_lossless_sixteen_bit_colour(image, data, media_format):
+                    return _decode_sixteen_bit_colour(image, data, source_sha256)
                 image.load()
                 return _to_decoded(image, data, media_format, source_sha256)
         except InputRejectedError:
@@ -128,6 +141,12 @@ def _check_webp_canvas(data: bytes, limits: DecodeLimits) -> None:
 def _check_png_chunks(data: bytes) -> None:
     """Walk every chunk to IEND, verifying checksums. Pillow skips the IDAT checksum, so an
     edit to pixel data that still inflates would otherwise pass. Data after IEND is allowed."""
+    for _ in _png_chunks(data):
+        pass
+
+
+def _png_chunks(data: bytes) -> Iterator[tuple[bytes, bytes]]:
+    """Yield each chunk's type and body, verified. Raises ``InputRejectedError`` if damaged."""
     offset = len(_PNG_SIGNATURE)
     while offset + _PNG_CHUNK_OVERHEAD <= len(data):
         length = int.from_bytes(data[offset : offset + 4], "big")
@@ -137,6 +156,7 @@ def _check_png_chunks(data: bytes) -> None:
             break
         if zlib.crc32(data[offset + 4 : end]) != int.from_bytes(data[end : end + 4], "big"):
             raise InputRejectedError(f"malformed png: bad checksum in {kind!r} chunk")
+        yield kind, data[offset + 8 : end]
         if kind == b"IEND":
             return
         offset = end + 4
@@ -170,6 +190,88 @@ def _check_header(image: Image.Image, media_format: str, limits: DecodeLimits) -
         raise InputRejectedError(_too_many_pixels(media_format, limits))
 
 
+def _check_memory(image: Image.Image, data: bytes, media_format: str, limits: DecodeLimits) -> None:
+    """Estimate the working buffer before allocating it: four channels at the source's depth."""
+    sample_bytes = 2 if media_format == "png" and data[_PNG_BIT_DEPTH_OFFSET] == 16 else 1
+    needed = image.width * image.height * _MAX_CHANNELS * sample_bytes
+    if needed > limits.max_decoded_bytes:
+        raise InputRejectedError(
+            f"{media_format} would need {needed} bytes of memory; "
+            f"the limit is {limits.max_decoded_bytes}"
+        )
+
+
+def _is_lossless_sixteen_bit_colour(image: Image.Image, data: bytes, media_format: str) -> bool:
+    return (
+        media_format == "png"
+        and data[_PNG_BIT_DEPTH_OFFSET] == 16
+        and data[_PNG_COLOUR_TYPE_OFFSET] in _PNG_COLOUR_WITH_LOSSLESS_PATH
+        and data[_PNG_INTERLACE_OFFSET] == 0
+        and "transparency" not in image.info
+    )
+
+
+def _decode_sixteen_bit_colour(image: Image.Image, data: bytes, source_sha256: str) -> DecodedImage:
+    """Keep every bit of a 16-bit colour PNG, which ``Image.load`` would reduce to 8.
+
+    Pillow's fast C decoder can return either byte of each sample, depending on the raw mode,
+    and it applies PNG's row filters either way. So the file is decoded twice, once for each
+    byte, and the two are interleaved. A pure-Python decoder would take minutes on a photo.
+    """
+    mode = image.mode
+    compressed = b"".join(body for kind, body in _png_chunks(data) if kind == b"IDAT")
+    high = Image.frombytes(mode, image.size, compressed, "zip", f"{mode};16B").tobytes()
+    low = Image.frombytes(mode, image.size, compressed, "zip", f"{mode};16L").tobytes()
+    pixels = bytearray(len(high) * 2)
+    pixels[0::2] = low
+    pixels[1::2] = high
+    transfer, primaries, notes = _colour_metadata(image, data, "png", bit_depth=16)
+    return DecodedImage(
+        source_sha256=source_sha256,
+        media_format="png",
+        width=image.width,
+        height=image.height,
+        channels=len(image.getbands()),
+        bit_depth=16,
+        pixels=bytes(pixels),
+        icc_profile=image.info.get("icc_profile") or None,
+        orientation=_orientation(image),
+        mode=f"{mode};16",
+        transfer=transfer,
+        primaries=primaries,
+        colour_notes=notes,
+    )
+
+
+def _colour_metadata(
+    image: Image.Image, data: bytes, media_format: str, *, bit_depth: int
+) -> tuple[str, str, tuple[str, ...]]:
+    """Read transfer and primaries from a PNG ``cICP`` chunk, the only source today.
+
+    CICP wins over an ICC profile when both are present, and that is recorded. Without
+    signalled values a high-depth image is treated as SDR, and that is recorded too.
+    """
+    transfer, primaries = "srgb", "bt709"
+    notes: list[str] = []
+    cicp = None
+    if media_format == "png":
+        cicp = next((body for kind, body in _png_chunks(data) if kind == b"cICP"), None)
+    if cicp is not None and len(cicp) == _CICP_BYTES:
+        known_primaries = _CICP_PRIMARIES.get(cicp[0])
+        known_transfer = _CICP_TRANSFERS.get(cicp[1])
+        primaries = known_primaries or primaries
+        transfer = known_transfer or transfer
+        if known_primaries is None:
+            notes.append("primaries_assumed")
+        if known_transfer is None:
+            notes.append("transfer_assumed")
+        if image.info.get("icc_profile"):
+            notes.append("cicp_preferred_over_icc")
+    elif bit_depth > 8:
+        notes.append("transfer_assumed")
+    return transfer, primaries, tuple(notes)
+
+
 def _too_many_pixels(media_format: str, limits: DecodeLimits) -> str:
     return f"{media_format} is over the limit of {limits.max_pixels} pixels"
 
@@ -179,6 +281,7 @@ def _to_decoded(
 ) -> DecodedImage:
     working, conversion, bit_depth = _to_working_mode(image, data, media_format)
     icc_profile = image.info.get("icc_profile") or None
+    transfer, primaries, notes = _colour_metadata(image, data, media_format, bit_depth=bit_depth)
     return DecodedImage(
         source_sha256=source_sha256,
         media_format=media_format,
@@ -191,6 +294,9 @@ def _to_decoded(
         orientation=_orientation(image),
         mode=working.mode,
         conversion=conversion,
+        transfer=transfer,
+        primaries=primaries,
+        colour_notes=notes,
     )
 
 

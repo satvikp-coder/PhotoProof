@@ -374,7 +374,7 @@ def test_conversion_can_be_turned_off() -> None:
 # ------------------------------------------------------------------------- bit depth
 
 
-def _sixteen_bit(icc_profile: bytes | None = None, orientation: int = 1) -> DecodedImage:
+def _sixteen_bit(orientation: int = 1, icc_profile: bytes | None = None) -> DecodedImage:
     return DecodedImage(
         source_sha256="a" * 64,
         media_format="png",
@@ -389,18 +389,17 @@ def _sixteen_bit(icc_profile: bytes | None = None, orientation: int = 1) -> Deco
     )
 
 
-def test_sixteen_bit_keeps_its_depth_and_records_no_conversion() -> None:
-    source = _sixteen_bit(icc_profile=DISPLAY_P3_GAMMA_22)
-    working = normalize(source)
-    assert working.mode == "I;16"
-    assert working.pixels == source.pixels
-    assert working.colour_space == "source"
-    assert working.transforms == ("icc_not_applied_16_bit",)
+def test_sixteen_bit_gives_an_eight_bit_working_image_through_the_documented_operator() -> None:
+    working = normalize(_sixteen_bit())
+    assert (working.mode, working.dtype, working.bit_depth) == ("RGB", "uint8", 8)
+    assert list(working.pixels[:3]) == [round(1000 / 65535 * 255)] * 3
+    assert list(working.pixels[3:]) == [255, 255, 255]
+    assert "tone_mapped:scale" in working.transforms
 
 
-def test_sixteen_bit_orientation_keeps_values_exact() -> None:
+def test_sixteen_bit_orientation_keeps_positions_in_the_derivative() -> None:
     working = normalize(_sixteen_bit(orientation=3))
-    assert working.pixels == struct.pack("<HH", 65535, 1000)
+    assert list(working.pixels[:3]) == [255, 255, 255]
 
 
 # -------------------------------------------------------------------------- isolation

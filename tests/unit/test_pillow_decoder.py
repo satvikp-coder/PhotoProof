@@ -146,11 +146,9 @@ def test_sixteen_bit_gray_with_transparency_is_rejected_rather_than_made_opaque(
         decode(data)
 
 
-@pytest.mark.parametrize("colour", [2, 4, 6])
-def test_sixteen_bit_colour_records_the_loss_of_depth(colour: int) -> None:
-    channels = {2: 3, 4: 2, 6: 4}[colour]
-    row = b"\x00" + b"\x12\x34" * channels
-    ihdr = struct.pack(">IIBBBBB", 1, 1, 16, colour, 0, 0, 0)
+def test_sixteen_bit_gray_with_alpha_records_the_loss_of_depth() -> None:
+    row = b"\x00" + b"\x12\x34" * 2
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 16, 4, 0, 0, 0)
     data = (
         b"\x89PNG\r\n\x1a\n"
         + png_chunk(b"IHDR", ihdr)
@@ -337,7 +335,7 @@ def test_one_pixel_over_the_limit_is_rejected() -> None:
 
 
 def test_limit_above_pillows_own_default_is_honoured() -> None:
-    limits = DecodeLimits(max_input_bytes=10 << 20, max_pixels=1 << 40)
+    limits = DecodeLimits(max_input_bytes=10 << 20, max_pixels=1 << 40, max_decoded_bytes=1 << 40)
     with pytest.raises(InputRejectedError, match="malformed png"):
         decode(png_header_only(50000, 50000), limits)  # passes the check, then has no data
 

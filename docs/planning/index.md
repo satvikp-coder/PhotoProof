@@ -110,7 +110,7 @@ Formats are identified from file signatures (#2), not extensions, and `doctor` l
 formats without a decoder. A polyglot file gets the first match, in this order: JPEG, PNG, WebP,
 JPEG XL, TIFF, then ISO-BMFF (AVIF before HEIF).
 
-High bit depth and HDR representations are specified in #5, and cross-format
+High bit depth and HDR representations are in the [plugin guide](../plugins/index.md) (#5), and cross-format
 consistency is tested in #69.
 
 ## Benchmark strategy
