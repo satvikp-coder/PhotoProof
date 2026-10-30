@@ -53,7 +53,7 @@ flowchart LR
 | Cache | Run-level result cache keyed by every result-affecting identity | `core/cache/` |
 | Events and logging | Typed event bus, structured JSON log, audit trail, persistence subscriber | `core/events/`, `core/logging/` |
 | Health | Diagnostics with severity and repairability; safe and controlled repair | `core/health/` |
-| Isolation | Run a callable in a child process with limits; typed failures; not yet used by decoders or plugins | `core/isolation.py` |
+| Isolation | Run a callable in a child process with limits; typed failures; not yet used by decoders or plugins | `core/isolation.py`, `core/plaindata.py` |
 | Imaging | Decoder security interface (`ImageDecoder`, `DecodeLimits`); no decoder yet | `photoproof.imaging` |
 
 ## Dependency direction

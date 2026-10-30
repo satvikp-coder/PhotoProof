@@ -1,8 +1,8 @@
 """Run a Python callable in a spawned child process with resource limits.
 
 The child may be running native code on hostile input, so everything it sends back is
-treated as untrusted. In particular the parent never resolves classes or functions from
-the child's data: results are limited to plain data (see ``_PlainDataUnpickler``).
+treated as untrusted. Replies use ``plaindata``, not pickle, so they can't run code in the
+parent or make it allocate more than the reply's size allows.
 
 Enforceable limits differ per platform; ``capabilities`` reports them:
 
@@ -19,7 +19,6 @@ macOS ignores RLIMIT_AS, so its watchdog can overshoot between polls.
 
 import contextlib
 import enum
-import io
 import math
 import multiprocessing
 import os
@@ -37,6 +36,8 @@ from multiprocessing.process import BaseProcess
 from typing import Any
 
 from photoproof.contracts.exceptions import InputRejectedError
+from photoproof.core import plaindata
+from photoproof.core.plaindata import PlainDataError
 
 if sys.platform != "win32":
     import resource
@@ -49,7 +50,8 @@ _WATCHDOG_SECONDS = 0.1
 _TERMINATE_GRACE_SECONDS = 0.5
 _KILL_WAIT_SECONDS = 5.0
 _EXIT_GRACE_SECONDS = 1.0  # time to collect a result already in the pipe after the child exits
-_ALARM_MARGIN_SECONDS = 5  # the child kills itself this long after the parent's deadline
+_ORPHAN_MARGIN_SECONDS = 5  # the group kills itself this long after the parent's deadline
+_MAX_INHERITED_FDS = 4096
 _WINDOWS_ENVIRONMENT = ("SYSTEMROOT", "WINDIR")  # Windows cannot start some services without
 
 
@@ -117,7 +119,8 @@ def run_isolated(
 
     ``func`` must be importable, so it can be pickled by reference. ``payload`` comes from
     the trusted parent; untrusted data in it should be bytes. The result must be plain data
-    (``None``, numbers, strings, bytes, and lists, tuples, dicts and sets of those).
+    (``None``, numbers, strings, bytes, and lists, tuples, dicts and sets of those), with at
+    most ``plaindata.MAX_NODES`` objects. Large data should be bytes.
 
     Raises ``InputRejectedError`` if the payload is over ``limits.max_payload_bytes``.
     Everything that goes wrong in the child is returned as a ``Failure``. If a limit cannot
@@ -238,11 +241,14 @@ def _interpret(exchange: _Exchange, process: BaseProcess) -> IsolatedResult:
         return Failure(FailureKind.INVALID_RESULT, "result is over the size limit")
     if exchange.reply is not None:
         try:
-            status, value = _PlainDataUnpickler(io.BytesIO(exchange.reply)).load()
+            reply = plaindata.decode(exchange.reply)
+            if not (isinstance(reply, tuple) and len(reply) == 2):
+                raise PlainDataError("expected a status and a value")
+            status, value = reply
             if status == "ok":
                 return Ok(value)
-            return Failure(FailureKind(status), str(value)[:_MAX_DETAIL_CHARS])
-        except Exception as error:  # noqa: BLE001 - any malformed reply from the child is invalid
+            return Failure(FailureKind(str(status)), str(value)[:_MAX_DETAIL_CHARS])
+        except (ValueError, RecursionError, MemoryError) as error:  # PlainDataError is a ValueError
             return Failure(FailureKind.INVALID_RESULT, f"result is not plain data: {error}")
     process.join(_TERMINATE_GRACE_SECONDS)
     return _describe_exit(process.exitcode)
@@ -257,13 +263,6 @@ def _describe_exit(code: int | None) -> Failure:
     if code is not None and sys.platform == "win32" and code >= 0xC0000000:
         return Failure(FailureKind.CRASHED, f"crashed with status {code:#x}")
     return Failure(FailureKind.CRASHED, f"exited with code {code} without returning a result")
-
-
-class _PlainDataUnpickler(pickle.Unpickler):
-    """Refuses to resolve any global, so a reply from the child cannot run code."""
-
-    def find_class(self, module_name: str, global_name: str, /) -> Any:
-        raise pickle.UnpicklingError(f"refused {module_name}.{global_name}")
 
 
 def _stop(process: BaseProcess) -> None:
@@ -370,30 +369,40 @@ def _child_main(
     connection: Connection, func: Callable[[Any], Any], limits: ProcessLimits, workdir: str
 ) -> None:
     try:
-        _harden(limits, workdir)
-        # Sent by the trusted parent. Replies from the child use _PlainDataUnpickler.
-        payload = pickle.loads(connection.recv_bytes())  # noqa: S301  # nosec B301
-    except (OSError, EOFError, ValueError):
+        _harden(connection, limits, workdir)
+    except (OSError, ValueError):
         return  # the exit code reports this; a limit that cannot be set must not run the work
     try:
-        reply = ("ok", func(payload))
+        message = _reply_for(connection, func)
     except MemoryError:
-        reply = (FailureKind.MEMORY_LIMIT.value, "ran out of memory under the limit")
-    except Exception as error:  # noqa: BLE001 - reported to the parent, which decides
-        reply = (FailureKind.RAISED.value, f"{type(error).__name__}: {error}")
-    try:
-        message = pickle.dumps(reply, protocol=5)
-    except MemoryError:
-        message = pickle.dumps(
-            (FailureKind.MEMORY_LIMIT.value, "ran out of memory sending the result")
-        )
-    except Exception as error:  # noqa: BLE001 - e.g. a result that cannot be pickled
-        message = pickle.dumps((FailureKind.INVALID_RESULT.value, f"cannot pickle: {error}"))
+        message = _memory_reply("ran out of memory sending the result")
     connection.send_bytes(message)
     connection.close()
 
 
-def _harden(limits: ProcessLimits, workdir: str) -> None:
+def _reply_for(connection: Connection, func: Callable[[Any], Any]) -> bytes:
+    try:
+        # Sent by the trusted parent. Replies to it use plaindata, never pickle.
+        payload = pickle.loads(connection.recv_bytes())  # noqa: S301  # nosec B301
+    except MemoryError:
+        return _memory_reply("ran out of memory receiving the payload")
+    try:
+        reply: tuple[str, object] = ("ok", func(payload))
+    except MemoryError:
+        return _memory_reply("ran out of memory under the limit")
+    except Exception as error:  # noqa: BLE001 - reported to the parent, which decides
+        reply = (FailureKind.RAISED.value, f"{type(error).__name__}: {error}")
+    try:
+        return plaindata.encode(reply)
+    except (PlainDataError, RecursionError) as error:
+        return plaindata.encode((FailureKind.INVALID_RESULT.value, f"not plain data: {error}"))
+
+
+def _memory_reply(detail: str) -> bytes:
+    return plaindata.encode((FailureKind.MEMORY_LIMIT.value, detail))
+
+
+def _harden(connection: Connection, limits: ProcessLimits, workdir: str) -> None:
     """Drop what the child should not inherit. Runs before it receives any work."""
     kept = {k: os.environ[k] for k in _WINDOWS_ENVIRONMENT if k in os.environ}
     os.environ.clear()
@@ -405,8 +414,7 @@ def _harden(limits: ProcessLimits, workdir: str) -> None:
     if sys.platform == "win32":
         return
     os.setsid()  # own process group, so the parent can kill what this child starts
-    # If the parent dies without stopping this child, nothing else would.
-    signal.alarm(math.ceil(limits.timeout_s) + _ALARM_MARGIN_SECONDS)
+    _start_orphan_watcher(connection, limits)
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))  # no core dumps of evidence in memory
     if limits.cpu_s is not None:
         soft = math.ceil(limits.cpu_s)
@@ -416,3 +424,19 @@ def _harden(limits: ProcessLimits, workdir: str) -> None:
     if limits.memory_mb is not None and sys.platform != "darwin":  # macOS ignores RLIMIT_AS
         size = limits.memory_mb * _MEBIBYTE
         resource.setrlimit(resource.RLIMIT_AS, (size, size))
+
+
+def _start_orphan_watcher(connection: Connection, limits: ProcessLimits) -> None:
+    """If the parent dies without stopping this child, nothing else would.
+
+    A separate process, because the worker may be stuck in native code where a signal handler
+    never runs, and an alarm's default action would leave its descendants alive. It kills the
+    whole process group after the deadline. Normally the parent's ``_stop`` kills it first.
+    """
+    if os.fork() != 0:
+        return
+    connection.close()  # or the parent would not see the pipe close when the worker dies
+    os.closerange(0, _MAX_INHERITED_FDS)
+    time.sleep(math.ceil(limits.timeout_s) + _ORPHAN_MARGIN_SECONDS)
+    os.killpg(0, signal.SIGKILL)
+    os._exit(0)  # not reached: the signal above includes this process

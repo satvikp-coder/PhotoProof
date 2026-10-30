@@ -54,13 +54,16 @@ exists.
 
 The child is treated as compromised:
 
-- **Results are plain data.** The parent's unpickler refuses to resolve any class or function,
-  so a forged reply cannot run code. A result containing anything else is `invalid_result`.
+- **Results are plain data, and not pickle.** Replies use `core/plaindata.py`, because crafted
+  pickle can make the reader allocate gigabytes even with class lookups refused. Decoding is
+  linear in the reply's size, with caps on object count and nesting. Anything else is
+  `invalid_result`.
 - **The deadline cannot be blocked.** Pipe I/O runs off the main thread, so a child that sends
   half a message and hangs still times out. Transfers have size caps in both directions.
 - **Nothing survives.** Each child leads its own process group (POSIX) or Job Object (Windows),
-  so its descendants die with it. A child that ignores `SIGTERM` is killed, and a child whose
-  parent died stops itself shortly after its deadline (POSIX) or with the Job Object (Windows).
+  so its descendants die with it. A child that ignores `SIGTERM` is killed. If the parent dies,
+  a small watcher process kills the whole group shortly after the deadline, even if the worker
+  is stuck in native code (POSIX). On Windows the Job Object closes with the parent.
 - **Little is inherited.** The child gets a minimal environment, a temporary working directory
   and no core dumps. It receives no work until its limits are in place, and if a limit cannot
   be applied, it does not run.

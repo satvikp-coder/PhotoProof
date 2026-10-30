@@ -3,6 +3,7 @@
 import os
 import pickle
 import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -186,7 +187,7 @@ def test_oversized_payload_is_rejected_before_starting_a_child() -> None:
         run_isolated(targets.echo, b"y" * 100, limits=limits)
 
 
-def test_result_that_cannot_be_pickled_is_invalid() -> None:
+def test_result_of_arbitrary_objects_is_invalid() -> None:
     expect_failure(
         run_isolated(targets.unpicklable_result, None, limits=GENEROUS), FailureKind.INVALID_RESULT
     )
@@ -208,6 +209,55 @@ def test_nonzero_exit_is_crashed_with_the_code() -> None:
 
 
 # ---------------------------------------------------------- hostile child containment
+
+
+def test_crafted_small_reply_cannot_make_the_parent_allocate(tmp_path: Path) -> None:
+    failure = expect_failure(
+        run_isolated(targets.memory_bomb_pickle_result, None, limits=GENEROUS),
+        FailureKind.INVALID_RESULT,
+    )
+    assert "not plain data" in failure.detail
+
+
+@POSIX_ONLY
+def test_killing_the_parent_still_stops_descendants_after_the_deadline(tmp_path: Path) -> None:
+    """The parent is a real process here, so that it can be killed outright."""
+    pid_file = tmp_path / "pid"
+    script = tmp_path / "parent.py"
+    script.write_text(
+        "import sys\n"
+        "import isolation_targets as targets\n"
+        "from photoproof.core.isolation import ProcessLimits, run_isolated\n"
+        "if __name__ == '__main__':\n"
+        "    run_isolated(targets.start_grandchild_and_hang, sys.argv[1],"
+        " limits=ProcessLimits(timeout_s=1))\n"
+    )
+    environment = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
+    parent = subprocess.Popen([sys.executable, str(script), str(pid_file)], env=environment)
+    try:
+        deadline = time.monotonic() + 30
+        while not (pid_file.exists() and pid_file.read_text()) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        grandchild = int(pid_file.read_text())
+        parent.kill()
+        parent.wait()
+        assert process_exists(grandchild)  # the parent's cleanup never ran
+        deadline = time.monotonic() + 15
+        while process_exists(grandchild) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert not process_exists(grandchild)
+    finally:
+        parent.kill()
+        parent.wait()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="needs RLIMIT_AS to fail the allocation")
+def test_payload_too_large_for_the_limit_is_a_memory_failure() -> None:
+    limits = ProcessLimits(timeout_s=60, memory_mb=128)
+    failure = expect_failure(
+        run_isolated(targets.echo, b"x" * (256 << 20), limits=limits), FailureKind.MEMORY_LIMIT
+    )
+    assert "payload" in failure.detail
 
 
 def test_result_holding_a_class_is_refused() -> None:

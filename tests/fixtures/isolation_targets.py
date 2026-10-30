@@ -86,6 +86,18 @@ def start_grandchild_and_hang(pid_file: str) -> None:
     time.sleep(3600)
 
 
+def memory_bomb_pickle_result(_: object) -> None:
+    """A tiny pickle whose memo index would make an unpickler allocate gigabytes."""
+    import gc
+    from multiprocessing.connection import Connection
+
+    bomb = b"\x80\x05N" + b"r\xff\xff\xff\x7f" + b"."  # LONG_BINPUT at index 2**31 - 1
+    for candidate in gc.get_objects():
+        if isinstance(candidate, Connection) and not candidate.closed:
+            candidate.send_bytes(bomb)
+    os._exit(0)
+
+
 def forged_pickle_result(marker: str) -> None:
     """A compromised child writes bytes directly to the pipe, skipping the normal reply."""
     import gc
