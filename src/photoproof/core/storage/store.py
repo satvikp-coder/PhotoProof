@@ -85,20 +85,6 @@ def _fsync_directory(directory: Path) -> None:
             os.close(dir_fd)
 
 
-def _link_without_overwriting(source: Path, target: Path) -> None:
-    """Atomically create ``target``; raises ``FileExistsError`` if it already exists."""
-    try:
-        os.link(source, target)
-    except FileExistsError:
-        raise
-    except OSError as error:
-        if error.errno not in _NO_HARD_LINKS:
-            raise
-        # ponytail: a concurrent writer of the same content can replace the blob on
-        # filesystems without hard links (exFAT). The content is identical by hash.
-        os.replace(source, target)
-
-
 class RuntimeStorage:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -158,11 +144,17 @@ class RuntimeStorage:
         """Store ``data`` immutably and return its SHA-256. Idempotent."""
         digest = sha256_bytes(data)
         target = self.blob_path(kind, digest)
-        if target.is_file() and self.verify_blob(kind, digest):
-            return digest
-        if target.exists():  # present but corrupt: never overwrite silently
-            raise StorageError(f"{target}: existing blob fails verification; run --doctor")
-        atomic_write(target, data, mode=0o400)
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd, name = tempfile.mkstemp(dir=target.parent, prefix=f".{digest}.", suffix=".part")
+        temporary = Path(name)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            self.publish_blob(kind, temporary, digest)
+        finally:
+            temporary.unlink(missing_ok=True)
         return digest
 
     def publish_blob(self, kind: BlobKind, source: Path, sha256: str) -> bool:
@@ -180,11 +172,18 @@ class RuntimeStorage:
             source.chmod(0o400)
         try:
             if _POSIX:
-                _link_without_overwriting(source, target)
+                os.link(source, target)  # unlike a rename, this fails if the target exists
             else:
                 os.rename(source, target)  # on Windows this fails if the target exists
         except FileExistsError:  # another process stored the same content first
             return self._existing_blob_is_intact(kind, sha256, target)
+        except OSError as error:
+            if error.errno in _NO_HARD_LINKS:
+                raise StorageError(
+                    f"{target.parent}: this filesystem has no hard links, so blobs cannot be "
+                    "stored without risking an overwrite. Move runtime.root to another volume."
+                ) from error
+            raise
         _fsync_directory(target.parent)
         return True
 

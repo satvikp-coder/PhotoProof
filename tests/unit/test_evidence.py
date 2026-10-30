@@ -464,16 +464,41 @@ def test_database_failure_is_reported_and_retry_succeeds(
     assert len(database.submissions(SHA)) == 1
 
 
-def test_hard_link_refusal_falls_back_without_losing_the_blob(
+POSIX_ONLY = pytest.mark.skipif(os.name != "posix", reason="hard links are not used on Windows")
+
+
+def _refuse_hard_links(*_: object, **__: object) -> None:
+    raise OSError(errno.ENOTSUP, "Operation not supported")
+
+
+@POSIX_ONLY
+def test_filesystem_without_hard_links_fails_closed(
     store: EvidenceStore, storage: RuntimeStorage, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def no_links(*_: object, **__: object) -> None:
+    monkeypatch.setattr(os, "link", _refuse_hard_links)
+    with pytest.raises(StorageError, match="no hard links"):
+        store.ingest(CONTENT, role="target")
+    assert_nothing_stored(storage)
+
+
+@POSIX_ONLY
+def test_blob_appearing_while_hard_links_are_refused_is_not_replaced(
+    storage: RuntimeStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The window Codex found: created after the existence check, with no hard links."""
+    corrupt = storage.root / "objects" / SHA[:2] / SHA
+    corrupt.parent.mkdir(parents=True)
+    source = storage.root / "tmp" / "ready"
+    source.write_bytes(CONTENT)
+
+    def appear_then_refuse(*_: object, **__: object) -> None:
+        corrupt.write_bytes(b"forged")
         raise OSError(errno.ENOTSUP, "Operation not supported")
 
-    monkeypatch.setattr(os, "link", no_links)
-    store.ingest(CONTENT, role="target")
-    assert storage.verify_blob("objects", SHA)
-    assert temporaries(storage) == []
+    monkeypatch.setattr(os, "link", appear_then_refuse)
+    with pytest.raises(StorageError, match="no hard links"):
+        storage.publish_blob("objects", source, SHA)
+    assert corrupt.read_bytes() == b"forged"
 
 
 def test_other_link_errors_are_storage_errors(
@@ -491,6 +516,32 @@ def test_other_link_errors_are_storage_errors(
     assert_nothing_stored(storage)
 
 
+def test_put_blob_is_idempotent_and_read_only(storage: RuntimeStorage) -> None:
+    assert storage.put_blob("artifacts", CONTENT) == SHA
+    assert storage.put_blob("artifacts", CONTENT) == SHA
+    assert list(storage.iter_blobs("artifacts")) == [storage.root / "artifacts" / SHA[:2] / SHA]
+    assert [p for p in (storage.root / "artifacts").rglob("*.part")] == []
+
+
+@POSIX_ONLY
+def test_put_blob_cannot_replace_a_blob_that_appears_during_the_race(
+    storage: RuntimeStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    corrupt = storage.root / "artifacts" / SHA[:2] / SHA
+    corrupt.parent.mkdir(parents=True)
+    real_link = os.link
+
+    def appear_then_link(source: Path, target: Path) -> None:
+        corrupt.write_bytes(b"forged")
+        real_link(source, target)
+
+    monkeypatch.setattr(os, "link", appear_then_link)
+    with pytest.raises(StorageError, match="fails verification"):
+        storage.put_blob("artifacts", CONTENT)
+    assert corrupt.read_bytes() == b"forged"
+    assert [p for p in corrupt.parent.iterdir() if p != corrupt] == []
+
+
 # ------------------------------------------------------------------------ database
 
 
@@ -505,6 +556,14 @@ def test_link_to_an_unknown_run_fails(store: EvidenceStore, database: Database) 
     record = store.ingest(CONTENT, role="target")
     with pytest.raises(DatabaseError, match="write failed"):
         database.link_submissions([record.submission_id], "no-such-run")
+
+
+@pytest.mark.parametrize("bad", ["../../etc/passwd", "/etc/passwd", "A" * 64, "g" * 64, "short"])
+def test_database_refuses_a_record_that_is_not_a_content_address(
+    database: Database, bad: str
+) -> None:
+    with pytest.raises(DatabaseError, match="write failed"):
+        database.record_submission(sha256=bad, size=1, role="target", original_name=None)
 
 
 def _version_one_database(path: Path) -> None:

@@ -17,8 +17,9 @@ Git. Directories are created owner-only (0700) on POSIX.
 | `uploads/`, `quarantine/`, `reports/` | Reserved for ingestion and reporting (planned) |
 
 All paths go through `safe_join`, which rejects absolute components, `..`, NUL bytes
-and symlinks escaping the root. Writes are atomic (temp file in the same directory,
-`fsync`, `os.replace`). An existing blob that fails verification is never overwritten.
+and symlinks escaping the root. Writes are atomic (temp file, `fsync`, then a rename). Blobs
+are published without any possibility of overwriting: see the
+[evidence store](#evidence-store).
 
 ## Evidence store
 
@@ -29,9 +30,10 @@ mismatch. No consumer receives unverified bytes.
 - **One copy.** The storage key is the SHA-256 of the content, so identical bytes are stored
   once and each submission adds a record.
 - **Never overwritten.** A new blob is published with a hard link, which fails if the target
-  exists, so even a race between processes cannot write to an existing object. On filesystems
-  without hard links (exFAT), it falls back to an atomic replace of identical content. A
-  blob that fails verification stays in place for investigation.
+  exists, so even a race between processes cannot write to an existing object. A blob that
+  fails verification stays in place for investigation.
+- **Hard links are required on POSIX.** `runtime.root` cannot be on a filesystem without them
+  (exFAT, for example). Storing fails with an error instead of risking an overwrite.
 - **Metadata only.** The submitted file name is stored in the database and never used to
   build a path. Non-UTF-8 name bytes are stored as visible escapes.
 - **Rejected inputs.** Symlinks, directories, FIFOs and devices, empty files, and files over
