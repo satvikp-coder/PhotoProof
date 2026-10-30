@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `normalize` turns a decoded image into a working image in sRGB with EXIF orientation applied,
+  and records every transform. The decoded image stays available and unchanged. The pipeline
+  does not use it yet (#12).
 - `PillowDecoder` decodes JPEG, PNG and WebP with size limits checked before any pixel is
   allocated, and rejects truncated or corrupted files. Decoder versions are recorded in
   manifests and cache keys. The pipeline does not use it yet (#12).

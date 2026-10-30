@@ -52,6 +52,10 @@ exists.
 - **Nothing is applied silently.** The ICC profile and EXIF orientation are returned, not
   applied, and `DecodedImage.conversion` records any change of pixel mode.
 
+A bad ICC profile can't stop an analysis or reach the result silently: `normalize` catches the
+failure, leaves the pixels unconverted, and records `icc_invalid`. Profiles over 4 MiB are ignored
+and recorded. LittleCMS still parses the rest in-process until #9.
+
 **Known limits:** decoding runs in the calling process with no wall-clock limit until #9.
 16-bit colour PNGs are read as 8-bit, recorded as `16_bit_to_8_bit`, until #5. CMYK JPEGs are
 converted naively and recorded as `cmyk_to_rgb`.
