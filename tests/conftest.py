@@ -40,8 +40,8 @@ def make_app(app_root: Path) -> Iterator[Callable[..., Application]]:
 
 @pytest.fixture
 def target_file(tmp_path: Path) -> Path:
-    path = tmp_path / "target.bin"
-    path.write_bytes(b"not really an image, just bytes to hash")
+    path = tmp_path / "target.jpg"
+    path.write_bytes(b"\xff\xd8\xff\xe0 a JPEG signature is enough for ingestion")
     return path
 
 
