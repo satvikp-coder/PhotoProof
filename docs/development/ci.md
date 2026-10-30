@@ -78,20 +78,91 @@ administrator had no bypass. The temporary ruleset and branch were then deleted.
 No update to `main` was attempted. This verifies rejection on the equivalent test
 branch, not a literal push rejection on `main`.
 
-On **2026-10-31**, PR #93 had all CI checks successful and GitHub reported
-`reviewDecision: REVIEW_REQUIRED` and `mergeStateStatus: BLOCKED`. It remained a
-draft, so this is supporting evidence rather than an isolated approval-blocking
-test. A second developer is needed to approve a disposable test PR before testing
-the failing-check and unresolved-conversation gates independently. Self-approval
-cannot establish this behavior. No merge API call was used as a test.
+On **2026-10-31**, an actual Git push was also tested against disposable branch
+`chore/63-direct-push-test`. Temporary ruleset `26232417` was copied from the **live**
+main ruleset, changing only the name and target. Its API reported
+`current_user_can_bypass: never` for `satvikp-coder`. The push of commit
+`633b3483fd843f00869e79e1f21efc757d3a4466` was rejected with **GH013** and
+"Changes must be made through a pull request." The target stayed at main commit
+`5e4d8a0a49eb6a37b434a1580ab997f41e5a37ee`. The temporary ruleset and target branch
+were deleted. Main's effective rules still return active ruleset `26226021` and
+no bypass. This verifies the enforcement mechanism on an equivalent target;
+no literal direct push to `main` was attempted.
 
-API readback and the isolated rejection test do not verify every acceptance scenario. Do not make a
-test push or attempt a merge on `main`. Use a disposable branch and a temporary
-ruleset with the same rules targeting only that branch. Confirm a non-bypass user's
-direct push is rejected, then open a test PR into it and inspect mergeability with
-no approval, a failing required check, and an unresolved review conversation. Do not
-merge the test PR. Close it and remove only the temporary ruleset and branch after
-recording evidence. A dry-run push alone does not prove server-side enforcement.
+Non-draft [test PR #97](https://github.com/satvikp-coder/PhotoProof/pull/97) targets
+`main` from disposable source branch `chore/63-acceptance-validation`. Its empty
+commit `633b3483fd843f00869e79e1f21efc757d3a4466` has exactly the tree of PR #93's
+`e57e1901afd556ce8cb932fee969987204424ae5`, but isolates its CI results from #93.
+It is a validation fixture and **must never be merged**.
+
+| Scenario | Observed evidence | Independent gate validation |
+|---|---|---|
+| No approval | Non-draft #97 reports `REVIEW_REQUIRED` and `BLOCKED`, all seven required checks successful, no unresolved threads and no approving review | **PASS**; draft status, failing checks and unresolved threads are excluded as causes |
+| Failing required check | Invalid test-PR title caused the real governance [run 41110163904](https://github.com/satvikp-coder/PhotoProof/actions/runs/41110163904) to fail with exit 1; #97 remained `BLOCKED`. Restoring its title produced successful [run 41110285936](https://github.com/satvikp-coder/PhotoProof/actions/runs/41110285936) | **BLOCKED** pending genuine independent approval, to remove the approval confounder |
+| Unresolved conversation | [Inline thread](https://github.com/satvikp-coder/PhotoProof/pull/97#discussion_r4427369103), GraphQL ID `PRRT_kwDOVbq_ys6yGla2`, returned `isResolved: false` while #97 was `BLOCKED`; the validation thread was then resolved | **BLOCKED** pending genuine independent approval and otherwise-green checks |
+
+The intentional title failure only affected #97, not #93. No status was fabricated,
+no approval was impersonated, no protection was weakened, and no merge endpoint
+was invoked. A blocked PR with multiple blockers is not proof of each independent
+gate. Leave #93 in draft until the remaining scenarios are demonstrated.
+
+PR #93's CI run [41109493740](https://github.com/satvikp-coder/PhotoProof/actions/runs/41109493740)
+completed successfully at head `e57e190`, including `Summary` and all 15 test-matrix
+jobs. Its security, docs, governance and RTD checks also succeeded. Subsequent
+documentation-only evidence updates must pass their own latest checks before review.
+
+### Independent developer participation (pending)
+
+A developer other than PR author `satvikp-coder`, with permission to submit a
+counting review, must participate. Use #97, not #93, for these tests:
+
+1. Confirm #97 is non-draft, has the valid title
+   `chore(repo): validate issue 63 protection without merging`, no unresolved
+   threads, and **all seven** configured required checks successful (including
+   `Summary`). Record its SHA, `REVIEW_REQUIRED` and `BLOCKED`. Inspect with
+   `gh pr view 97 --json headRefOid,isDraft,reviewDecision,mergeStateStatus` and
+   `gh pr checks 97 --required`; also compare against the seven-check ruleset,
+   because a check that has not started may be absent from the command output.
+2. Read the actual changes and submit an approval **only if the review warrants
+   it**. This must be a genuine independent code review. Do not use another token
+   to impersonate a reviewer. Wait for `reviewDecision: APPROVED` and a mergeable
+   baseline; do not merge. If the review finds issues, address them normally and
+   repeat the baseline after checks and review complete.
+3. With that approval and no open threads, set only #97's title to
+   `issue 63 deliberate governance validation failure` using `gh pr edit 97 --title`.
+   Wait for the new **real** governance check to fail. Record its run URL, head SHA,
+   `APPROVED` review decision, other required checks successful and `BLOCKED` merge
+   state. Restore the valid title above and wait for the new governance run to pass.
+   Do not push a commit, because that correctly dismisses the approval.
+4. Once the baseline is otherwise mergeable again, create an inline review
+   conversation on #97 describing this conversation-resolution acceptance test.
+   Leave it unresolved. Record the thread URL, `isResolved: false`, all required
+   checks passing, approval still valid, and `BLOCKED`. Resolve that validation
+   thread and confirm the otherwise mergeable state returns. Never click Merge.
+5. Add those actual observations and links to #93 and this page. Close #97 without
+   merging and delete only `chore/63-acceptance-validation`. Confirm no temporary
+   rulesets remain. Wait for #93's latest CI and RTD builds, then mark #93 ready and
+   request a genuine independent review of its final diff. Do not merge #93 or
+   close issue #63 automatically.
+
+### Windows pytest finding
+
+The local full run produced **233 passed, 1 skipped, 1 failed**. The failure in
+`test_safe_join_rejects_symlink_escape` is **WinError 1314** at `Path.symlink_to`,
+before `safe_join` executes. A standalone standard-library reproduction using
+`tempfile` and `Path.symlink_to`, without importing PhotoProof, produces the same
+error. `whoami /priv` does not list `SeCreateSymbolicLinkPrivilege` for the local
+process. This is an existing local Windows privilege limitation, not a PR regression.
+
+Both `tests/unit/test_storage.py` and `src/photoproof/core/security/paths.py` have
+identical Git blobs on main and this PR. No test was weakened or skipped and no
+machine privilege settings were changed. Rely on the actual hosted Windows results:
+all Python 3.11–3.15 test jobs passed for PR #93 at `e57e190`. In particular,
+[Windows Python 3.12 job 124247920453](https://github.com/satvikp-coder/PhotoProof/actions/runs/41109493740/job/124247920453)
+logs show every storage test passed, **170 unit tests passed, 1 macOS-only test
+skipped**, and **64 integration/resilience/security/e2e tests passed**. Its workflow
+runs the full unit suite, including the symlink-escape test. This provides the
+cross-platform evidence without masking the local failure.
 
 Dependabot has no automatic governance exemption: its default titles must still
 match Conventional Commits. A maintainer may add `governance:exempt` with an
