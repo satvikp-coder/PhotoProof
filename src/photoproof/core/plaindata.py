@@ -7,6 +7,7 @@ before anything is allocated, and the number of objects and the nesting depth ar
 """
 
 import struct
+from collections.abc import Sequence
 
 MAX_NODES = 1_000_000
 MAX_DEPTH = 64
@@ -131,7 +132,7 @@ class _Reader:
         return count
 
     @staticmethod
-    def _hashable(kind: type, items: list[object]) -> object:
+    def _hashable(kind: type, items: Sequence[object]) -> object:
         try:
             return kind(items)
         except TypeError as error:
