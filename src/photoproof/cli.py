@@ -48,6 +48,9 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("status", help="show identity and installed detectors (default)")
     sub.add_parser("version", help="print the application version")
+    sub.add_parser(
+        "web", help="serve the read-only web interface on the configured ui.host:ui.port"
+    )
     doctor = sub.add_parser("doctor", help="diagnose health; changes nothing")
     doctor.add_argument("--json", action="store_true")
     repair = sub.add_parser("repair", help="apply safe and controlled repairs")
@@ -299,6 +302,8 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
         print(f"configuration error:\n{error}", file=sys.stderr)
         return EXIT_CONFIG
     try:
+        if command == "web" and args.ignore_blacklist:
+            raise PolicyError("blacklist bypass is not permitted for the web interface")
         if command == "version":
             print(app.identity.application.version)
             return EXIT_OK
@@ -314,6 +319,11 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
             return code
         if command == "preflight":
             print("preflight passed")
+            return EXIT_OK
+        if command == "web":
+            from WebKit.app import serve  # noqa: PLC0415 - load web stack only for web command
+
+            serve(app)
             return EXIT_OK
         if command == "status":
             return cmd_status(app)

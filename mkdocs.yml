@@ -89,6 +89,7 @@ nav:
       - CI/CD and repository settings: development/ci.md
   - Testing:
       - testing/index.md
+      - Web accessibility: testing/web-accessibility.md
   - Planning:
       - Roadmap: planning/index.md
       - Backlog: planning/backlog.md

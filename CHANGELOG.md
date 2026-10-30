@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- A server-rendered web foundation (`python main.py web`) with accessible navigation,
+  system light/dark appearance, honest workflow placeholders and real read-only health
+  and plugin-policy diagnostics. Binding comes from validated `ui.*` settings, with
+  secure request boundaries and explicit warnings for unauthenticated network access (#38).
 - Support for Python 3.14 and 3.15 in the launcher, packaging and the CI matrix
   (3 OSes × Python 3.11–3.15). The launcher smoke test covers the oldest and newest.
 - The team page (`docs/planning/team.md`), which allocates every backlog issue to an

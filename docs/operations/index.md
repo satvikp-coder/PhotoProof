@@ -11,6 +11,7 @@ uses administrator rights and only downloads the hash-verified packages listed i
 |---|---|---|
 | `python main.py` | Full bootstrap, preflight, then `status` | 0, 3, 4, 5, 6 |
 | `python main.py <command> [args]` | Same, then forwards to the CLI (`plugins`, `config`, `analyze IMG`, `manifest RUN_ID`, …) | CLI codes |
+| `python main.py web` | Start the read-only web foundation on validated `ui.host:ui.port` (default `127.0.0.1:8501`); Ctrl+C stops it | CLI codes |
 | `python main.py --version` | Print `PhotoProof <version>` from `app.toml`; nothing else | 0, 3, 4 |
 | `python main.py --doctor` | Launcher diagnostics + application `doctor`; changes nothing | 0, 6 |
 | `python main.py --repair [--dry-run]` | Controlled repair: may rebuild an incompatible `.venv`, reinstalls dependencies, runs application repairs | 0, 6 |
@@ -40,7 +41,7 @@ Exit codes: `0` ok · `2` usage · `3` unsupported interpreter/OS/architecture/h
    `.pth` files, which would silently break the editable install).
 10. Verify the package **imports** at the `app.toml` version.
 11. Start the requested command (`status` by default). Commands that start the
-    application (`status`, `analyze`, `manifest`, `preflight`) first run preflight:
+    application (`status`, `analyze`, `manifest`, `preflight`, `web`) first run preflight:
     quick health checks, SAFE auto-repair (creates `ARE/`), re-check. `doctor`,
     `repair`, `config` and `plugins` deliberately skip preflight and its repairs.
 
@@ -50,3 +51,23 @@ goes to the CLI unchanged: `python main.py repair --dry-run` is a dry run.
 Hard requirements fail; recommended resources warn; the GPU is informational.
 `--doctor` also lists packages installed in `.venv` that no lockfile pins.
 Set `PHOTOPROOF_LAUNCHER_VERBOSE=1` to print the launcher report on every start.
+
+## Web interface
+
+Run `python main.py web` and open `http://127.0.0.1:8501` (or the configured port).
+Analyze, Compare and History are labelled placeholders. Diagnostics displays real
+quick health checks and installed plugin policy; use `python main.py --doctor` for
+full evidence hashing and local-only error details. Requests do not run repairs.
+
+Only local IP addresses/`localhost` are accepted by default. Configure `ui.host` and
+`ui.port` in `settings.yaml` before launch; there are no command-line bind overrides.
+The service runs one process without reload, proxy-header trust or HTTP access logs
+that could capture query strings. Non-loopback bindings are unauthenticated and
+display a warning. Production rejects them until authentication exists. Hostname-based
+reverse proxy deployments are outside this foundation's supported boundary.
+
+There are no upload, analysis, repair or blacklist-bypass HTTP routes. In particular,
+`python main.py --ignore-blacklist web` is rejected. Error pages contain no tracebacks,
+paths or configuration dumps. Inspect local logs/doctor if a generic error persists.
+Read [WebKit's guide](https://github.com/satvikp-coder/PhotoProof/blob/main/WebKit/README.md)
+in the repository for extension contracts.

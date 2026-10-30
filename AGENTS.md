@@ -13,7 +13,8 @@ misleading result is as serious as a crash.
 
 **Current state:** the foundation only. The launcher, configuration, plugin pipeline,
 storage, database, health checks and CLI are implemented and tested. No forensic
-detector, image decoder or web interface exists yet, and an analysis reports
+detector or image decoder exists yet. The web foundation offers navigation and read-only
+diagnostics; workflow pages are labelled placeholders. An analysis reports
 `NO_DETECTORS`. Everything else is planned in the GitHub issues. Never describe planned
 behaviour as implemented, in code or docs.
 
@@ -30,7 +31,7 @@ behaviour as implemented, in code or docs.
 | `src/photoproof/imaging/` | Decoder security interface (`DecodeLimits`, `ImageDecoder`). No decoder yet. |
 | `src/photoproof/plugins/` | Trusted built-in detectors. None yet. |
 | `src/photoproof/cli.py` | Command-line interface. |
-| `WebKit/` | Web interface (planned). |
+| `WebKit/` | FastAPI/Jinja2 web foundation, local CSS, read-only diagnostics. |
 | `tests/` | `unit`, `integration`, `resilience`, `security`, `e2e`, `fixtures/mockplugins`. |
 | `docs/` | MkDocs site. `docs/planning/backlog/PP-*.md` are the issue sources. |
 | `.github/` | Workflows, `CODEOWNERS`, templates, governance and backlog scripts. |
@@ -61,7 +62,7 @@ ruff check .
 mypy
 pytest
 mkdocs build --strict             # if docs changed
-bandit -c pyproject.toml -r src main.py
+bandit -c pyproject.toml -r src WebKit main.py
 pytest tests/security -q
 python -m photoproof config --json > /dev/null
 python -m photoproof plugins
@@ -204,7 +205,8 @@ Priorities:
   their context.
 - A blacklist bypass stays local-CLI-only, gated by `security.allow_blacklist_bypass`,
   audited and rejected in production. `security.forbidden_plugins` is never bypassable.
-  `ui.host` stays loopback until WebKit has authentication.
+  Production `ui.host` stays loopback until WebKit has authentication; explicit
+  non-loopback development binds display an unauthenticated-network warning.
 
 ### Supply chain and automation
 

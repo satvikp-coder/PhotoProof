@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>{{ eyebrow }} · {{ identity.name }}</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='app.css') }}">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Application sidebar">
+      <header class="brand">
+        <span class="brand-mark" aria-hidden="true">P<span>·</span></span>
+        <div><a href="{{ request.url_for('analyze') }}">{{ identity.name }}</a><span class="brand-caption">Image forensics workspace</span><span class="brand-caption">Version {{ identity.version }}</span></div>
+      </header>
+      <nav aria-label="Primary navigation">
+        <ul>{% for name, label in navigation %}
+          <li><a href="{{ request.url_for(name) }}"{% if page == name %} aria-current="page"{% endif %}><span class="nav-number" aria-hidden="true">0{{ loop.index }}</span>{{ label }}<span class="nav-arrow" aria-hidden="true">↗</span></a></li>
+        {% endfor %}</ul>
+      </nav>
+      <div class="sidebar-note"><span class="overline">A careful approach</span><p>Examine signals.<br>Understand limitations.<br>Keep the evidence intact.</p></div>
+      <footer class="sidebar-footer"><span>{{ identity.release_channel | capitalize }} release</span><span>Version {{ identity.version }}</span></footer>
+    </aside>
+    <div class="workspace">
+      <div class="topbar"><span>{{ eyebrow }}</span><span class="tag">Read-only foundation</span></div>
+      <main id="main" tabindex="-1">
+        {% if network_warning %}<section class="network-warning" aria-label="Network exposure warning"><strong>Unauthenticated network access</strong><p>This interface is bound beyond loopback. Anyone who can reach it can view its pages. Authentication is not implemented. Use loopback for private work.</p></section>{% endif %}
+        <div class="page-heading"><p class="overline">{{ identity.name }} / {{ page | capitalize }}</p><h1>{{ title }}</h1>{% block introduction %}{% endblock %}</div>
+        <aside class="foundation-notice" aria-label="Foundation stage notice"><span class="notice-symbol" aria-hidden="true">i</span><div><strong>Foundation stage · no forensic verdicts</strong><p>Analysis workflows and forensic detectors are not implemented in this interface. No authenticity verdict is produced. A missing result is not evidence of authenticity.</p></div></aside>
+        {% block content %}{% endblock %}
+      </main>
+      <footer class="workspace-footer"><span>{{ identity.name }} · {{ identity.release_channel | capitalize }}</span><span>Evidence first. Conclusions with care.</span></footer>
+    </div>
+  </div>
+</body>
+</html>

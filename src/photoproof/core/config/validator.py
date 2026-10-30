@@ -1,10 +1,19 @@
 """Typed configuration models. Unknown keys are rejected everywhere (``extra="forbid"``)."""
 
 import re
+from ipaddress import ip_address
 from pathlib import PurePosixPath
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 from photoproof.contracts.enums import AnalysisMode, Severity
 from photoproof.versioning.version import SemVer
@@ -198,8 +207,23 @@ class ServiceSettings(_Strict):
 
 
 class UISettings(_Strict):
-    host: str
-    port: int = Field(ge=1, le=65_535)
+    host: str = "127.0.0.1"
+    port: StrictInt = Field(default=8501, ge=1, le=65_535)
+
+    @field_validator("host")
+    @classmethod
+    def _host(cls, value: str) -> str:
+        if value == "localhost":
+            return value
+        try:
+            parsed = ip_address(value)
+        except ValueError as error:
+            raise ValueError(
+                "ui.host must be an IP address or localhost, without a port"
+            ) from error
+        if "%" in value:
+            raise ValueError("ui.host must not contain an IPv6 scope identifier")
+        return str(parsed)
 
 
 class DevelopmentSettings(_Strict):

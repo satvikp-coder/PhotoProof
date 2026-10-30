@@ -41,11 +41,17 @@ feature flags) must be real YAML booleans: `true`/`false`, not `"yes"`, `1` or
 | `formats.accepted` | `[jpeg, png, webp]` | subset of `jpeg png webp heif avif jxl tiff` | *Reserved* for ingestion. |
 | `reporting.include_effective_settings` | `true` | bool | Embed effective settings in manifests. |
 | `services.background_workers` | `0` | must be `0` | *Reserved*; workers are not implemented. |
-| `ui.host` | `127.0.0.1` | string | *Reserved* for WebKit. Must be loopback in production until authentication exists. |
-| `ui.port` | `8501` | 1–65535 | *Reserved* for WebKit. |
+| `ui.host` | `127.0.0.1` | IP literal or `localhost` | Operational WebKit binding. No URL, port or arbitrary DNS name. Non-loopback requires an explicit setting and displays an unauthenticated-network warning; production still requires loopback. |
+| `ui.port` | `8501` | integer, 1–65535 | Operational WebKit port; booleans, strings and fractional numbers are rejected. |
 | `development.debug` | `false` | bool | **Must be `false` in production.** |
 
 ## Cross-field rules
+
+Run the server with `python main.py web`. An empty `ui: {}` uses the loopback/port
+defaults above. Host and port are validated before binding; there are no web request
+overrides. Debug settings do not enable HTTP tracebacks. Non-loopback development
+bindings are unauthenticated and should only be used on a trusted, isolated network.
+`0.0.0.0`/`::` bind all interfaces; host-header checks still reject arbitrary DNS names.
 
 Validation fails when:
 
