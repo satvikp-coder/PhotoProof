@@ -1,4 +1,11 @@
-# Default reviewers for everything. Refine per area once ownership is agreed.
-*                       @satvikp-coder @varunkarthic
-/.github/               @satvikp-coder @varunkarthic
-/src/photoproof/core/security/  @satvikp-coder @varunkarthic
+# Primary owner first, secondary reviewer second. See docs/planning/team.md.
+# Last match wins, and GitHub ignores owners without write access to the repository.
+*                                 @satvikp-coder @varunkarthic
+/.github/                         @varunkarthic @satvikp-coder
+/docs/                            @shambhavee08 @varunkarthic
+/tools/                           @shambhavee08 @inevitable-lettus
+/WebKit/                          @satvikp-coder @shambhavee08
+/src/photoproof/core/             @varunkarthic @satvikp-coder
+/src/photoproof/core/security/    @varunkarthic @satvikp-coder
+/src/photoproof/imaging/          @varunkarthic @inevitable-lettus
+/src/photoproof/plugins/          @inevitable-lettus @satvikp-coder

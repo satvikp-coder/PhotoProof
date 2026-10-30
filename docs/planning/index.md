@@ -66,17 +66,17 @@ flowchart LR
 detector algorithms), #77 (the five copy-move stages in parallel) and #38 (all WebKit
 pages, built against mock data until their integrations land).
 
-Suggested starting split (to be confirmed in #75):
+Each track is on the [team page](team.md):
 
 | Person | First issues | Then |
 |---|---|---|
-| A: ingestion and security | #73, #1, #2 | #3, #4, #9, #11 → #12 |
-| B: compression and noise | #72, #74 | #13, #15, #18, #19, #16 |
-| C: copy-move and comparison | #66, #77 (after #72) | #20–#24, #28–#30 |
-| D: web, reports, operations | #38, #46, #48 | #39–#44, #50, #62 |
+| Varun: ingestion and security | #73, #1, #2 | #3, #4, #9, #11 → #12 |
+| Garv: detectors and comparison | #72 → #13, #77 | #18, #19, #16, #20–#24, #27–#30, #64, #65 |
+| Satvik: web, reports, fusion | #38, #46, #63 | #39–#45, #47, #50, #32–#36 |
+| Shambhavee: tooling and smaller detectors | #74, #48, #49, #66 | #62, #14, #15, #25, #10 |
 
 #12 (plugin image access) is the main integration point. It is blocked only by the
-ingestion chain, so person A's track sets the pace for every detector's second PR.
+ingestion chain, so Varun's track sets the pace for every detector's second PR.
 
 ## Planned forensic techniques
 

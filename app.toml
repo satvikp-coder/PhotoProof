@@ -3,29 +3,28 @@
 
 [application]
 name = "PhotoProof"
-version = "0.2.1"
+version = "0.2.2"
 package = "photoproof"
 description = "Modular digital image forgery detection and localization framework."
 release_channel = "development"   # development | preview | stable
 plugin_api_version = "1.0.0"
 config_schema_version = 1
 
-# Replace the placeholders with the real team members.
 [[developers]]
 name = "Varun Karthic"
 github = "varunkarthic"
 
 [[developers]]
-name = "Developer 2 (placeholder)"
-github = ""
+name = "Satvik Patel"
+github = "satvikp-coder"
 
 [[developers]]
-name = "Developer 3 (placeholder)"
-github = ""
+name = "Garv Gurwara"
+github = "inevitable-lettus"
 
 [[developers]]
-name = "Developer 4 (placeholder)"
-github = ""
+name = "Shambhavee"
+github = "shambhavee08"
 
 [python]
 minimum = "3.11"   # inclusive

@@ -10,9 +10,13 @@ All notable changes to this project are documented here. The format follows
 
 - Support for Python 3.14 and 3.15 in the launcher, packaging and the CI matrix
   (3 OSes × Python 3.11–3.15). The launcher smoke test covers the oldest and newest.
+- The team page (`docs/planning/team.md`), which allocates every backlog issue to an
+  owner, and per-area review routing in `CODEOWNERS`.
 
 ### Changed
 
+- `app.toml`, `pyproject.toml`, `mkdocs.yml` and `LICENSE` name the four developers
+  instead of placeholders.
 - Configuration parsing uses ruamel.yaml's safe, pure-Python loader instead of PyYAML,
   because PyYAML has no wheels for Python 3.15 and the launcher installs wheels only.
   Duplicate keys and Python tags are still rejected.
@@ -35,6 +39,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `.readthedocs.yaml` quotes its install command, which YAML parsed as a mapping because of
+  `:all:`, failing the Read the Docs build.
 - `python main.py repair --dry-run` performed a real repair: the launcher consumed
   `--dry-run`. Launcher flags must now precede the command, and everything after it is
   forwarded unchanged.

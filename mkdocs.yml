@@ -3,7 +3,7 @@ site_description: Modular digital image forgery detection and localization frame
 repo_url: https://github.com/satvikp-coder/PhotoProof
 repo_name: satvikp-coder/PhotoProof
 edit_uri: edit/main/docs/
-copyright: PhotoProof contributors · MIT License
+copyright: Varun Karthic, Satvik Patel, Garv Gurwara, Shambhavee · MIT License
 
 theme:
   name: material
@@ -92,3 +92,4 @@ nav:
   - Planning:
       - Roadmap: planning/index.md
       - Backlog: planning/backlog.md
+      - Team: planning/team.md
