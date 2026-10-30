@@ -75,6 +75,10 @@ These steps exist as separate, tested functions. `analyze` does not call the dec
 `normalize` yet: #12 connects them, and #9 moves decoding into an isolated process. Normalizing
 never changes the `DecodedImage`, so unconverted pixels stay available.
 
+High-depth sources also have `normalize_hdr → WorkingImage` with `uint16` code values, plus their
+transfer function and primaries. Values are stored as `uint16` because `float32` costs twice the
+memory and rounds the low-amplitude noise that detectors look for.
+
 ## Data flow of one analysis
 
 1. The CLI stores the input in the evidence store (streamed, size-limited) and builds an

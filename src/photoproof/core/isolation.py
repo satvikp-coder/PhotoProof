@@ -169,7 +169,7 @@ def _supervise(
     finally:
         _stop(process)
         if exchange is not None:
-            exchange.join(_EXIT_GRACE_SECONDS)  # the child is gone, so its pipe has reached EOF
+            _wait_for_thread(exchange, _EXIT_GRACE_SECONDS)  # the child is gone: the pipe is at EOF
         ours.close()
         _release(job)
 
@@ -205,15 +205,26 @@ class _Exchange(threading.Thread):
             self.pipe_error = str(error)
 
 
+def _wait_for_thread(thread: threading.Thread, seconds: float) -> None:
+    """Wait a bounded time without ``Thread.join``.
+
+    A 10 ms ``join(timeout)`` was seen never to return on Windows with Python 3.14 and 3.15,
+    which defeated the deadline. A deadline cannot depend on a call that may block forever.
+    """
+    limit = time.monotonic() + seconds
+    while thread.is_alive() and time.monotonic() < limit:
+        time.sleep(_POLL_SECONDS)
+
+
 def _wait(exchange: _Exchange, process: BaseProcess, limits: ProcessLimits) -> Failure | None:
     """Block until the exchange finishes. Returns the failure if a limit was hit first."""
     start = time.monotonic()
     next_watchdog = start + _WATCHDOG_SECONDS
     while exchange.is_alive():
-        exchange.join(_POLL_SECONDS)
+        time.sleep(_POLL_SECONDS)
         now = time.monotonic()
         if not process.is_alive():
-            exchange.join(_EXIT_GRACE_SECONDS)  # a result may still be in the pipe
+            _wait_for_thread(exchange, _EXIT_GRACE_SECONDS)  # a result may still be in the pipe
             return None
         if now - start >= limits.timeout_s:
             return Failure(

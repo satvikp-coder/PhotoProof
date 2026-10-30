@@ -97,8 +97,11 @@ failure, leaves the pixels unconverted, and records `icc_invalid`. Profiles over
 and recorded. LittleCMS still parses the rest in-process until #9.
 
 **Known limits:** decoding runs in the calling process with no wall-clock limit until #9.
-16-bit colour PNGs are read as 8-bit, recorded as `16_bit_to_8_bit`, until #5. CMYK JPEGs are
-converted naively and recorded as `cmyk_to_rgb`.
+Interlaced 16-bit colour PNGs and 16-bit gray with alpha are read as 8-bit, and recorded as
+`16_bit_to_8_bit`. 16-bit PNGs with a transparency key are rejected, because the transparency
+can't be represented or would come out wrong. CMYK JPEGs are converted naively and recorded as `cmyk_to_rgb`.
+Memory is estimated from the header and checked against `DecodeLimits.max_decoded_bytes` (2 GiB,
+not yet configurable) before any pixel is decoded.
 
 ## Dependency security
 
@@ -110,7 +113,8 @@ GitHub Actions pinned to commit SHAs.
 
 The launcher never escalates privileges or runs shell strings (`subprocess` with
 argument lists only). Runtime directories are 0700; blobs are 0400. `GITHUB_TOKEN`
-permissions default to `contents: read`; only the release job can write.
+permissions default to `contents: read`. Only the release job can write contents, and the
+milestone job can write pull requests.
 
 ## Evidence preservation
 

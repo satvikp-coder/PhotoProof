@@ -11,6 +11,11 @@ All notable changes to this project are documented here. The format follows
 - `core/isolation.py` runs a callable in a child process with wall-clock, CPU and memory limits
   and reports typed failures. `doctor` reports which limits this platform can enforce. Decoders
   and plugins do not use it yet (#9, #52).
+- Pull requests automatically get the milestone of the issue they reference, unless someone has
+  already set one.
+- 16-bit PNGs decode without loss. High-depth images get a `uint16` view with their transfer
+  function and primaries, and an 8-bit derivative through a documented tone curve. The pipeline
+  does not use these yet (#12).
 - `normalize` turns a decoded image into a working image in sRGB with EXIF orientation applied,
   and records every transform. The decoded image stays available and unchanged. The pipeline
   does not use it yet (#12).
@@ -38,6 +43,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave
+  `app.toml` alone, so open PRs can't collide on the version, and `main` moving on can't fail them.
 - `analyze` rejects files that are not a recognised image format.
 - The pull request template no longer has checkboxes that cannot all be ticked, so a complete
   PR shows every task as done. `CONTRIBUTING.md` explains how to fill it in and how to link an

@@ -73,7 +73,7 @@ on Windows.
 
 ### Known traps
 
-- **After a version bump, reinstall the editable package.** Run the `pip install -e .`
+- **After pulling a release, reinstall the editable package.** Run the `pip install -e .`
   command above, or about a dozen tests fail on the version health check.
 - **`No module named 'photoproof'` on macOS:** Python 3.13 and newer ignore hidden `.pth`
   files, and macOS can mark the venv's file as hidden. Run tests with `PYTHONPATH=src`, or
@@ -100,9 +100,9 @@ review, merge.
 5. **Docs.** Update the pages under `docs/` that describe the behaviour.
 6. **Changelog.** Add entries under `## [Unreleased]` in `CHANGELOG.md`, written for
    users of the project.
-7. **Version.** Bump `app.toml` exactly once per PR: PATCH for fixes, docs, tests and CI;
-   MINOR for features; MAJOR for breaking a supported contract. If another PR merges
-   first, rebase and re-bump.
+7. **Version.** Do not change `app.toml`; versions are set at release time. State the impact in
+   the PR description: PATCH for fixes, docs, tests and CI; MINOR for features; MAJOR for
+   breaking a supported contract.
 8. **PR.** Complete every section of `.github/PULL_REQUEST_TEMPLATE.md` and report only
    results you actually saw. The title becomes the squash-merge commit. One approval from
    another developer is required.
@@ -218,4 +218,4 @@ Priorities:
 
 - A change to the plugin execution contract must bump `plugin_api_version`. A break in a
   public interface, the CLI, the configuration format or the manifest and artifact formats
-  needs a MAJOR bump and migration notes.
+  needs `!` in the PR title and migration notes, which make the next release MAJOR.

@@ -446,6 +446,33 @@ def test_starting_and_closing_children_never_overlap(monkeypatch: pytest.MonkeyP
     assert overlaps == 0
 
 
+def test_supervision_never_depends_on_thread_join(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Thread.join with a timeout was seen to hang on Windows, defeating the deadline."""
+
+    def forbidden(*_: object, **__: object) -> None:
+        raise AssertionError("Thread.join must not be used while supervising a child")
+
+    monkeypatch.setattr(isolation._Exchange, "join", forbidden)
+    assert run_isolated(targets.double, 2, limits=GENEROUS) == Ok(4)
+    expect_failure(run_isolated(targets.hang, None, limits=FAST_TIMEOUT), FailureKind.TIMEOUT)
+    expect_failure(
+        run_isolated(targets.killed_abruptly, None, limits=GENEROUS), FailureKind.CRASHED
+    )
+
+
+def test_wait_for_thread_gives_up_on_time() -> None:
+    release = threading.Event()
+    thread = threading.Thread(target=release.wait, daemon=True)
+    thread.start()
+    start = time.monotonic()
+    isolation._wait_for_thread(thread, 0.1)
+    assert 0.05 < time.monotonic() - start < 5
+    assert thread.is_alive()
+    release.set()
+    isolation._wait_for_thread(thread, 5)
+    assert not thread.is_alive()
+
+
 def test_concurrent_calls_do_not_interfere() -> None:
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(
