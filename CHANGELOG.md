@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `IngestionService` stages each input in quarantine, enforces the size limit while reading,
+  identifies its type from content, and audits every rejection as `INPUT_REJECTED`. `analyze` now
+  uses it for all inputs.
 - PhotoProof identifies image formats from file signatures. Formats outside
   `formats.accepted` are rejected before being stored, a plugin is `NOT_APPLICABLE` for formats
   outside its `supported_formats`, and `doctor` lists accepted formats with no decoder.
@@ -26,6 +29,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `analyze` rejects files that are not a recognised image format.
 - `analyze` rejects symlinks and empty files, and it rejects an unknown profile or an invalid
   reference combination before storing anything.
 - `SECURITY.md` adds review guidance (assets, trust boundaries, severity, known gaps) and

@@ -61,7 +61,7 @@ def test_reference_is_stored_too(
     app_root: Path, target_file: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     reference = tmp_path / "reference.bin"
-    reference.write_bytes(b"different reference bytes")
+    reference.write_bytes(b"\xff\xd8\xff\xe0 a different reference image")
     analyze_json(
         app_root, capsys, str(target_file), "--reference", str(reference), "--profile", "comparison"
     )
@@ -181,3 +181,15 @@ def test_disabled_format_is_rejected_by_the_cli(
     assert _invoke(app_root, "analyze", str(image)) != 0
     assert "not accepted by settings.formats.accepted" in capsys.readouterr().err
     assert objects(app_root) == []
+
+
+def test_text_file_is_rejected_by_the_cli_and_audited(
+    app_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = tmp_path / "notes.txt"
+    text.write_bytes(b"this is plainly not an image file at all")
+    assert _invoke(app_root, "analyze", str(text)) != 0
+    assert "not a recognised image" in capsys.readouterr().err
+    assert objects(app_root) == []
+    audit = (app_root / "ARE" / "logs" / "audit.jsonl").read_text(encoding="utf-8")
+    assert "INPUT_REJECTED" in audit

@@ -4,7 +4,7 @@
 
 | Asset | Threat | Current control | Planned |
 |---|---|---|---|
-| Original evidence | Silent modification | Stored before any processing; content-addressed, read-only; verified on every read; never overwritten or auto-repaired | Upload handling (#11) |
+| Original evidence | Silent modification | Stored before any processing; content-addressed, read-only; verified on every read; never overwritten or auto-repaired | — |
 | Host system | Malicious image exploiting a native decoder | Decoder interface with mandatory limits; no decoder yet | Isolated decoder process with resource limits; fuzzing |
 | Host system | Decompression bomb / resource exhaustion | `resources.max_input_bytes` enforced while streaming; `max_image_pixels` contract | Header-level pixel checks, memory limits |
 | Runtime data | Path traversal | `safe_join` on every runtime path | — |
@@ -18,7 +18,9 @@
 ## Trust boundaries and assumptions
 
 - **Untrusted:** every input image and reference image, and anything derived from it
-  before validation.
+  before validation. These enter only through `IngestionService`, which stages them in
+  quarantine, enforces the size cap while reading, identifies the type from content, and
+  audits every rejection ([details](../operations/runtime.md#ingestion)).
 - **Trusted:** repository code, including plugins under `photoproof.plugins`. Plugin
   discovery is **not** a sandbox. Configuration cannot add plugin locations.
 - **Semi-trusted:** configuration files edited by local operators. They are validated
