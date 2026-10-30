@@ -25,6 +25,7 @@ from photoproof.core.logging.setup import (
 )
 from photoproof.core.pipeline.discovery import BUILTIN_PLUGIN_PACKAGE, discover
 from photoproof.core.pipeline.registry import PluginRegistry
+from photoproof.core.storage.evidence import EvidenceStore
 from photoproof.core.storage.store import RuntimeStorage
 
 # Default repository root for a source checkout: src/photoproof/core/bootstrap.py -> repo
@@ -59,6 +60,12 @@ class Application:
             return self.database() if self.database_path.parent.is_dir() else None
         except DatabaseError:
             return None
+
+    def evidence(self) -> EvidenceStore:
+        """The verifying store for original evidence. Raises ``DatabaseError``."""
+        return EvidenceStore(
+            self.storage, self.database(), max_input_bytes=self.settings.resources.max_input_bytes
+        )
 
     def start(self) -> None:
         """Attach runtime services. Requires the runtime layout (see preflight)."""

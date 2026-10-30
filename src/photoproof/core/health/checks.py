@@ -243,6 +243,7 @@ def check_stored_blobs(app: "Application", *, deep: bool = True) -> CheckResult:
             well_formed = bool(_SHA256.match(path.name)) and path.name[:2] == path.parent.name
             if not well_formed or (deep and not app.storage.verify_blob(kind, path.name)):
                 corrupt.append(f"{kind}/{path.parent.name}/{path.name}")
+    corrupt += _missing_evidence(app)
     if not corrupt:
         return _ok("storage.integrity", "all stored blobs match their hashes")
     evidence = any(c.startswith("objects/") for c in corrupt)
@@ -256,6 +257,24 @@ def check_stored_blobs(app: "Application", *, deep: bool = True) -> CheckResult:
             Repairability.MANUAL,
         ),
     )
+
+
+def _missing_evidence(app: "Application") -> list[str]:
+    """Originals the database knows about but ``objects/`` no longer holds."""
+    if not app.database_path.is_file():  # doctor must not create the database as a side effect
+        return []
+    db = app.database_or_none()
+    if db is None:
+        return []  # reported by database.integrity
+    try:
+        hashes = db.evidence_hashes()
+    except DatabaseError:
+        return []  # reported by database.integrity
+    return [
+        f"objects/{sha256[:2]}/{sha256} (missing)"
+        for sha256 in hashes
+        if not (app.storage.root / "objects" / sha256[:2] / sha256).is_file()
+    ]
 
 
 def check_version_consistency(app: "Application") -> CheckResult:

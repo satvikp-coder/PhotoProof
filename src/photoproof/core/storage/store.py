@@ -4,10 +4,11 @@ Layout (all created with owner-only permissions on POSIX):
 
     uploads/ quarantine/ objects/ artifacts/ cache/ reports/ manifests/ logs/ database/ tmp/
 
-``objects/`` is reserved for original evidence and ``artifacts/`` for plugin outputs.
+``objects/`` holds original evidence (see ``evidence.py``) and ``artifacts/`` plugin outputs.
 Both are content-addressed (``<kind>/<sha[:2]>/<sha>``) and written read-only.
 """
 
+import errno
 import hashlib
 import json
 import os
@@ -35,6 +36,7 @@ RUNTIME_DIRS = (
 )
 BlobKind = Literal["objects", "artifacts"]
 _POSIX = os.name == "posix"
+_NO_HARD_LINKS = {errno.EPERM, errno.ENOTSUP, errno.ENOSYS, errno.EOPNOTSUPP}
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -70,12 +72,31 @@ def atomic_write(path: Path, data: bytes, *, mode: int = 0o600) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
-    if _POSIX:  # persist the rename itself across power loss
-        dir_fd = os.open(path.parent, os.O_RDONLY)
+    _fsync_directory(path.parent)
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Persist a rename or link across power loss. Windows has no directory fsync."""
+    if _POSIX:
+        dir_fd = os.open(directory, os.O_RDONLY)
         try:
             os.fsync(dir_fd)
         finally:
             os.close(dir_fd)
+
+
+def _link_without_overwriting(source: Path, target: Path) -> None:
+    """Atomically create ``target``; raises ``FileExistsError`` if it already exists."""
+    try:
+        os.link(source, target)
+    except FileExistsError:
+        raise
+    except OSError as error:
+        if error.errno not in _NO_HARD_LINKS:
+            raise
+        # ponytail: a concurrent writer of the same content can replace the blob on
+        # filesystems without hard links (exFAT). The content is identical by hash.
+        os.replace(source, target)
 
 
 class RuntimeStorage:
@@ -143,6 +164,34 @@ class RuntimeStorage:
             raise StorageError(f"{target}: existing blob fails verification; run --doctor")
         atomic_write(target, data, mode=0o400)
         return digest
+
+    def publish_blob(self, kind: BlobKind, source: Path, sha256: str) -> bool:
+        """Give the fully written ``source`` its content address, read-only.
+
+        Never writes to an existing blob, even in a race with another process. Returns
+        True if this call created the blob and False if an intact copy already existed.
+        Raises ``StorageError`` if the existing blob fails verification.
+        """
+        target = self.blob_path(kind, sha256)
+        if target.exists() or target.is_symlink():
+            return self._existing_blob_is_intact(kind, sha256, target)
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if _POSIX:
+            source.chmod(0o400)
+        try:
+            if _POSIX:
+                _link_without_overwriting(source, target)
+            else:
+                os.rename(source, target)  # on Windows this fails if the target exists
+        except FileExistsError:  # another process stored the same content first
+            return self._existing_blob_is_intact(kind, sha256, target)
+        _fsync_directory(target.parent)
+        return True
+
+    def _existing_blob_is_intact(self, kind: BlobKind, sha256: str, target: Path) -> bool:
+        if self.verify_blob(kind, sha256):
+            return False
+        raise StorageError(f"{target}: existing blob fails verification; run --doctor")
 
     def verify_blob(self, kind: BlobKind, sha256: str) -> bool:
         target = self.blob_path(kind, sha256)
