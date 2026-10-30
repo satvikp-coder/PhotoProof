@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Pull requests automatically get the milestone of the issue they reference, unless someone has
+  already set one.
 - `PillowDecoder` decodes JPEG, PNG and WebP with size limits checked before any pixel is
   allocated, and rejects truncated or corrupted files. Decoder versions are recorded in
   manifests and cache keys. The pipeline does not use it yet (#12).
