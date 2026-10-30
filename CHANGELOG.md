@@ -12,9 +12,13 @@ All notable changes to this project are documented here. The format follows
   (3 OSes × Python 3.11–3.15). The launcher smoke test covers the oldest and newest.
 - The team page (`docs/planning/team.md`), which allocates every backlog issue to an
   owner. `CODEOWNERS` requests review from Satvik, Varun and Garv on every pull request.
+- `AGENTS.md`, with instructions for coding agents and the code review rules used by
+  automated pull request reviews.
 
 ### Changed
 
+- `SECURITY.md` adds review guidance (assets, trust boundaries, severity, known gaps) and
+  lists `0.2.x` as the supported version.
 - `app.toml`, `pyproject.toml`, `mkdocs.yml` and `LICENSE` name the four developers
   instead of placeholders.
 - Configuration parsing uses ruamel.yaml's safe, pure-Python loader instead of PyYAML,
