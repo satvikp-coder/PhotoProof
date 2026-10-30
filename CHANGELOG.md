@@ -23,6 +23,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The pull request template no longer has checkboxes that cannot all be ticked, so a complete
+  PR shows every task as done. `CONTRIBUTING.md` explains how to fill it in and how to link an
+  issue so that it closes on merge.
 - `analyze` rejects symlinks and empty files, and it rejects an unknown profile or an invalid
   reference combination before storing anything.
 - `SECURITY.md` adds review guidance (assets, trust boundaries, severity, known gaps) and
