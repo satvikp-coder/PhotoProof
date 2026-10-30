@@ -1,6 +1,6 @@
-"""Decoder security interface that every future image decoder must implement.
+"""Decoder security interface that every image decoder must implement.
 
-No decoder exists yet. This module fixes the contract so ingestion, plugins and the
+This module fixes the contract so ingestion, plugins and the
 future isolated decoder process agree on limits and outputs. Implementing this
 protocol does not by itself provide isolation: decoders parse untrusted bytes with
 native code and must eventually run in a separate, resource-limited process.
@@ -33,6 +33,8 @@ class DecodedImage:
     pixels: bytes  # row-major, interleaved channels
     icc_profile: bytes | None = None
     orientation: int = 1  # EXIF orientation as found; normalization is a separate step
+    mode: str = ""  # working pixel mode, e.g. "RGB", "RGBA" or "I;16"
+    conversion: str = "none"  # comma-separated codes for what changed; see the adapter
 
 
 class ImageDecoder(Protocol):

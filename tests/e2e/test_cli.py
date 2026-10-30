@@ -36,8 +36,7 @@ def test_cli_status_doctor_analyze_manifest(app_root: Path, target_file: Path) -
 
     doctor = _cli(app_root, "doctor", "--json")
     assert doctor.returncode == 0, doctor.stdout
-    findings = {r["check_id"] for r in json.loads(doctor.stdout) if r["severity"] != "ok"}
-    assert findings == {"imaging.codecs"}  # no decoders exist yet (#3)
+    assert all(r["severity"] == "ok" for r in json.loads(doctor.stdout))
 
     analyze = _cli(app_root, "analyze", str(target_file), "--json")
     assert analyze.returncode == 0, analyze.stderr
