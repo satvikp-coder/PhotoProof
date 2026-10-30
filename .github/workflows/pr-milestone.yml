@@ -1,0 +1,35 @@
+name: PR milestone
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  milestone:
+    name: Set milestone from linked issue
+    # A fork's token cannot write, so this could only fail there.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Set the milestone
+        env:  # passed through env, never interpolated into the script
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ github.event.pull_request.body }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          CURRENT: ${{ github.event.pull_request.milestone.number }}
+        run: |
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
+          python .github/scripts/governance.py milestone --repo "$GITHUB_REPOSITORY" \
+            --pull-request "$NUMBER" --current "$CURRENT" --body-file "$RUNNER_TEMP/body.md"
