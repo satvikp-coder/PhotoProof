@@ -49,9 +49,9 @@ _POLL_SECONDS = 0.01
 _WATCHDOG_SECONDS = 0.1
 _TERMINATE_GRACE_SECONDS = 0.5
 _KILL_WAIT_SECONDS = 5.0
-_EXIT_GRACE_SECONDS = 1.0  # time to collect a result already in the pipe after the child exits
-_ORPHAN_MARGIN_SECONDS = 5  # the group kills itself this long after the parent's deadline
-_MAX_INHERITED_FDS = 4096
+_EXIT_GRACE_SECONDS = 5.0  # time to collect a result already in the pipe after the child exits
+_SETUP_FAILED_EXIT_CODE = 70  # the child could not apply its limits, so it did no work
+_WATCHER_WAIT_SECONDS = 2.0
 _WINDOWS_ENVIRONMENT = ("SYSTEMROOT", "WINDIR")  # Windows cannot start some services without
 
 
@@ -184,6 +184,7 @@ class _Exchange(threading.Thread):
         self._max_result_bytes = max_result_bytes
         self.reply: bytes | None = None
         self.oversized = False
+        self.pipe_error: str | None = None
 
     def run(self) -> None:
         # A child that ran out of memory stops reading and replies. Its reply says why, so a
@@ -197,6 +198,7 @@ class _Exchange(threading.Thread):
         except OSError as error:
             # multiprocessing reports a message over the size cap only through this text.
             self.oversized = "bad message length" in str(error)
+            self.pipe_error = str(error)
 
 
 def _wait(exchange: _Exchange, process: BaseProcess, limits: ProcessLimits) -> Failure | None:
@@ -254,7 +256,12 @@ def _interpret(exchange: _Exchange, process: BaseProcess) -> IsolatedResult:
         except (ValueError, RecursionError, MemoryError) as error:  # PlainDataError is a ValueError
             return Failure(FailureKind.INVALID_RESULT, f"result is not plain data: {error}")
     process.join(_TERMINATE_GRACE_SECONDS)
-    return _describe_exit(process.exitcode)
+    failure = _describe_exit(process.exitcode)
+    if exchange.is_alive():
+        return Failure(failure.kind, f"{failure.detail}; the pipe was still open")
+    if exchange.pipe_error:
+        return Failure(failure.kind, f"{failure.detail}; pipe error: {exchange.pipe_error}")
+    return failure
 
 
 def _describe_exit(code: int | None) -> Failure:
@@ -265,6 +272,8 @@ def _describe_exit(code: int | None) -> Failure:
         return Failure(FailureKind.CRASHED, f"killed by {signal.Signals(-code).name}")
     if code is not None and sys.platform == "win32" and code >= 0xC0000000:
         return Failure(FailureKind.CRASHED, f"crashed with status {code:#x}")
+    if code == _SETUP_FAILED_EXIT_CODE:
+        return Failure(FailureKind.CRASHED, "the child could not apply its limits; it did no work")
     return Failure(FailureKind.CRASHED, f"exited with code {code} without returning a result")
 
 
@@ -356,13 +365,44 @@ if sys.platform == "win32":
             _kernel32.CloseHandle(job)
 
 else:
+    # Reads one byte. End of file means the parent died, so kill what it left behind. The
+    # watcher is a separate program because the worker may be stuck in native code, where it
+    # could not run a signal handler. Standard library only, and -I keeps it isolated.
+    _WATCHER_SCRIPT = """
+import os, signal, sys
+pid = int(sys.argv[1])
+if not os.read(0, 1):
+    for kill in (os.killpg, os.kill):
+        try:
+            kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+"""
 
     def _contain(process: BaseProcess, limits: ProcessLimits) -> object | None:
-        """POSIX limits are applied by the child itself; see ``_harden``."""
-        return None
+        """Start the watcher that cleans up if this process dies without stopping the child.
+        Resource limits are applied by the child itself; see ``_harden``."""
+        return subprocess.Popen(  # noqa: S603 - our own interpreter and a fixed script
+            [sys.executable, "-I", "-S", "-c", _WATCHER_SCRIPT, str(process.pid)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,  # a signal to our process group must not reach it
+        )
 
     def _release(job: object | None) -> None:
-        pass
+        """Tell the watcher all is well, and reap it. The child has already been stopped."""
+        if not isinstance(job, subprocess.Popen):
+            return
+        with contextlib.suppress(OSError):
+            job.stdin.write(b"x")  # type: ignore[union-attr]
+        with contextlib.suppress(OSError):
+            job.stdin.close()  # type: ignore[union-attr]
+        try:
+            job.wait(_WATCHER_WAIT_SECONDS)
+        except subprocess.TimeoutExpired:
+            job.kill()
+            job.wait()
 
 
 # ------------------------------------------------------------------------- child process
@@ -372,9 +412,9 @@ def _child_main(
     connection: Connection, func: Callable[[Any], Any], limits: ProcessLimits, workdir: str
 ) -> None:
     try:
-        _harden(connection, limits, workdir)
+        _harden(limits, workdir)
     except (OSError, ValueError):
-        return  # the exit code reports this; a limit that cannot be set must not run the work
+        sys.exit(_SETUP_FAILED_EXIT_CODE)  # a limit that cannot be set must not run the work
     try:
         message = _reply_for(connection, func)
     except MemoryError:
@@ -405,7 +445,7 @@ def _memory_reply(detail: str) -> bytes:
     return plaindata.encode((FailureKind.MEMORY_LIMIT.value, detail))
 
 
-def _harden(connection: Connection, limits: ProcessLimits, workdir: str) -> None:
+def _harden(limits: ProcessLimits, workdir: str) -> None:
     """Drop what the child should not inherit. Runs before it receives any work."""
     kept = {k: os.environ[k] for k in _WINDOWS_ENVIRONMENT if k in os.environ}
     os.environ.clear()
@@ -417,7 +457,6 @@ def _harden(connection: Connection, limits: ProcessLimits, workdir: str) -> None
     if sys.platform == "win32":
         return
     os.setsid()  # own process group, so the parent can kill what this child starts
-    _start_orphan_watcher(connection, limits)
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))  # no core dumps of evidence in memory
     if limits.cpu_s is not None:
         soft = math.ceil(limits.cpu_s)
@@ -427,19 +466,3 @@ def _harden(connection: Connection, limits: ProcessLimits, workdir: str) -> None
     if limits.memory_mb is not None and sys.platform != "darwin":  # macOS ignores RLIMIT_AS
         size = limits.memory_mb * _MEBIBYTE
         resource.setrlimit(resource.RLIMIT_AS, (size, size))
-
-
-def _start_orphan_watcher(connection: Connection, limits: ProcessLimits) -> None:
-    """If the parent dies without stopping this child, nothing else would.
-
-    A separate process, because the worker may be stuck in native code where a signal handler
-    never runs, and an alarm's default action would leave its descendants alive. It kills the
-    whole process group after the deadline. Normally the parent's ``_stop`` kills it first.
-    """
-    if os.fork() != 0:
-        return
-    connection.close()  # or the parent would not see the pipe close when the worker dies
-    os.closerange(0, _MAX_INHERITED_FDS)
-    time.sleep(math.ceil(limits.timeout_s) + _ORPHAN_MARGIN_SECONDS)
-    os.killpg(0, signal.SIGKILL)
-    os._exit(0)  # not reached: the signal above includes this process

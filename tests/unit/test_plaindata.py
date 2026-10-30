@@ -43,8 +43,8 @@ def nested(depth: int) -> object:
         {},
         [1, [2, [3]]],
         (1, "a", b"b"),
-        {1, 2, "x"},
-        {"a": {"b": [1, 2, b"x"]}, 3: None, (1, 2): True},
+        {"x", b"y"},
+        {"a": {"b": [1, 2, b"x"]}, b"k": None},
         ("ok", {"pixels": b"x" * 1000}),
     ],
 )
@@ -134,8 +134,31 @@ def test_invalid_utf8_is_rejected() -> None:
     ],
 )
 def test_unhashable_items_are_rejected(build: Callable[[], bytes]) -> None:
-    with pytest.raises(PlainDataError, match="unhashable"):
+    with pytest.raises(PlainDataError, match="must be strings or bytes"):
         decode(build())
+
+
+@pytest.mark.parametrize("value", [{1, 2}, {(1, 2)}, {None}, {1.5}, {1: "a"}, {(1,): "a"}])
+def test_collidable_keys_cannot_be_encoded(value: object) -> None:
+    with pytest.raises(PlainDataError, match="must be strings or bytes"):
+        encode(value)
+
+
+def _integers_with_colliding_hashes(count: int) -> bytes:
+    """A set of integers that all land in one hash bucket, as a hostile child would send."""
+    modulus = (1 << 61) - 1
+    items = b"".join(
+        b"I" + struct.pack(">Q", 16) + (index * modulus).to_bytes(16, "big", signed=True)
+        for index in range(count)
+    )
+    return b"E" + struct.pack(">Q", count) + items
+
+
+def test_colliding_integers_are_refused_before_any_container_is_built() -> None:
+    start = time.monotonic()
+    with pytest.raises(PlainDataError, match="must be strings or bytes"):
+        decode(_integers_with_colliding_hashes(50_000))
+    assert time.monotonic() - start < 2  # building this set would take minutes
 
 
 def test_random_bytes_only_ever_raise_value_errors() -> None:
@@ -154,7 +177,7 @@ def test_random_bytes_only_ever_raise_value_errors() -> None:
 
 def test_corrupting_a_valid_encoding_only_ever_raises_value_errors() -> None:
     generator = random.Random(20261031)  # noqa: S311 - reproducible test data
-    valid = encode({"a": [1, 2.5, "text", b"bytes", (None, True)], "b": {1, 2}})
+    valid = encode({"a": [1, 2.5, "text", b"bytes", (None, True)], "b": {"x", "y"}})
     for _ in range(5000):
         data = bytearray(valid)
         data[generator.randrange(len(data))] = generator.randrange(256)

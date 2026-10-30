@@ -56,14 +56,15 @@ The child is treated as compromised:
 
 - **Results are plain data, and not pickle.** Replies use `core/plaindata.py`, because crafted
   pickle can make the reader allocate gigabytes even with class lookups refused. Decoding is
-  linear in the reply's size, with caps on object count and nesting. Anything else is
+  linear in the reply's size, with caps on object count and nesting. Dict keys and set items
+  must be strings or bytes, because integer hashes can be made to collide. Anything else is
   `invalid_result`.
 - **The deadline cannot be blocked.** Pipe I/O runs off the main thread, so a child that sends
   half a message and hangs still times out. Transfers have size caps in both directions.
 - **Nothing survives.** Each child leads its own process group (POSIX) or Job Object (Windows),
   so its descendants die with it. A child that ignores `SIGTERM` is killed. If the parent dies,
-  a small watcher process kills the whole group shortly after the deadline, even if the worker
-  is stuck in native code (POSIX). On Windows the Job Object closes with the parent.
+  a small watcher process that the parent started kills the whole group at once, even if the
+  worker is stuck in native code (POSIX). On Windows the Job Object closes with the parent.
 - **Little is inherited.** The child gets a minimal environment, a temporary working directory
   and no core dumps. It receives no work until its limits are in place, and if a limit cannot
   be applied, it does not run.
@@ -71,8 +72,8 @@ The child is treated as compromised:
 This limits resources and contains crashes. It is **not** a sandbox: the child can still read
 files and use the network as your user until #59.
 
-**Overhead**, measured on an Apple M4 with Python 3.13 (median of 15 calls): about 105 ms per
-call, mostly starting the interpreter, and about 410 ms for a 100 MiB round trip. Results are
+**Overhead**, measured on an Apple M4 with Python 3.13 (median of 15 calls): about 100 ms per
+call, mostly starting the interpreter, and about 380 ms for a 100 MiB round trip. Results are
 copied through a pipe, so #9 should measure this against real decoding before adding shared
 memory.
 

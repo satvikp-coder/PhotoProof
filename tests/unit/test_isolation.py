@@ -76,7 +76,7 @@ def process_exists(pid: int) -> bool:
         [1, [2, [3]]],
         (1, "a"),
         {"a": {"b": [1, 2, b"x"]}},
-        {1, 2},
+        {"a", "b"},
     ],
 )
 def test_plain_data_round_trips(value: object) -> None:
@@ -243,8 +243,7 @@ def test_killing_the_parent_still_stops_descendants_after_the_deadline(tmp_path:
         grandchild = int(pid_file.read_text())
         parent.kill()
         parent.wait()
-        assert process_exists(grandchild)  # the parent's cleanup never ran
-        deadline = time.monotonic() + 15
+        deadline = time.monotonic() + 10
         while process_exists(grandchild) and time.monotonic() < deadline:
             time.sleep(0.1)
         assert not process_exists(grandchild)
@@ -382,14 +381,32 @@ def test_lambda_is_a_programming_error_in_the_parent() -> None:
         run_isolated(lambda x: x, 1, limits=GENEROUS)
 
 
+@POSIX_ONLY
+def test_watcher_is_reaped_and_kills_nothing_after_a_normal_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started: list[subprocess.Popen[bytes]] = []
+    real = isolation._contain
+
+    def recording(process: object, limits: ProcessLimits) -> object:
+        watcher = real(process, limits)  # type: ignore[arg-type]
+        started.append(watcher)  # type: ignore[arg-type]
+        return watcher
+
+    monkeypatch.setattr(isolation, "_contain", recording)
+    assert run_isolated(targets.double, 4, limits=GENEROUS) == Ok(8)
+    assert run_isolated(targets.killed_abruptly, None, limits=GENEROUS).kind is FailureKind.CRASHED  # type: ignore[union-attr]
+    assert [w.returncode for w in started] == [0, 0]  # reaped, so no zombies can pile up
+
+
 def test_concurrent_calls_do_not_interfere() -> None:
     from concurrent.futures import ThreadPoolExecutor
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(
-            pool.map(lambda n: run_isolated(targets.double, n, limits=GENEROUS), range(4))
+            pool.map(lambda n: run_isolated(targets.double, n, limits=GENEROUS), range(16))
         )
-    assert results == [Ok(n * 2) for n in range(4)]
+    assert results == [Ok(n * 2) for n in range(16)]
 
 
 # ------------------------------------------------------------------------ validation
