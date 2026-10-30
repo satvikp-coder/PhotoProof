@@ -15,6 +15,7 @@ checks **never** change anything; repairs are separate, classified actions.
 | `cache.integrity` | Unparseable entries, missing/corrupt referenced artifacts | warning | SAFE: invalidate entries |
 | `isolation.capabilities` | Which child-process limits this platform can enforce (informational) | — | — |
 | `storage.integrity` | Blobs in `objects/` (evidence, critical) or `artifacts/` (error) whose hash mismatches | — | MANUAL, never modified |
+| `storage.integrity` | Blobs in `objects/` (evidence, critical) or `artifacts/` (error) whose hash mismatches; originals recorded in the database but missing from `objects/` (critical) | — | MANUAL, never modified |
 | `application.version` | Installed package version ≠ `app.toml` | error | CONTROLLED: `python main.py --repair` |
 | `plugins.graph` | Invalid plugin graph (error) or unavailable plugins (warning) | — | MANUAL |
 | `plugins.policy` | Blacklist, denylist or profile `required_plugins` entries naming unknown plugins (likely typos — a misspelled blacklist entry blocks nothing) | warning | MANUAL |
