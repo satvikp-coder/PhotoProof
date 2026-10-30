@@ -13,7 +13,12 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from photoproof.contracts.enums import Repairability, Severity
-from photoproof.contracts.exceptions import DatabaseError, MigrationRequiredError, PlanningError
+from photoproof.contracts.exceptions import (
+    DatabaseError,
+    MigrationRequiredError,
+    PlanningError,
+    StorageError,
+)
 from photoproof.core.cache.run_cache import RunCache
 from photoproof.core.database.store import LATEST_VERSION, Database
 from photoproof.core.pipeline.planner import validate_graph
@@ -246,7 +251,7 @@ def check_stored_blobs(app: "Application", *, deep: bool = True) -> CheckResult:
     corrupt += _missing_evidence(app)
     if not corrupt:
         return _ok("storage.integrity", "all stored blobs match their hashes")
-    evidence = any(c.startswith("objects/") for c in corrupt)
+    evidence = any(c.startswith(("objects/", "evidence record")) for c in corrupt)
     return CheckResult(
         "storage.integrity",
         Severity.CRITICAL if evidence else Severity.ERROR,
@@ -270,11 +275,14 @@ def _missing_evidence(app: "Application") -> list[str]:
         hashes = db.evidence_hashes()
     except DatabaseError:
         return []  # reported by database.integrity
-    return [
-        f"objects/{sha256[:2]}/{sha256} (missing)"
-        for sha256 in hashes
-        if not (app.storage.root / "objects" / sha256[:2] / sha256).is_file()
-    ]
+    problems = []
+    for sha256 in hashes:
+        try:
+            if not app.storage.blob_path("objects", sha256).is_file():
+                problems.append(f"objects/{sha256[:2]}/{sha256} (missing)")
+        except StorageError:  # never let a stored value choose a path
+            problems.append(f"evidence record {sha256!r} (not a valid content address)")
+    return problems
 
 
 def check_version_consistency(app: "Application") -> CheckResult:

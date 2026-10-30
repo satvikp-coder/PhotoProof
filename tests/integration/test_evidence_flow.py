@@ -121,6 +121,21 @@ def test_deleted_original_is_critical_in_doctor(
     assert "missing" in " ".join(result.details)  # type: ignore[attr-defined]
 
 
+@pytest.mark.parametrize("forged", ["/etc/hosts", "../../../app.toml", "not-a-hash"])
+def test_forged_evidence_record_is_critical_and_never_builds_a_path(
+    app_root: Path, target_file: Path, capsys: pytest.CaptureFixture[str], forged: str
+) -> None:
+    analyze_json(app_root, capsys, str(target_file))
+    conn = sqlite3.connect(app_root / "ARE" / "database" / "photoproof.db")
+    conn.execute("PRAGMA ignore_check_constraints = ON")
+    conn.execute("INSERT INTO evidence VALUES (?, 1, 'then')", (forged,))
+    conn.commit()
+    conn.close()
+    result = inspect(app_root, lambda app: default_registry().run(app, "storage.integrity"))
+    assert result.severity.value == "critical"  # type: ignore[attr-defined]
+    assert "not a valid content address" in " ".join(result.details)  # type: ignore[attr-defined]
+
+
 def test_doctor_does_not_create_the_database(app_root: Path) -> None:
     def check(app: Application) -> bool:
         app.storage.ensure_layout()

@@ -62,7 +62,7 @@ MIGRATIONS: Sequence[str] = (
     # 2: original evidence and who submitted it
     """
     CREATE TABLE evidence (
-        sha256 TEXT PRIMARY KEY,
+        sha256 TEXT PRIMARY KEY CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
         size INTEGER NOT NULL,
         first_seen_at TEXT NOT NULL
     );
