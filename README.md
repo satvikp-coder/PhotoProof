@@ -3,6 +3,7 @@
 [![CI](https://github.com/satvikp-coder/PhotoProof/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/satvikp-coder/PhotoProof/actions/workflows/ci.yml)
 [![Security](https://github.com/satvikp-coder/PhotoProof/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/satvikp-coder/PhotoProof/actions/workflows/security.yml)
 [![Docs](https://github.com/satvikp-coder/PhotoProof/actions/workflows/docs.yml/badge.svg?branch=main)](https://github.com/satvikp-coder/PhotoProof/actions/workflows/docs.yml)
+[![Read the Docs](https://readthedocs.org/projects/photoproof/badge/?version=latest)](https://photoproof.readthedocs.io/)
 ![Python](https://img.shields.io/badge/python-3.11%20%E2%80%93%203.15-3776AB)
 [![License](https://img.shields.io/github/license/satvikp-coder/PhotoProof)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/satvikp-coder/PhotoProof?include_prereleases&sort=semver)](https://github.com/satvikp-coder/PhotoProof/releases)
@@ -75,8 +76,9 @@ ARE/               runtime data (generated, Git-ignored)
 
 ## Documentation
 
-The docs are built with MkDocs Material (`mkdocs serve`). Read the Docs hosting is
-configured (`.readthedocs.yaml`) but not yet connected. Key pages:
+The docs are built with MkDocs Material (`mkdocs serve`) and published on
+[Read the Docs](https://photoproof.readthedocs.io/). Pull requests receive documentation
+previews through the Read the Docs integration. Key pages:
 
 - [Architecture](docs/architecture/index.md) and [execution lifecycle](docs/architecture/lifecycle.md)
 - [Plugin development](docs/plugins/index.md)
