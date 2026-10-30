@@ -72,6 +72,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Merging two pull requests close together no longer cancels the first one's CI on `main`, which
+  left a failed-looking mark on that commit.
 - `.readthedocs.yaml` quotes its install command, which YAML parsed as a mapping because of
   `:all:`, failing the Read the Docs build.
 - `python main.py repair --dry-run` performed a real repair: the launcher consumed
