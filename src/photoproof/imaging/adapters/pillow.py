@@ -14,7 +14,8 @@ Working modes. ``DecodedImage.conversion`` records how each was reached, as comm
     transparency chunk          RGBA            transparency_to_rgba
     16-bit grayscale PNG        I;16            none (little-endian); rejected if transparent
     16-bit colour PNG           RGB or RGBA     16_bit_to_8_bit (Pillow keeps 8 bits; see #5)
-    16-bit colour with tRNS     RGBA            16_bit_to_8_bit,transparency_to_rgba
+    16-bit gray with alpha      RGBA            16_bit_to_8_bit,gray_alpha_to_rgba
+    16-bit colour with tRNS     rejected        Pillow would compute the wrong alpha
     CMYK or YCCK JPEG           RGB             cmyk_to_rgb (naive, ignores any ICC profile)
 """
 
@@ -44,6 +45,7 @@ _WEBP_14_BITS = 0x3FFF
 _PNG_BIT_DEPTH_OFFSET = 24
 _PNG_COLOUR_TYPE_OFFSET = 25
 _PNG_GRAYSCALE = 0
+_PNG_GRAY_ALPHA = 4
 _ORIENTATION_TAG = 0x0112
 _SIXTEEN_BIT_GRAY = frozenset({"I;16", "I;16L", "I;16B", "I"})
 _open_lock = threading.Lock()  # Image.MAX_IMAGE_PIXELS is process-wide
@@ -208,10 +210,11 @@ def _to_working_mode(
     if mode in {"RGB", "RGBA"}:
         depth_note = _colour_depth_note(data, media_format)
         if mode == "RGB" and has_transparency:
-            notes = "transparency_to_rgba"
-            if depth_note != "none":
-                notes = f"{depth_note},{notes}"
-            return image.convert("RGBA"), notes, 8
+            if depth_note != "none":  # Pillow compares the wrong bytes of the 16-bit key here
+                raise InputRejectedError(
+                    f"{media_format}: 16-bit colour with transparency is not supported yet (#5)"
+                )
+            return image.convert("RGBA"), "transparency_to_rgba", 8
         return image, depth_note, 8
     if mode in {"L", "1"}:
         target = "RGBA" if has_transparency else "RGB"
@@ -242,6 +245,8 @@ def _colour_depth_note(data: bytes, media_format: str) -> str:
         and data[_PNG_BIT_DEPTH_OFFSET] == 16
         and data[_PNG_COLOUR_TYPE_OFFSET] != _PNG_GRAYSCALE
     ):
+        if data[_PNG_COLOUR_TYPE_OFFSET] == _PNG_GRAY_ALPHA:  # one channel, so its profile is too
+            return "16_bit_to_8_bit,gray_alpha_to_rgba"
         return "16_bit_to_8_bit"
     return "none"
 

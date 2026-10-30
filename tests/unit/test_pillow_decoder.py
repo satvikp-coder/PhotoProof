@@ -117,19 +117,34 @@ def test_sixteen_bit_gray_keeps_its_depth_and_values() -> None:
     assert decoded.pixels == struct.pack("<HH", 1000, 65535)
 
 
-def test_sixteen_bit_colour_with_transparency_records_both_changes() -> None:
+def test_sixteen_bit_colour_with_transparency_is_rejected_rather_than_given_wrong_alpha() -> None:
+    """Pillow compares the key's low bytes with the reduced pixels' high bytes, so this
+    transparent pixel, equal to its key, would come out opaque."""
     ihdr = struct.pack(">IIBBBBB", 1, 1, 16, 2, 0, 0, 0)
     row = b"\x00" + b"\x12\x34" * 3
     data = (
         b"\x89PNG\r\n\x1a\n"
         + png_chunk(b"IHDR", ihdr)
-        + png_chunk(b"tRNS", struct.pack(">HHH", 0, 0, 0))
+        + png_chunk(b"tRNS", b"\x12\x34" * 3)
+        + png_chunk(b"IDAT", zlib.compress(row))
+        + png_chunk(b"IEND", b"")
+    )
+    with pytest.raises(InputRejectedError, match="16-bit colour with transparency"):
+        decode(data)
+
+
+def test_eight_bit_colour_transparency_really_makes_the_key_pixel_transparent() -> None:
+    ihdr = struct.pack(">IIBBBBB", 2, 1, 8, 2, 0, 0, 0)
+    row = b"\x00" + b"\x12\x34\x56" + b"\x01\x02\x03"
+    data = (
+        b"\x89PNG\r\n\x1a\n"
+        + png_chunk(b"IHDR", ihdr)
+        + png_chunk(b"tRNS", struct.pack(">HHH", 0x12, 0x34, 0x56))
         + png_chunk(b"IDAT", zlib.compress(row))
         + png_chunk(b"IEND", b"")
     )
     decoded = decode(data)
-    assert decoded.mode == "RGBA"
-    assert decoded.conversion == "16_bit_to_8_bit,transparency_to_rgba"
+    assert (decoded.pixels[3], decoded.pixels[7]) == (0, 255)
 
 
 def test_sixteen_bit_gray_with_transparency_is_rejected_rather_than_made_opaque() -> None:
@@ -158,7 +173,8 @@ def test_sixteen_bit_colour_records_the_loss_of_depth(colour: int) -> None:
         + png_chunk(b"IEND", b"")
     )
     decoded = decode(data)
-    assert (decoded.bit_depth, decoded.conversion) == (8, "16_bit_to_8_bit")
+    expected = "16_bit_to_8_bit,gray_alpha_to_rgba" if colour == 4 else "16_bit_to_8_bit"
+    assert (decoded.bit_depth, decoded.conversion) == (8, expected)
 
 
 def test_input_bytes_are_unchanged_and_never_written_to_disk(
