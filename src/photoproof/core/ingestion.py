@@ -10,6 +10,7 @@ that owns the connection (WebKit, #39). The CLI reads local files.
 """
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
@@ -23,6 +24,21 @@ from photoproof.core.storage.store import RuntimeStorage
 from photoproof.imaging.formats import HEADER_BYTES, detect_format
 
 _CHUNK = 1 << 20
+
+
+@dataclass
+class _StagingProgress:
+    size: int = 0
+    header: bytes = b""
+
+    def record(self, chunk: bytes) -> None:
+        self.size += len(chunk)
+        if len(self.header) < HEADER_BYTES:
+            self.header += chunk[: HEADER_BYTES - len(self.header)]
+
+    @property
+    def media_format(self) -> str | None:
+        return detect_format(self.header)
 
 
 class IngestionService:
@@ -49,15 +65,16 @@ class IngestionService:
         Returns the descriptor for analysis and the stored record, whose submission can be
         linked to a run. ``declared_name`` is metadata only.
         """
-        size = 0
-        detected: str | None = None
+        progress = _StagingProgress()
         try:
             with self._storage.quarantine_file() as staged:
-                size, detected = self._stage(stream, staged)
-                self._validate(size, detected)
+                self._stage(stream, staged, progress)
+                self._validate(progress)
                 record = self._evidence.ingest(staged, role=role, original_name=declared_name or "")
         except InputRejectedError as error:
-            self._audit_rejection(str(error), role=role, size=size, detected_format=detected)
+            self._audit_rejection(
+                str(error), role=role, size=progress.size, detected_format=progress.media_format
+            )
             raise
         descriptor = InputDescriptor(
             role=role, sha256=record.sha256, size=record.size, media_format=record.media_format
@@ -77,10 +94,9 @@ class IngestionService:
         with stream:
             return self.ingest(stream, declared_name=path.name, role=role)
 
-    def _stage(self, stream: BinaryIO, staged: Path) -> tuple[int, str | None]:
-        """Copy until the cap, reading at most one chunk past it. Returns size and format."""
-        size = 0
-        header = b""
+    def _stage(self, stream: BinaryIO, staged: Path, progress: "_StagingProgress") -> None:
+        """Copy until the cap, reading at most one chunk past it. ``progress`` stays accurate
+        when this raises, so a rejection is audited with what was actually received."""
         try:
             output = open(staged, "wb")  # noqa: SIM115 - closed by the with below
         except OSError as error:
@@ -93,13 +109,11 @@ class IngestionService:
                     raise InputRejectedError(f"cannot read the input: {error}") from error
                 if not chunk:
                     break
-                size += len(chunk)
-                if size > self._max_input_bytes:
+                progress.record(chunk)
+                if progress.size > self._max_input_bytes:
                     raise InputRejectedError(
                         f"input exceeds resources.max_input_bytes ({self._max_input_bytes} bytes)"
                     )
-                if len(header) < HEADER_BYTES:
-                    header += chunk[: HEADER_BYTES - len(header)]
                 try:
                     output.write(chunk)
                 except OSError as error:
@@ -109,10 +123,10 @@ class IngestionService:
                 os.fsync(output.fileno())
             except OSError as error:
                 raise StorageError(f"cannot stage the input: {error}") from error
-        return size, detect_format(header)
 
-    def _validate(self, size: int, detected: str | None) -> None:
-        if size == 0:
+    def _validate(self, progress: "_StagingProgress") -> None:
+        detected = progress.media_format
+        if progress.size == 0:
             raise InputRejectedError("the input is empty; there is nothing to analyse")
         if detected is None:
             raise InputRejectedError(

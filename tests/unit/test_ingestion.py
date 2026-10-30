@@ -195,6 +195,9 @@ def test_oversized_stream_stops_within_one_chunk_of_the_limit(harness: Harness) 
     assert harness.blobs() == []
     assert harness.staged() == []
     assert len(harness.events) == 1
+    entry = harness.events[0].data
+    assert entry["size"] == stream.bytes_read  # what actually arrived, not zero
+    assert entry["detected_format"] == "jpeg"
 
 
 def test_read_error_mid_stream_is_rejected_and_cleaned_up(harness: Harness) -> None:
@@ -212,6 +215,8 @@ def test_read_error_mid_stream_is_rejected_and_cleaned_up(harness: Harness) -> N
         harness.service.ingest(cast(BinaryIO, Failing()), declared_name=None, role="target")
     assert harness.staged() == []
     assert len(harness.events) == 1
+    entry = harness.events[0].data
+    assert (entry["size"], entry["detected_format"]) == (len(JPEG), "jpeg")
 
 
 def test_interrupt_mid_stream_cleans_up(harness: Harness) -> None:
