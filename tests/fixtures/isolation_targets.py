@@ -89,11 +89,11 @@ def start_grandchild_and_hang(pid_file: str) -> None:
 def memory_bomb_pickle_result(_: object) -> None:
     """A tiny pickle whose memo index would make an unpickler allocate gigabytes."""
     import gc
-    from multiprocessing.connection import Connection
+    from multiprocessing.connection import _ConnectionBase
 
     bomb = b"\x80\x05N" + b"r\xff\xff\xff\x7f" + b"."  # LONG_BINPUT at index 2**31 - 1
     for candidate in gc.get_objects():
-        if isinstance(candidate, Connection) and not candidate.closed:
+        if isinstance(candidate, _ConnectionBase) and not candidate.closed:
             candidate.send_bytes(bomb)
     os._exit(0)
 
@@ -101,13 +101,13 @@ def memory_bomb_pickle_result(_: object) -> None:
 def forged_pickle_result(marker: str) -> None:
     """A compromised child writes bytes directly to the pipe, skipping the normal reply."""
     import gc
-    from multiprocessing.connection import Connection
+    from multiprocessing.connection import _ConnectionBase
 
     malicious = (
         b"cos\nsystem\n(S'touch " + marker.encode() + b"'\ntR."  # os.system("touch marker")
     )
     for candidate in gc.get_objects():
-        if isinstance(candidate, Connection) and not candidate.closed:
+        if isinstance(candidate, _ConnectionBase) and not candidate.closed:
             candidate.send_bytes(malicious)
     os._exit(0)
 
@@ -116,9 +116,9 @@ def half_message_then_hang(_: object) -> None:
     """Claims a long message, sends part of it, then hangs with the pipe open."""
     import gc
     import struct
-    from multiprocessing.connection import Connection
+    from multiprocessing.connection import _ConnectionBase
 
     for candidate in gc.get_objects():
-        if isinstance(candidate, Connection) and not candidate.closed:
+        if isinstance(candidate, _ConnectionBase) and not candidate.closed:
             os.write(candidate.fileno(), struct.pack("!i", 1 << 20) + b"partial")
     time.sleep(3600)

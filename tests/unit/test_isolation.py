@@ -1,5 +1,7 @@
 """Every failure kind, in a real child process, on every platform that can enforce it."""
 
+import multiprocessing
+import multiprocessing.context
 import os
 import pickle
 import signal
@@ -251,6 +253,20 @@ def test_killing_the_parent_still_stops_descendants_after_the_deadline(tmp_path:
         parent.wait()
 
 
+def test_reply_is_read_even_if_the_child_stopped_reading_the_payload() -> None:
+    """What a child does when the payload does not fit in memory: it replies and exits."""
+    ours, theirs = multiprocessing.get_context("spawn").Pipe(duplex=True)
+    theirs.send_bytes(b"the reason")
+    exchange = isolation._Exchange(ours, b"x" * (8 << 20), 1024)  # larger than any pipe buffer
+    exchange.start()
+    time.sleep(0.05)  # let the send block, as it does in a real run
+    theirs.close()
+    exchange.join(10)
+    ours.close()
+    assert not exchange.is_alive()
+    assert exchange.reply == b"the reason"
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="needs RLIMIT_AS to fail the allocation")
 def test_payload_too_large_for_the_limit_is_a_memory_failure() -> None:
     limits = ProcessLimits(timeout_s=60, memory_mb=128)
@@ -267,7 +283,6 @@ def test_result_holding_a_class_is_refused() -> None:
     assert "not plain data" in failure.detail
 
 
-@POSIX_ONLY
 def test_forged_pickle_from_the_child_does_not_run_code(tmp_path: Path) -> None:
     marker = tmp_path / "pwned"
     expect_failure(
@@ -323,8 +338,6 @@ def test_descendants_are_killed_with_the_child(tmp_path: Path) -> None:
 
 
 def test_no_child_processes_are_left_behind() -> None:
-    import multiprocessing
-
     run_isolated(targets.killed_abruptly, None, limits=GENEROUS)
     run_isolated(targets.hang, None, limits=FAST_TIMEOUT)
     run_isolated(targets.double, 1, limits=GENEROUS)
@@ -337,8 +350,6 @@ def test_no_child_processes_are_left_behind() -> None:
 def test_interrupting_the_parent_still_stops_the_child(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import multiprocessing
-
     def interrupted(*_: object, **__: object) -> None:
         raise KeyboardInterrupt
 
@@ -349,8 +360,6 @@ def test_interrupting_the_parent_still_stops_the_child(
 
 
 def test_failure_to_start_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
-    import multiprocessing.context
-
     def refuse(_: object) -> None:
         raise OSError("Resource temporarily unavailable")
 

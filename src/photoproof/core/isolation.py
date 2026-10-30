@@ -186,8 +186,11 @@ class _Exchange(threading.Thread):
         self.oversized = False
 
     def run(self) -> None:
-        try:
+        # A child that ran out of memory stops reading and replies. Its reply says why, so a
+        # broken pipe while sending must not stop us from reading it.
+        with contextlib.suppress(OSError):
             self._connection.send_bytes(self._data)
+        try:
             self.reply = self._connection.recv_bytes(self._max_result_bytes)
         except EOFError:
             pass  # the child exited without replying; its exit code says why
