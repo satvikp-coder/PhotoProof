@@ -1,29 +1,35 @@
 """Input acceptance policy for files handed to PhotoProof."""
 
-import hashlib
+import os
+import stat
 from pathlib import Path
+from typing import BinaryIO
 
 from photoproof.contracts.exceptions import InputRejectedError
 
-_CHUNK = 1 << 20
+# O_NONBLOCK: opening a FIFO must not hang; it is rejected by the fstat check below.
+_OPEN_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_NONBLOCK", 0)
+    | getattr(os, "O_BINARY", 0)
+)
 
 
-def hash_input_file(path: Path, *, max_bytes: int) -> tuple[str, int]:
-    """Stream ``path`` and return ``(sha256, size)``.
+def open_regular_file(path: Path) -> BinaryIO:
+    """Open ``path`` for reading, accepting only an existing regular file.
 
-    Only regular files are accepted, and reading stops as soon as ``max_bytes`` is
-    exceeded, so oversized inputs are never fully read.
+    Symlinks, directories, FIFOs and devices raise ``InputRejectedError``. The type is
+    checked on the opened file, so swapping the path afterwards cannot change the answer.
     """
-    if not path.is_file():
-        raise InputRejectedError(f"{path}: not a regular file")
-    digest = hashlib.sha256()
-    size = 0
-    with path.open("rb") as handle:
-        while chunk := handle.read(_CHUNK):
-            size += len(chunk)
-            if size > max_bytes:
-                raise InputRejectedError(
-                    f"{path}: exceeds resources.max_input_bytes ({max_bytes} bytes)"
-                )
-            digest.update(chunk)
-    return digest.hexdigest(), size
+    rejected = f"{path}: not a regular file; pass a readable file, not a symlink or directory"
+    try:
+        if path.is_symlink():  # O_NOFOLLOW does not exist on Windows
+            raise InputRejectedError(rejected)
+        descriptor = os.open(path, _OPEN_FLAGS)
+    except (OSError, ValueError) as error:
+        raise InputRejectedError(f"{rejected} ({error})") from error
+    if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+        os.close(descriptor)
+        raise InputRejectedError(rejected)
+    return os.fdopen(descriptor, "rb")
