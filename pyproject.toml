@@ -10,7 +10,12 @@ readme = "README.md"
 requires-python = ">=3.11,<3.16"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "PhotoProof Contributors" }]
+authors = [
+  { name = "Varun Karthic" },
+  { name = "Satvik Patel" },
+  { name = "Garv Gurwara" },
+  { name = "Shambhavee" },
+]
 classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",

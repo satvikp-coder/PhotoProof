@@ -12,7 +12,7 @@ the version is written (see [releases](../development/releases.md)).
 | `application.release_channel` | `development` | `development` \| `preview` \| `stable` |
 | `application.plugin_api_version` | `1.0.0` | Host plugin API. Bump on contract changes. |
 | `application.config_schema_version` | `1` | Must match `settings.yaml` `schema_version`. |
-| `[[developers]]` | 4 entries | `name`, `github`. Placeholders are marked; replace them. |
+| `[[developers]]` | 4 entries | `name`, `github`. The four team members. |
 | `python.minimum` / `python.maximum` | `3.11` / `3.15` | Inclusive minor versions. |
 | `platform.operating_systems` | `Linux`, `Darwin`, `Windows` | As reported by `platform.system()`. |
 | `platform.architectures` | `x86_64`, `arm64` | `amd64`/`aarch64` are normalized. |
