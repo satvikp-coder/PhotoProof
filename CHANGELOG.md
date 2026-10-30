@@ -35,6 +35,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave
+  `app.toml` alone, so open PRs can't collide on the version, and `main` moving on can't fail them.
 - `analyze` rejects files that are not a recognised image format.
 - The pull request template no longer has checkboxes that cannot all be ticked, so a complete
   PR shows every task as done. `CONTRIBUTING.md` explains how to fill it in and how to link an

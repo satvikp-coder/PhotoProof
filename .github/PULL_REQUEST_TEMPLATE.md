@@ -37,9 +37,7 @@ pytest ...
 
 ## Version impact
 
-<!-- Write one: PATCH, MINOR or MAJOR. MAJOR needs maintainer approval and migration notes. -->
-
-`app.toml` version: `x.y.z → x.y.z`
+<!-- For the next release, write one: PATCH, MINOR or MAJOR. Don't change `app.toml`. -->
 
 ## Changelog entry
 
