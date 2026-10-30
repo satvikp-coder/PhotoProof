@@ -23,7 +23,7 @@ import io
 import math
 import multiprocessing
 import os
-import pickle
+import pickle  # nosec B403
 import signal
 import subprocess
 import sys
@@ -369,7 +369,8 @@ def _child_main(
 ) -> None:
     try:
         _harden(limits, workdir)
-        payload = pickle.loads(connection.recv_bytes())  # noqa: S301 - sent by the trusted parent
+        # Sent by the trusted parent. Replies from the child use _PlainDataUnpickler.
+        payload = pickle.loads(connection.recv_bytes())  # noqa: S301  # nosec B301
     except (OSError, EOFError, ValueError):
         return  # the exit code reports this; a limit that cannot be set must not run the work
     try:

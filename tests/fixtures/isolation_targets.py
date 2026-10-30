@@ -1,6 +1,6 @@
 """Callables that misbehave in a child process. Importable, so they can be spawned."""
 
-import ctypes
+import faulthandler
 import os
 import signal
 import subprocess
@@ -26,7 +26,8 @@ def raise_memory_error(_: object) -> None:
 
 
 def segfault(_: object) -> None:
-    ctypes.string_at(0)
+    """A real crash. ctypes would turn an access violation into OSError on Windows."""
+    faulthandler._sigsegv()  # type: ignore[attr-defined]
 
 
 def killed_abruptly(_: object) -> None:
