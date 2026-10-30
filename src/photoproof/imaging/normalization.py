@@ -84,7 +84,7 @@ class WorkingImage:
     bit_depth: int = 8
     transfer: str = "srgb"  # srgb | bt709 | pq | hlg | linear | icc (see icc_profile)
     primaries: str = "bt709"  # bt709 | p3 | bt2020 | icc (see icc_profile)
-    icc_profile: bytes | None = None  # only on the unconverted uint16 view, when it applies
+    icc_profile: bytes | None = None  # only on unconverted pixels that the profile defines
 
 
 def normalize(decoded: DecodedImage, policy: NormalizationPolicy = DEFAULT_POLICY) -> WorkingImage:
@@ -119,6 +119,14 @@ def normalize(decoded: DecodedImage, policy: NormalizationPolicy = DEFAULT_POLIC
         image, colour_space = _to_srgb(image, decoded.icc_profile, conversion, policy, transforms)
     elif srgb_encoded and decoded.primaries == "bt709" and (policy.convert_to_srgb or tone_mapped):
         colour_space = "srgb"
+    # Pixels still in the profile's own encoding are only meaningful together with the profile.
+    profile_defines_pixels = (
+        colour_space == "source"
+        and bool(decoded.icc_profile)
+        and "cicp_signalled" not in decoded.colour_notes
+        and not {"icc_invalid", "icc_too_large"}.intersection(transforms)
+        and len(decoded.icc_profile or b"") <= MAX_ICC_BYTES
+    )
     orientation_applied = False
     if policy.apply_orientation:
         image, orientation_applied = _apply_orientation(image, decoded.orientation, transforms)
@@ -131,8 +139,21 @@ def normalize(decoded: DecodedImage, policy: NormalizationPolicy = DEFAULT_POLIC
         orientation_applied=orientation_applied,
         transforms=tuple(transforms),
         # Whatever the pixels now hold, whether converted, tone-mapped or left as signalled.
-        transfer="srgb" if srgb_encoded or colour_space == "srgb" else decoded.transfer,
-        primaries="bt709" if colour_space == "srgb" else decoded.primaries,
+        transfer=(
+            "icc"
+            if profile_defines_pixels
+            else "srgb"
+            if srgb_encoded or colour_space == "srgb"
+            else decoded.transfer
+        ),
+        primaries=(
+            "icc"
+            if profile_defines_pixels
+            else "bt709"
+            if colour_space == "srgb"
+            else decoded.primaries
+        ),
+        icc_profile=decoded.icc_profile if profile_defines_pixels else None,
     )
 
 

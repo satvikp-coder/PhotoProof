@@ -601,6 +601,34 @@ def test_sixteen_bit_colour_with_transparency_is_rejected_on_the_lossless_path_t
         decode(data)
 
 
+def test_conversion_off_keeps_the_profile_that_defines_the_pixels() -> None:
+    policy = NormalizationPolicy(convert_to_srgb=False)
+    decoded = decode(_eight_bit_png(_p3_profile_chunk()))
+    working = normalize(decoded, policy)
+    assert working.colour_space == "source"
+    assert (working.transfer, working.primaries) == ("icc", "icc")
+    assert working.icc_profile == DISPLAY_P3
+    assert working.pixels == decoded.pixels
+
+
+def test_converted_pixels_no_longer_carry_the_profile() -> None:
+    working = normalize(decode(_eight_bit_png(_p3_profile_chunk())))
+    assert (working.colour_space, working.transfer, working.primaries) == (
+        "srgb",
+        "srgb",
+        "bt709",
+    )
+    assert working.icc_profile is None
+
+
+def test_unusable_profile_is_not_presented_as_defining_the_pixels() -> None:
+    garbage = chunk(b"iCCP", b"p\x00\x00" + zlib.compress(b"not a profile"))
+    working = normalize(decode(_eight_bit_png(garbage)))
+    assert "icc_invalid" in working.transforms
+    assert working.icc_profile is None
+    assert working.transfer == "srgb"
+
+
 def test_the_derivative_keeps_the_assumption_notes() -> None:
     working = normalize(decode(png_16([1, 2, 3], 1, 1, 2)))
     assert "transfer_assumed" in working.transforms
