@@ -23,6 +23,7 @@ from photoproof.imaging.decoder import DecodedImage
 
 MAX_ICC_BYTES = 4 << 20
 _SIXTEEN_BIT_MODE = "I;16"
+_EXPANDED_FROM_GRAY = frozenset({"gray_to_rgb", "gray_alpha_to_rgba"})
 
 _ORIENTATIONS = {
     2: Image.Transpose.FLIP_LEFT_RIGHT,
@@ -70,7 +71,9 @@ def normalize(decoded: DecodedImage, policy: NormalizationPolicy = DEFAULT_POLIC
     transforms: list[str] = []
     colour_space: Literal["srgb", "source"] = "source"
     if policy.convert_to_srgb:
-        image, colour_space = _to_srgb(image, decoded.icc_profile, policy, transforms)
+        image, colour_space = _to_srgb(
+            image, decoded.icc_profile, decoded.conversion, policy, transforms
+        )
     orientation_applied = False
     if policy.apply_orientation:
         image, orientation_applied = _apply_orientation(image, decoded.orientation, transforms)
@@ -85,9 +88,24 @@ def normalize(decoded: DecodedImage, policy: NormalizationPolicy = DEFAULT_POLIC
     )
 
 
+def _gray_profile_to_srgb(
+    image: Image.Image,
+    source: ImageCms.ImageCmsProfile,
+    srgb: ImageCms.ImageCmsProfile,
+    intent: ImageCms.Intent,
+) -> Image.Image | None:
+    """Decoding expanded grayscale to RGB, but its profile still describes one channel."""
+    transform = ImageCms.buildTransform(source, srgb, "L", "RGB", renderingIntent=intent)
+    converted = ImageCms.applyTransform(image.getchannel("R"), transform)
+    if converted is not None and image.mode == "RGBA":
+        converted.putalpha(image.getchannel("A"))
+    return converted
+
+
 def _to_srgb(
     image: Image.Image,
     icc_profile: bytes | None,
+    conversion: str,
     policy: NormalizationPolicy,
     transforms: list[str],
 ) -> tuple[Image.Image, Literal["srgb", "source"]]:
@@ -103,14 +121,14 @@ def _to_srgb(
     try:
         source = ImageCms.ImageCmsProfile(io.BytesIO(icc_profile))
         srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB"))
-        transform = ImageCms.buildTransform(
-            source,
-            srgb,
-            image.mode,
-            image.mode,
-            renderingIntent=_INTENTS[policy.rendering_intent],
-        )
-        converted = ImageCms.applyTransform(image, transform)
+        intent = _INTENTS[policy.rendering_intent]
+        if conversion in _EXPANDED_FROM_GRAY and source.profile.xcolor_space.strip() == "GRAY":
+            converted = _gray_profile_to_srgb(image, source, srgb, intent)
+        else:
+            transform = ImageCms.buildTransform(
+                source, srgb, image.mode, image.mode, renderingIntent=intent
+            )
+            converted = ImageCms.applyTransform(image, transform)
     # Hostile profiles have caused LittleCMS bugs, and they fail in many different ways.
     except Exception:  # noqa: BLE001 - recorded in the transform log, which the manifest keeps
         transforms.append("icc_invalid")

@@ -283,6 +283,78 @@ def test_profile_for_another_colour_model_does_not_stop_the_image() -> None:
     }
 
 
+def gray_profile(gamma: float) -> bytes:
+    """A real ICC v2 grayscale profile, built byte by byte."""
+    tags = {
+        b"desc": _text_description("synthetic gray"),
+        b"wtpt": _xyz_tag(0.9642, 1.0, 0.8249),
+        b"kTRC": _gamma_tag(gamma),
+        b"cprt": b"text\x00\x00\x00\x00none\x00\x00\x00\x00",
+    }
+    offset = 128 + 4 + 12 * len(tags)
+    table, data = struct.pack(">I", len(tags)), b""
+    for name, value in tags.items():
+        table += name + struct.pack(">II", offset + len(data), len(value))
+        data += value + b"\x00" * (-len(value) % 4)
+    header = bytearray(128)
+    header[0:4] = struct.pack(">I", 128 + len(table) + len(data))
+    header[8:12] = bytes([2, 0x40, 0, 0])
+    header[12:16], header[16:20], header[20:24] = b"mntr", b"GRAY", b"XYZ "
+    header[36:40] = b"acsp"
+    header[68:80] = _s15_fixed16(0.9642) + _s15_fixed16(1.0) + _s15_fixed16(0.8249)
+    return bytes(header) + table + data
+
+
+GRAY_GAMMA_18 = gray_profile(1.8)
+
+
+def _gray_expanded(value: int, *, alpha: int | None = None) -> DecodedImage:
+    pixel = (value, value, value) if alpha is None else (value, value, value, alpha)
+    conversion = "gray_to_rgb" if alpha is None else "gray_alpha_to_rgba"
+    source = decoded([[pixel]], mode="RGB" if alpha is None else "RGBA", icc_profile=GRAY_GAMMA_18)
+    return dataclasses.replace(source, conversion=conversion)
+
+
+def _srgb_encode(linear: float) -> float:
+    code = 12.92 * linear if linear <= 0.0031308 else 1.055 * linear ** (1 / 2.4) - 0.055
+    return code * 255
+
+
+@pytest.mark.parametrize("value", [64, 128, 200])
+def test_valid_grayscale_profile_converts_to_a_computed_reference(value: int) -> None:
+    working = normalize(_gray_expanded(value))
+    assert working.transforms == ("icc_converted_to_srgb",)
+    assert working.colour_space == "srgb"
+    expected = _srgb_encode((value / 255) ** 1.8)
+    assert all(abs(channel - expected) <= 2 for channel in working.pixels)
+    assert working.pixels != bytes((value, value, value))  # gamma 1.8 differs from sRGB
+
+
+def test_grayscale_profile_keeps_alpha_untouched() -> None:
+    working = normalize(_gray_expanded(128, alpha=33))
+    assert working.mode == "RGBA"
+    assert working.pixels[3] == 33
+    assert working.transforms == ("icc_converted_to_srgb",)
+
+
+def test_grayscale_profile_on_real_colour_pixels_is_invalid() -> None:
+    """Colour pixels with a one-channel profile are inconsistent, so they are not converted."""
+    source = decoded(icc_profile=GRAY_GAMMA_18)
+    working = normalize(source)
+    assert working.transforms == ("icc_invalid",)
+    assert working.pixels == source.pixels
+
+
+def test_a_real_grayscale_png_with_a_profile_converts_end_to_end() -> None:
+    image = Image.new("L", (2, 1), 128)
+    buffer = io.BytesIO()
+    image.save(buffer, "PNG", icc_profile=GRAY_GAMMA_18)
+    limits = DecodeLimits(max_input_bytes=1 << 20, max_pixels=1000)
+    source = PillowDecoder().decode(buffer.getvalue(), source_sha256="a" * 64, limits=limits)
+    assert source.conversion == "gray_to_rgb"
+    assert normalize(source).transforms == ("icc_converted_to_srgb",)
+
+
 def test_oversized_profile_is_ignored_and_recorded() -> None:
     source = decoded(icc_profile=b"x" * (MAX_ICC_BYTES + 1))
     working = normalize(source)
