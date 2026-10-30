@@ -355,6 +355,9 @@ Rules:
   title is used, which is why the governance workflow checks it).
 - Keep PRs small enough to review in one sitting. Several hundred lines of logic is a
   signal to split.
+- Automated review follows the rules in [AGENTS.md](AGENTS.md#code-review-rules) and
+  [SECURITY.md](SECURITY.md#security-review-guidance). It supports the required human
+  approval and does not replace it.
 
 The **PR governance** workflow checks the title, issue reference, version bump and
 changelog entry and reports documentation and test changes. Its messages say how to

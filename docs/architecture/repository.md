@@ -3,6 +3,7 @@
 ```text
 PhotoProof/
 ├── main.py                 stdlib-only launcher
+├── AGENTS.md               instructions and review rules for coding agents
 ├── app.toml                identity and version (single source of truth)
 ├── settings.yaml           global behaviour
 ├── pyproject.toml          packaging (version derived from app.toml), tool config

@@ -30,6 +30,23 @@ configure **Settings → Rules → Rulesets → New branch ruleset** for `main`:
    Settings → General → Pull Requests.
 6. Bypass list: repository admins only, for emergencies.
 
+## Automated PR review (manual)
+
+Codex reviews pull requests using the `## Code Review Rules` section of `AGENTS.md`. It
+needs push or admin permission on the repository, and it is enabled in the Codex settings
+rather than in this repository:
+
+1. Connect the repository to Codex.
+2. Under **Review code**, turn on **Automatic review** for the repository.
+3. Under **Personal preferences**, turn on **Automatic review** and choose a **Review
+   trigger**.
+4. Optional: under **Review security vulnerabilities**, turn on **Auto security review**
+   and set **Trigger** to **Whenever code review runs**. It is a research preview.
+
+To request a review by hand, comment `@codex review` or `@codex security review` on the
+PR. Reviews flag only P0 and P1 issues. They do not replace tests, branch protection or
+the required approval.
+
 ## Read the Docs (manual)
 
 1. Sign in at readthedocs.org with GitHub and **Import a Project** →
