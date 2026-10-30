@@ -11,7 +11,7 @@ All notable changes to this project are documented here. The format follows
 - Support for Python 3.14 and 3.15 in the launcher, packaging and the CI matrix
   (3 OSes × Python 3.11–3.15). The launcher smoke test covers the oldest and newest.
 - The team page (`docs/planning/team.md`), which allocates every backlog issue to an
-  owner, and per-area review routing in `CODEOWNERS`.
+  owner. `CODEOWNERS` requests review from Satvik, Varun and Garv on every pull request.
 
 ### Changed
 

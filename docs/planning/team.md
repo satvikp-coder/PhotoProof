@@ -63,5 +63,7 @@ an *integrates with* link, which never stops work from starting.
 
 ## Reviews
 
-`.github/CODEOWNERS` requests the primary and secondary reviewer for each area. It
-only takes effect for people with write access to the repository.
+`.github/CODEOWNERS` requests review from Satvik, Varun and Garv on every pull request,
+whichever files it touches. GitHub skips the author, so each PR requests the other two.
+Shambhavee is not a code owner, but can be added to a PR by hand. CONTRIBUTING.md §8
+still applies: one approval from another developer is enough to merge.

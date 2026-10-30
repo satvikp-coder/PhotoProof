@@ -3,7 +3,7 @@
 
 [application]
 name = "PhotoProof"
-version = "0.2.2"
+version = "0.2.3"
 package = "photoproof"
 description = "Modular digital image forgery detection and localization framework."
 release_channel = "development"   # development | preview | stable
