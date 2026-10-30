@@ -11,7 +11,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from photoproof.contracts.analysis import AnalysisRequest, InputDescriptor
+from photoproof.contracts.analysis import AnalysisRequest
 from photoproof.contracts.enums import RunStatus
 from photoproof.contracts.events import Event, EventType
 from photoproof.contracts.exceptions import (
@@ -31,7 +31,6 @@ from photoproof.core.config.policy import (
 from photoproof.core.controller import AnalysisController
 from photoproof.core.health.checks import CheckResult, default_registry
 from photoproof.core.health.repair import preflight, publish_findings, run_repairs
-from photoproof.core.storage.evidence import EvidenceRecord
 from photoproof.core.storage.store import sha256_file
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_CONFIG, EXIT_HEALTH, EXIT_NOT_COMPLETED = 0, 1, 2, 4, 6, 7
@@ -203,12 +202,6 @@ def cmd_config(app: Application, as_json: bool) -> int:
     return EXIT_OK
 
 
-def _descriptor(role: str, record: EvidenceRecord) -> InputDescriptor:
-    return InputDescriptor(
-        role=role, sha256=record.sha256, size=record.size, media_format=record.media_format
-    )
-
-
 def cmd_analyze(app: Application, args: argparse.Namespace) -> int:
     if args.progress or app.flags.is_enabled("events.progress"):
 
@@ -229,18 +222,21 @@ def cmd_analyze(app: Application, args: argparse.Namespace) -> int:
     controller = AnalysisController(app)
     # Before ingesting, so a mistyped profile does not leave a copy of the image behind.
     controller.resolve_profile(args.profile, has_reference=args.reference is not None)
-    evidence = app.evidence()
-    target = evidence.ingest(args.target, role="target")
-    reference = evidence.ingest(args.reference, role="reference") if args.reference else None
+    ingestion = app.ingestion()
+    target, target_record = ingestion.ingest_path(args.target, role="target")
+    reference, reference_record = (
+        ingestion.ingest_path(args.reference, role="reference") if args.reference else (None, None)
+    )
     request = AnalysisRequest(
-        target=_descriptor("target", target),
-        reference=_descriptor("reference", reference) if reference else None,
+        target=target,
+        reference=reference,
         profile=args.profile,
         use_cache=not args.no_cache,
     )
     result = controller.analyze(request, override=_override(args))
     app.database().link_submissions(
-        [record.submission_id for record in (target, reference) if record], result.run_id
+        [record.submission_id for record in (target_record, reference_record) if record],
+        result.run_id,
     )
     if args.json:
         print(result.model_dump_json(indent=2))

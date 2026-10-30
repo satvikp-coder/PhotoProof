@@ -4,7 +4,7 @@
 
 | Asset | Threat | Current control | Planned |
 |---|---|---|---|
-| Original evidence | Silent modification | Stored before any processing; content-addressed, read-only; verified on every read; never overwritten or auto-repaired | Upload handling (#11) |
+| Original evidence | Silent modification | Stored before any processing; content-addressed, read-only; verified on every read; never overwritten or auto-repaired | — |
 | Host system | Malicious image exploiting a native decoder | Decoder interface with mandatory limits; Pillow decoder, not yet used by the pipeline | Isolated decoder process with resource limits; fuzzing |
 | Host system | Decompression bomb / resource exhaustion | `resources.max_input_bytes` enforced while streaming; `max_image_pixels` contract | Header-level pixel checks, memory limits |
 | Runtime data | Path traversal | `safe_join` on every runtime path | — |
@@ -18,7 +18,9 @@
 ## Trust boundaries and assumptions
 
 - **Untrusted:** every input image and reference image, and anything derived from it
-  before validation.
+  before validation. These enter only through `IngestionService`, which stages them in
+  quarantine, enforces the size cap while reading, identifies the type from content, and
+  audits every rejection ([details](../operations/runtime.md#ingestion)).
 - **Trusted:** repository code, including plugins under `photoproof.plugins`. Plugin
   discovery is **not** a sandbox. Configuration cannot add plugin locations.
 - **Semi-trusted:** configuration files edited by local operators. They are validated
@@ -89,6 +91,10 @@ memory.
   skips. Data after the end of a PNG is allowed.
 - **Nothing is applied silently.** The ICC profile and EXIF orientation are returned, not
   applied, and `DecodedImage.conversion` records any change of pixel mode.
+
+A bad ICC profile can't stop an analysis or reach the result silently: `normalize` catches the
+failure, leaves the pixels unconverted, and records `icc_invalid`. Profiles over 4 MiB are ignored
+and recorded. LittleCMS still parses the rest in-process until #9.
 
 **Known limits:** decoding runs in the calling process with no wall-clock limit until #9.
 16-bit colour PNGs are read as 8-bit, recorded as `16_bit_to_8_bit`, until #5. CMYK JPEGs are
