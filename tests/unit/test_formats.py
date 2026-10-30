@@ -247,8 +247,9 @@ def test_extension_mismatch_is_logged_and_accepted(
     monkeypatch.setattr(
         evidence_module.LOGGER, "info", lambda message, *args: notes.append(message % args)
     )
-    store.ingest(HEADERS["jpeg"], role="target", original_name="photo.png")
-    assert len(notes) == 1 and "photo.png" in notes[0] and "jpeg" in notes[0]
+    store.ingest(HEADERS["jpeg"], role="target", original_name="patient-confidential.png")
+    assert len(notes) == 1 and "png" in notes[0] and "jpeg" in notes[0]
+    assert "patient-confidential" not in notes[0]  # the submitted name is never logged
 
 
 def test_matching_extension_logs_nothing(
