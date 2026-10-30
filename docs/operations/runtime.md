@@ -14,12 +14,31 @@ Git. Directories are created owner-only (0700) on POSIX.
 | `database/` | `photoproof.db` (SQLite) and migration backups |
 | `logs/` | `photoproof.log` (JSON lines, rotated), `audit.jsonl` |
 | `tmp/` | Owner-only temporary files |
-| `uploads/`, `quarantine/`, `reports/` | Reserved for ingestion and reporting (planned) |
+| `quarantine/` | Inputs being validated, under random names. Emptied on success or rejection; `runtime.stale_temp` cleans anything older |
+| `uploads/`, `reports/` | Reserved for WebKit uploads and reporting (planned) |
 
 All paths go through `safe_join`, which rejects absolute components, `..`, NUL bytes
 and symlinks escaping the root. Writes are atomic (temp file, `fsync`, then a rename). Blobs
 are published without any possibility of overwriting: see the
 [evidence store](#evidence-store).
+
+## Ingestion
+
+`IngestionService` is the one way untrusted files enter PhotoProof. `analyze` uses it for every
+input, and WebKit will use it too.
+
+1. **Stage** the stream in `quarantine/` under a random name, enforcing
+   `resources.max_input_bytes` while reading. A claimed length is never trusted, and reading stops
+   within one chunk (1 MiB) of the limit.
+2. **Validate** the type from the file's content. Empty files, unknown formats and formats outside
+   `formats.accepted` are rejected.
+3. **Promote** to the evidence store, which hashes and verifies it.
+
+Every rejection writes an `INPUT_REJECTED` entry to `audit.jsonl`, with the reason, size and detected
+format. The file's content and submitted name are not logged. Nothing stays in `quarantine/` or
+`objects/` after a rejection.
+
+A slow sender can hold ingestion open, so WebKit must apply its own per-request timeout (#39).
 
 ## Evidence store
 
