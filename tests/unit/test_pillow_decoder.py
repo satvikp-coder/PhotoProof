@@ -117,6 +117,21 @@ def test_sixteen_bit_gray_keeps_its_depth_and_values() -> None:
     assert decoded.pixels == struct.pack("<HH", 1000, 65535)
 
 
+def test_sixteen_bit_colour_with_transparency_records_both_changes() -> None:
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 16, 2, 0, 0, 0)
+    row = b"\x00" + b"\x12\x34" * 3
+    data = (
+        b"\x89PNG\r\n\x1a\n"
+        + png_chunk(b"IHDR", ihdr)
+        + png_chunk(b"tRNS", struct.pack(">HHH", 0, 0, 0))
+        + png_chunk(b"IDAT", zlib.compress(row))
+        + png_chunk(b"IEND", b"")
+    )
+    decoded = decode(data)
+    assert decoded.mode == "RGBA"
+    assert decoded.conversion == "16_bit_to_8_bit,transparency_to_rgba"
+
+
 def test_sixteen_bit_gray_with_transparency_is_rejected_rather_than_made_opaque() -> None:
     ihdr = struct.pack(">IIBBBBB", 2, 1, 16, 0, 0, 0, 0)
     row = b"\x00" + struct.pack(">HH", 1000, 2000)
