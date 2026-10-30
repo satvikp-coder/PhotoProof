@@ -168,8 +168,13 @@ class EvidenceStore:
 def _note_extension_mismatch(sha256: str, name: str | None, media_format: str | None) -> None:
     """A wrong extension is a provenance note for the record, not an error."""
     claimed = format_from_name(name) if name else None
-    if claimed and media_format and claimed != media_format:
-        LOGGER.info("evidence %s is named %r but its signature says %s", sha256, name, media_format)
+    if claimed and media_format and claimed != media_format:  # the name itself stays out of logs
+        LOGGER.info(
+            "evidence %s has a %s extension but its signature says %s",
+            sha256,
+            claimed,
+            media_format,
+        )
 
 
 def _storable_name(name: str | None) -> str | None:
