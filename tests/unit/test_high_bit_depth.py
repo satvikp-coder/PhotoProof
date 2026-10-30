@@ -496,6 +496,56 @@ def test_conversion_off_reports_what_the_source_signalled() -> None:
     assert (working.colour_space, working.primaries) == ("source", "p3")
 
 
+def test_bt709_is_not_relabelled_as_srgb_at_either_depth() -> None:
+    eight = normalize(decode(_eight_bit_png(cicp(1, 1))))
+    assert (eight.colour_space, eight.transfer) == ("source", "bt709")
+    high = normalize(decode(png_16([1000, 2000, 3000], 1, 1, 2, extra=cicp(1, 1))))
+    assert (high.colour_space, high.transfer) == ("source", "bt709")
+
+
+def _p3_profile_chunk() -> bytes:
+    return chunk(b"iCCP", b"p\x00\x00" + zlib.compress(DISPLAY_P3))
+
+
+@pytest.mark.parametrize(
+    "partial",
+    [(12, 99), (9, 99), (99, 16), (99, 18)],  # a known part that alone would skip the profile
+)
+def test_partly_understood_cicp_never_blocks_a_valid_profile(partial: tuple[int, int]) -> None:
+    decoded = decode(_eight_bit_png(_p3_profile_chunk() + cicp(*partial)))
+    assert (decoded.transfer, decoded.primaries) == ("srgb", "bt709")
+    assert "cicp_incomplete_used_icc" in decoded.colour_notes
+    working = normalize(decoded)
+    assert "icc_converted_to_srgb" in working.transforms
+    assert working.colour_space == "srgb"
+
+
+def test_partly_understood_cicp_without_a_profile_keeps_what_it_knows() -> None:
+    decoded = decode(_eight_bit_png(cicp(12, 99)))
+    assert (decoded.transfer, decoded.primaries) == ("srgb", "p3")
+    assert "transfer_assumed" in decoded.colour_notes
+
+
+def test_grayscale_with_transparency_uses_its_grayscale_profile() -> None:
+    from test_normalization import GRAY_GAMMA_18
+
+    ihdr = struct.pack(">IIBBBBB", 2, 1, 8, 0, 0, 0, 0)
+    data = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"iCCP", b"g\x00\x00" + zlib.compress(GRAY_GAMMA_18))
+        + chunk(b"tRNS", struct.pack(">H", 200))
+        + chunk(b"IDAT", zlib.compress(b"\x00\x80\xc8"))
+        + chunk(b"IEND", b"")
+    )
+    decoded = decode(data)
+    assert decoded.conversion == "gray_to_rgb,transparency_to_rgba"
+    working = normalize(decoded)
+    assert "icc_converted_to_srgb" in working.transforms
+    assert working.mode == "RGBA"
+    assert (working.pixels[3], working.pixels[7]) == (255, 0)  # the transparent key stays so
+
+
 def test_the_derivative_keeps_the_assumption_notes() -> None:
     working = normalize(decode(png_16([1, 2, 3], 1, 1, 2)))
     assert "transfer_assumed" in working.transforms

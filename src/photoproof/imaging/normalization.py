@@ -95,7 +95,6 @@ def normalize(decoded: DecodedImage, policy: NormalizationPolicy = DEFAULT_POLIC
     transforms: list[str] = list(decoded.colour_notes)
     colour_space: Literal["srgb", "source"] = "source"
     conversion = decoded.conversion
-    transfer_is_sdr = decoded.transfer in {"srgb", "bt709"}
     tone_mapped = decoded.mode in SIXTEEN_BIT_MODES
     if tone_mapped:
         image = _tone_map(decoded, transforms)
@@ -103,21 +102,22 @@ def normalize(decoded: DecodedImage, policy: NormalizationPolicy = DEFAULT_POLIC
             conversion = "gray_to_rgb"
     else:
         image = Image.frombytes(decoded.mode, (decoded.width, decoded.height), decoded.pixels)
-        if not transfer_is_sdr:  # 8 bits of PQ or HLG: too few to tone-map well, so left alone
-            transforms.append("hdr_8_bit_not_tone_mapped")
-    if not transfer_is_sdr or decoded.primaries != "bt709":
-        if decoded.primaries != "bt709":
-            transforms.append("gamut_not_converted")
-        colour_space = "srgb" if tone_mapped and decoded.primaries == "bt709" else "source"
-    elif policy.convert_to_srgb:
-        if (
-            "cicp_signalled" in decoded.colour_notes
-        ):  # authoritative, so any ICC profile is not used
-            colour_space = "srgb"
-        else:
-            image, colour_space = _to_srgb(
-                image, decoded.icc_profile, conversion, policy, transforms
-            )
+        if decoded.transfer not in {"srgb", "bt709"}:
+            transforms.append("hdr_8_bit_not_tone_mapped")  # too few bits to tone-map well
+    if decoded.primaries != "bt709":
+        transforms.append("gamut_not_converted")
+    # BT.709 keeps its own curve, because scaling does not change it. Everything tone-mapped
+    # from PQ, HLG or linear light is encoded with the sRGB curve.
+    srgb_encoded = decoded.transfer == "srgb" or (tone_mapped and decoded.transfer != "bt709")
+    if (
+        policy.convert_to_srgb
+        and decoded.transfer == "srgb"
+        and decoded.primaries == "bt709"
+        and "cicp_signalled" not in decoded.colour_notes
+    ):
+        image, colour_space = _to_srgb(image, decoded.icc_profile, conversion, policy, transforms)
+    elif srgb_encoded and decoded.primaries == "bt709" and (policy.convert_to_srgb or tone_mapped):
+        colour_space = "srgb"
     orientation_applied = False
     if policy.apply_orientation:
         image, orientation_applied = _apply_orientation(image, decoded.orientation, transforms)
@@ -129,9 +129,8 @@ def normalize(decoded: DecodedImage, policy: NormalizationPolicy = DEFAULT_POLIC
         colour_space=colour_space,
         orientation_applied=orientation_applied,
         transforms=tuple(transforms),
-        # Tone mapping encodes with the sRGB curve but keeps the source's primaries. Otherwise
-        # the pixels still have whatever the source signalled, unless they were just converted.
-        transfer="srgb" if tone_mapped or colour_space == "srgb" else decoded.transfer,
+        # Whatever the pixels now hold, whether converted, tone-mapped or left as signalled.
+        transfer="srgb" if srgb_encoded or colour_space == "srgb" else decoded.transfer,
         primaries="bt709" if colour_space == "srgb" else decoded.primaries,
     )
 
@@ -306,7 +305,8 @@ def _to_srgb(
         source = ImageCms.ImageCmsProfile(io.BytesIO(icc_profile))
         srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB"))
         intent = _INTENTS[policy.rendering_intent]
-        if conversion in _EXPANDED_FROM_GRAY and source.profile.xcolor_space.strip() == "GRAY":
+        expanded_from_gray = bool(_EXPANDED_FROM_GRAY.intersection(conversion.split(",")))
+        if expanded_from_gray and source.profile.xcolor_space.strip() == "GRAY":
             converted = _gray_profile_to_srgb(image, source, srgb, intent)
         else:
             transform = ImageCms.buildTransform(

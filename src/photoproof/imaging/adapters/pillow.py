@@ -9,6 +9,7 @@ Working modes. ``DecodedImage.conversion`` records how each was reached, as comm
     Source                      Working mode    Conversion
     RGB, RGBA                   same            none
     grayscale, 1-bit            RGB             gray_to_rgb
+    grayscale with tRNS         RGBA            gray_to_rgb,transparency_to_rgba
     palette                     RGB or RGBA     palette_to_rgb, palette_to_rgba
     grayscale with alpha        RGBA            gray_alpha_to_rgba
     transparency chunk          RGBA            transparency_to_rgba
@@ -256,16 +257,23 @@ def _colour_metadata(
     """Read transfer and primaries from a PNG ``cICP`` chunk, the only source today.
 
     Fully understood CICP is authoritative (``cicp_signalled``) and wins over an ICC profile,
-    which is recorded too. Otherwise a high-depth image is treated as SDR, and that is recorded.
+    which is recorded too. Partly understood CICP is set aside if there is a profile to use
+    instead. Otherwise a high-depth image is treated as SDR, and that is recorded.
     """
     transfer, primaries = "srgb", "bt709"
     notes: list[str] = []
     cicp = None
     if media_format == "png":
         cicp = next((body for kind, body in _png_chunks(data) if kind == b"cICP"), None)
+    icc_profile = image.info.get("icc_profile")
+    known_primaries = known_transfer = None
     if cicp is not None and len(cicp) == _CICP_BYTES:
         known_primaries = _CICP_PRIMARIES.get(cicp[0])
         known_transfer = _CICP_TRANSFERS.get(cicp[1])
+    if icc_profile and not (known_primaries and known_transfer):
+        if cicp is not None:
+            notes.append("cicp_incomplete_used_icc")
+    elif cicp is not None and len(cicp) == _CICP_BYTES:
         primaries = known_primaries or primaries
         transfer = known_transfer or transfer
         if known_primaries is None:
@@ -274,9 +282,9 @@ def _colour_metadata(
             notes.append("transfer_assumed")
         if known_primaries and known_transfer:
             notes.append("cicp_signalled")
-            if image.info.get("icc_profile"):
+            if icc_profile:
                 notes.append("cicp_preferred_over_icc")
-    elif bit_depth > 8:
+    elif bit_depth > 8 and not icc_profile:
         notes.append("transfer_assumed")
     return transfer, primaries, tuple(notes)
 
@@ -330,7 +338,7 @@ def _to_working_mode(
         return image, depth_note, 8
     if mode in {"L", "1"}:
         target = "RGBA" if has_transparency else "RGB"
-        note = "transparency_to_rgba" if has_transparency else "gray_to_rgb"
+        note = "gray_to_rgb,transparency_to_rgba" if has_transparency else "gray_to_rgb"
         return image.convert(target), note, 8
     if mode == "P":
         target = "RGBA" if has_transparency else "RGB"
