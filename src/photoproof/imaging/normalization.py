@@ -13,7 +13,8 @@ scaled proportionally. PQ and HLG are converted to display light, and an extende
 curve maps SDR white (203 nits) and peak (10000 nits for PQ, 1000 for HLG) into sRGB's range.
 Alpha is always scaled proportionally.
 
-    assumed_srgb                no ICC profile; pixels are treated as sRGB
+    assumed_srgb                no ICC profile or CICP; pixels are treated as sRGB
+    cicp_signalled              CICP describes the pixels, so any ICC profile was not used
     icc_converted_to_srgb       converted from the embedded profile
     icc_invalid                 the profile could not be used; pixels left as they were
     icc_too_large               the profile is over 4 MiB, so it was ignored
@@ -109,7 +110,14 @@ def normalize(decoded: DecodedImage, policy: NormalizationPolicy = DEFAULT_POLIC
             transforms.append("gamut_not_converted")
         colour_space = "srgb" if tone_mapped and decoded.primaries == "bt709" else "source"
     elif policy.convert_to_srgb:
-        image, colour_space = _to_srgb(image, decoded.icc_profile, conversion, policy, transforms)
+        if (
+            "cicp_signalled" in decoded.colour_notes
+        ):  # authoritative, so any ICC profile is not used
+            colour_space = "srgb"
+        else:
+            image, colour_space = _to_srgb(
+                image, decoded.icc_profile, conversion, policy, transforms
+            )
     orientation_applied = False
     if policy.apply_orientation:
         image, orientation_applied = _apply_orientation(image, decoded.orientation, transforms)
@@ -121,6 +129,10 @@ def normalize(decoded: DecodedImage, policy: NormalizationPolicy = DEFAULT_POLIC
         colour_space=colour_space,
         orientation_applied=orientation_applied,
         transforms=tuple(transforms),
+        # Tone mapping encodes with the sRGB curve but keeps the source's primaries. Otherwise
+        # the pixels still have whatever the source signalled, unless they were just converted.
+        transfer="srgb" if tone_mapped or colour_space == "srgb" else decoded.transfer,
+        primaries="bt709" if colour_space == "srgb" else decoded.primaries,
     )
 
 

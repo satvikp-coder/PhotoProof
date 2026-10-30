@@ -42,7 +42,7 @@ class DecodedImage:
     conversion: str = "none"  # comma-separated codes for what changed; see the adapter
     transfer: str = "srgb"  # srgb | bt709 | pq | hlg | linear
     primaries: str = "bt709"  # bt709 | p3 | bt2020
-    colour_notes: tuple[str, ...] = ()  # e.g. transfer_assumed, cicp_preferred_over_icc
+    colour_notes: tuple[str, ...] = ()  # e.g. transfer_assumed, cicp_signalled
 
 
 class ImageDecoder(Protocol):

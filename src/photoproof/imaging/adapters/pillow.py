@@ -136,6 +136,7 @@ def _check_webp_canvas(data: bytes, limits: DecodeLimits) -> None:
         raise InputRejectedError("malformed webp: no valid image header")
     if width * height > limits.max_pixels:
         raise InputRejectedError(_too_many_pixels("webp", limits))
+    _check_decoded_bytes(width, height, "webp", 1, limits)
 
 
 def _check_png_chunks(data: bytes) -> None:
@@ -193,7 +194,13 @@ def _check_header(image: Image.Image, media_format: str, limits: DecodeLimits) -
 def _check_memory(image: Image.Image, data: bytes, media_format: str, limits: DecodeLimits) -> None:
     """Estimate the working buffer before allocating it: four channels at the source's depth."""
     sample_bytes = 2 if media_format == "png" and data[_PNG_BIT_DEPTH_OFFSET] == 16 else 1
-    needed = image.width * image.height * _MAX_CHANNELS * sample_bytes
+    _check_decoded_bytes(image.width, image.height, media_format, sample_bytes, limits)
+
+
+def _check_decoded_bytes(
+    width: int, height: int, media_format: str, sample_bytes: int, limits: DecodeLimits
+) -> None:
+    needed = width * height * _MAX_CHANNELS * sample_bytes
     if needed > limits.max_decoded_bytes:
         raise InputRejectedError(
             f"{media_format} would need {needed} bytes of memory; "
@@ -248,8 +255,8 @@ def _colour_metadata(
 ) -> tuple[str, str, tuple[str, ...]]:
     """Read transfer and primaries from a PNG ``cICP`` chunk, the only source today.
 
-    CICP wins over an ICC profile when both are present, and that is recorded. Without
-    signalled values a high-depth image is treated as SDR, and that is recorded too.
+    Fully understood CICP is authoritative (``cicp_signalled``) and wins over an ICC profile,
+    which is recorded too. Otherwise a high-depth image is treated as SDR, and that is recorded.
     """
     transfer, primaries = "srgb", "bt709"
     notes: list[str] = []
@@ -265,8 +272,10 @@ def _colour_metadata(
             notes.append("primaries_assumed")
         if known_transfer is None:
             notes.append("transfer_assumed")
-        if image.info.get("icc_profile"):
-            notes.append("cicp_preferred_over_icc")
+        if known_primaries and known_transfer:
+            notes.append("cicp_signalled")
+            if image.info.get("icc_profile"):
+                notes.append("cicp_preferred_over_icc")
     elif bit_depth > 8:
         notes.append("transfer_assumed")
     return transfer, primaries, tuple(notes)

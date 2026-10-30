@@ -7,14 +7,30 @@ import struct
 import zlib
 
 import pytest
+from PIL import Image
 
 from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.imaging.adapters.pillow import PillowDecoder
 from photoproof.imaging.decoder import DecodedImage, DecodeLimits
-from photoproof.imaging.normalization import normalize, normalize_hdr, tone_curve
+from photoproof.imaging.normalization import (
+    NormalizationPolicy,
+    normalize,
+    normalize_hdr,
+    tone_curve,
+)
 
 LIMITS = DecodeLimits(max_input_bytes=10 << 20, max_pixels=10_000_000)
 FILTERS = (0, 1, 2, 3, 4)
+
+
+def _matrix_profile() -> bytes:
+    """Display P3 as a real ICC profile, reused from the normalization tests."""
+    from test_normalization import DISPLAY_P3_GAMMA_22
+
+    return DISPLAY_P3_GAMMA_22
+
+
+DISPLAY_P3 = _matrix_profile()
 
 
 def chunk(kind: bytes, body: bytes) -> bytes:
@@ -204,7 +220,7 @@ def cicp(primaries: int, transfer: int) -> bytes:
 def test_transfer_comes_from_cicp(code: int, expected: str) -> None:
     decoded = decode(png_16([1, 2, 3], 1, 1, 2, extra=cicp(1, code)))
     assert decoded.transfer == expected
-    assert decoded.colour_notes == ()
+    assert decoded.colour_notes == ("cicp_signalled",)
 
 
 @pytest.mark.parametrize(("code", "expected"), [(1, "bt709"), (9, "bt2020"), (12, "p3")])
@@ -399,6 +415,85 @@ def test_eight_bit_hdr_is_not_claimed_as_srgb() -> None:
     assert working.colour_space == "source"
     assert "hdr_8_bit_not_tone_mapped" in working.transforms
     assert normalize_hdr(decoded, LIMITS) is None  # only for more than 8 bits
+
+
+def test_webp_memory_limit_is_checked_before_the_native_decoder_is_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(*_: object, **__: object) -> None:
+        raise AssertionError("Image.open allocates the WebP canvas, so it must not run")
+
+    monkeypatch.setattr(Image, "open", fail)
+    canvas = (999).to_bytes(3, "little") + (999).to_bytes(3, "little")  # 1000 x 1000
+    body = b"VP8X" + struct.pack("<I", 10) + b"\x00" * 4 + canvas + b"\x00" * 8
+    webp = b"RIFF" + struct.pack("<I", 4 + len(body)) + b"WEBP" + body
+    limits = DecodeLimits(10 << 20, max_pixels=1_000_000, max_decoded_bytes=1_000_000)
+    with pytest.raises(InputRejectedError, match="bytes of memory"):
+        decode(webp, limits)
+
+
+def _eight_bit_png(extra: bytes) -> bytes:
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + extra
+        + chunk(b"IDAT", zlib.compress(b"\x00\x0a\x14\x1e"))
+        + chunk(b"IEND", b"")
+    )
+
+
+def test_unconverted_pixels_keep_their_signalled_transfer_and_primaries() -> None:
+    working = normalize(decode(_eight_bit_png(cicp(9, 16))))
+    assert (working.colour_space, working.transfer, working.primaries) == (
+        "source",
+        "pq",
+        "bt2020",
+    )
+
+
+def test_tone_mapped_wide_gamut_reports_srgb_encoding_with_its_real_primaries() -> None:
+    working = normalize(decode(png_16([1000, 2000, 3000], 1, 1, 2, extra=cicp(9, 16))))
+    assert (working.transfer, working.primaries) == ("srgb", "bt2020")
+
+
+def test_tone_mapped_bt709_is_fully_srgb() -> None:
+    working = normalize(decode(png_16([1000, 2000, 3000], 1, 1, 2, extra=cicp(1, 16))))
+    assert (working.colour_space, working.transfer, working.primaries) == (
+        "srgb",
+        "srgb",
+        "bt709",
+    )
+
+
+def test_cicp_srgb_wins_over_a_conflicting_icc_profile() -> None:
+    profile = chunk(b"iCCP", b"p\x00\x00" + zlib.compress(DISPLAY_P3))
+    decoded = decode(_eight_bit_png(profile + cicp(1, 13)))
+    assert decoded.icc_profile == DISPLAY_P3
+    assert "cicp_preferred_over_icc" in decoded.colour_notes
+    working = normalize(decoded)
+    assert working.pixels == decoded.pixels  # the profile would have changed these
+    assert working.colour_space == "srgb"
+    assert "icc_converted_to_srgb" not in working.transforms
+
+
+def test_icc_is_used_when_cicp_is_not_fully_understood() -> None:
+    profile = chunk(b"iCCP", b"p\x00\x00" + zlib.compress(DISPLAY_P3))
+    decoded = decode(_eight_bit_png(profile + cicp(1, 99)))
+    assert "cicp_preferred_over_icc" not in decoded.colour_notes
+    assert "icc_converted_to_srgb" in normalize(decoded).transforms
+
+
+def test_cicp_srgb_is_not_described_as_an_assumption() -> None:
+    working = normalize(decode(_eight_bit_png(cicp(1, 13))))
+    assert "assumed_srgb" not in working.transforms
+    assert "cicp_signalled" in working.transforms
+
+
+def test_conversion_off_reports_what_the_source_signalled() -> None:
+    policy = NormalizationPolicy(convert_to_srgb=False)
+    working = normalize(decode(_eight_bit_png(cicp(12, 13))), policy)
+    assert (working.colour_space, working.primaries) == ("source", "p3")
 
 
 def test_the_derivative_keeps_the_assumption_notes() -> None:
