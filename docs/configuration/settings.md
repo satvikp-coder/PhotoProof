@@ -5,7 +5,7 @@ feature flags) must be real YAML booleans: `true`/`false`, not `"yes"`, `1` or
 `"false"`. Configuration files larger than 1 MiB are rejected.
 
 !!! note "Reserved sections"
-    `formats`, `services` and `ui` are validated now but consumed by planned
+    `services` and `ui` are validated now but consumed by planned
     components (ingestion, background workers, WebKit). They are documented here so
     that their meaning is fixed before the code arrives.
 
@@ -38,7 +38,7 @@ feature flags) must be real YAML booleans: `true`/`false`, not `"yes"`, `1` or
 | `resources.min_free_disk_mb` | `1024` | ≥ 0 | Health check threshold for the runtime root. |
 | `security.forbidden_plugins` | `[]` | unique plugin IDs | **Non-bypassable** denial. Not affected by `--ignore-blacklist`. |
 | `security.allow_blacklist_bypass` | `true` | bool | Whether `--ignore-blacklist` is honoured at all. **Must be `false` in production.** |
-| `formats.accepted` | `[jpeg, png, webp]` | subset of `jpeg png webp heif avif jxl tiff` | *Reserved* for ingestion. |
+| `formats.accepted` | `[jpeg, png, webp]` | subset of `jpeg png webp heif avif jxl tiff` | Files whose signature matches a format outside this list are rejected before being stored. Files matching no known format are still accepted until upload validation (#11). |
 | `reporting.include_effective_settings` | `true` | bool | Embed effective settings in manifests. |
 | `services.background_workers` | `0` | must be `0` | *Reserved*; workers are not implemented. |
 | `ui.host` | `127.0.0.1` | string | *Reserved* for WebKit. Must be loopback in production until authentication exists. |

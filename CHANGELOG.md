@@ -8,8 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- Pull requests automatically get the milestone of the issue they reference, unless someone has
-  already set one.
+- PhotoProof identifies image formats from file signatures. Formats outside
+  `formats.accepted` are rejected before being stored, a plugin is `NOT_APPLICABLE` for formats
+  outside its `supported_formats`, and `doctor` lists accepted formats with no decoder.
 - `analyze` stores every input byte for byte in a read-only evidence store before any
   processing. Identical files are kept once with a record of each submission, and every read
   re-verifies the hash. Run `python main.py --repair` once to migrate an existing database
@@ -25,6 +26,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The pull request template no longer has checkboxes that cannot all be ticked, so a complete
+  PR shows every task as done. `CONTRIBUTING.md` explains how to fill it in and how to link an
+  issue so that it closes on merge.
 - `analyze` rejects symlinks and empty files, and it rejects an unknown profile or an invalid
   reference combination before storing anything.
 - `SECURITY.md` adds review guidance (assets, trust boundaries, severity, known gaps) and

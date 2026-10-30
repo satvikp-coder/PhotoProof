@@ -59,7 +59,7 @@ security:
   allow_blacklist_bypass: true # must be false when environment.mode is production
 
 formats:
-  accepted: [jpeg, png, webp]  # reserved: enforced by the ingestion pipeline (planned)
+  accepted: [jpeg, png, webp]  # formats outside this list are rejected at ingestion
 
 reporting:
   include_effective_settings: true   # embed effective settings in execution manifests
