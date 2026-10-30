@@ -30,6 +30,10 @@ def segfault(_: object) -> None:
     faulthandler._sigsegv()  # type: ignore[attr-defined]
 
 
+def raise_realtime_signal(_: object) -> None:
+    signal.raise_signal(signal.SIGRTMIN + 1)  # type: ignore[attr-defined]
+
+
 def killed_abruptly(_: object) -> None:
     """Dies from a signal like a crash does, without triggering a crash report."""
     os.kill(os.getpid(), getattr(signal, "SIGKILL", signal.SIGTERM))

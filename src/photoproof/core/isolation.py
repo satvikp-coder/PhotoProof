@@ -264,12 +264,20 @@ def _interpret(exchange: _Exchange, process: BaseProcess) -> IsolatedResult:
     return failure
 
 
+def _signal_name(number: int) -> str:
+    """Real-time signals, for example, have no ``signal.Signals`` member."""
+    try:
+        return signal.Signals(number).name
+    except ValueError:
+        return f"signal {number}"
+
+
 def _describe_exit(code: int | None) -> Failure:
     xcpu = getattr(signal, "SIGXCPU", None)
     if xcpu is not None and code == -xcpu:
         return Failure(FailureKind.CPU_LIMIT, "stopped by the CPU time limit")
     if code is not None and code < 0:
-        return Failure(FailureKind.CRASHED, f"killed by {signal.Signals(-code).name}")
+        return Failure(FailureKind.CRASHED, f"killed by {_signal_name(-code)}")
     if code is not None and sys.platform == "win32" and code >= 0xC0000000:
         return Failure(FailureKind.CRASHED, f"crashed with status {code:#x}")
     if code == _SETUP_FAILED_EXIT_CODE:

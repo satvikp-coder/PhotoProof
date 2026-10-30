@@ -124,6 +124,19 @@ def test_exit_signal_is_named() -> None:
     assert (failure.kind, failure.detail) == (FailureKind.CRASHED, "killed by SIGSEGV")
 
 
+def test_signal_without_a_name_is_still_a_typed_failure() -> None:
+    failure = isolation._describe_exit(-999)
+    assert (failure.kind, failure.detail) == (FailureKind.CRASHED, "killed by signal 999")
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGRTMIN"), reason="no real-time signals here")
+def test_real_time_signal_is_reported_as_crashed() -> None:
+    failure = expect_failure(
+        run_isolated(targets.raise_realtime_signal, None, limits=GENEROUS), FailureKind.CRASHED
+    )
+    assert "killed by" in failure.detail
+
+
 @POSIX_ONLY
 def test_cpu_signal_means_the_cpu_limit() -> None:
     assert isolation._describe_exit(-signal.SIGXCPU).kind is FailureKind.CPU_LIMIT
