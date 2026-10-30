@@ -183,7 +183,7 @@ def _storable_name(name: str | None) -> str | None:
     Non-UTF-8 file names reach Python as lone surrogates, which SQLite cannot store, so
     those bytes become visible escapes.
     """
-    if name is None:
+    if not name:
         return None
     if len(name) > _MAX_NAME_CHARS:
         raise InputRejectedError(f"file name is longer than {_MAX_NAME_CHARS} characters")

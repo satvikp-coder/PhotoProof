@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `IngestionService` stages each input in quarantine, enforces the size limit while reading,
+  identifies its type from content, and audits every rejection as `INPUT_REJECTED`. `analyze` now
+  uses it for all inputs.
 - `PillowDecoder` decodes JPEG, PNG and WebP with size limits checked before any pixel is
   allocated, and rejects truncated or corrupted files. Decoder versions are recorded in
   manifests and cache keys. The pipeline does not use it yet (#12).
@@ -29,6 +32,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `analyze` rejects files that are not a recognised image format.
 - The pull request template no longer has checkboxes that cannot all be ticked, so a complete
   PR shows every task as done. `CONTRIBUTING.md` explains how to fill it in and how to link an
   issue so that it closes on merge.

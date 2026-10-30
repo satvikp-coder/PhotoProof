@@ -25,6 +25,7 @@ class EventType(StrEnum):
     POLICY_OVERRIDE = "POLICY_OVERRIDE"
     RUN_COMPLETED = "RUN_COMPLETED"
     RUN_ABORTED = "RUN_ABORTED"
+    INPUT_REJECTED = "INPUT_REJECTED"
 
 
 def _utcnow() -> datetime:
