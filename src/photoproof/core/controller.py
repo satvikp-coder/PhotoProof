@@ -29,6 +29,7 @@ from photoproof.core.config.policy import (
     authorize_blacklist_override,
     decide_all,
 )
+from photoproof.core.config.validator import Profile
 from photoproof.core.pipeline.executor import ExecutionReport, SequentialExecutor, event_for
 from photoproof.core.pipeline.manifest import build_manifest
 from photoproof.core.pipeline.planner import ExecutionPlan, plan
@@ -50,20 +51,28 @@ class AnalysisController:
 
     # ------------------------------------------------------------------ public
 
-    def analyze(
-        self, request: AnalysisRequest, *, override: BlacklistOverride | None = None
-    ) -> AnalysisResult:
+    def resolve_profile(self, name: str | None, *, has_reference: bool) -> tuple[str, Profile]:
+        """Return the profile to use, or raise if the request cannot run under it."""
         app = self.app
-        profile_name = request.profile or app.settings.profiles.default
+        profile_name = name or app.settings.profiles.default
         if profile_name not in app.profiles:
             raise ConfigurationError(
                 f"unknown profile {profile_name!r}; known: {sorted(app.profiles)}"
             )
         profile = app.profiles[profile_name]
-        if profile.mode is AnalysisMode.COMPARISON and request.reference is None:
+        if profile.mode is AnalysisMode.COMPARISON and not has_reference:
             raise InputRejectedError(f"profile {profile.name!r} requires a reference image")
-        if profile.mode is AnalysisMode.SINGLE and request.reference is not None:
+        if profile.mode is AnalysisMode.SINGLE and has_reference:
             raise InputRejectedError(f"profile {profile.name!r} does not accept a reference image")
+        return profile_name, profile
+
+    def analyze(
+        self, request: AnalysisRequest, *, override: BlacklistOverride | None = None
+    ) -> AnalysisResult:
+        app = self.app
+        profile_name, profile = self.resolve_profile(
+            request.profile, has_reference=request.reference is not None
+        )
         override = authorize_blacklist_override(app.settings, override)
 
         run_id = uuid.uuid4().hex

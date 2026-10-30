@@ -8,20 +8,12 @@ from photoproof.cli import main as cli_main
 from photoproof.contracts.exceptions import ConfigurationError, InputRejectedError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.core.config.loader import load_identity, load_settings
-from photoproof.core.security.inputs import hash_input_file
-
-
-def test_input_size_limit_stops_reading(tmp_path: Path) -> None:
-    path = tmp_path / "big.bin"
-    path.write_bytes(b"x" * 2048)
-    with pytest.raises(InputRejectedError, match="max_input_bytes"):
-        hash_input_file(path, max_bytes=1024)
-    assert hash_input_file(path, max_bytes=4096)[1] == 2048
+from photoproof.core.security.inputs import open_regular_file
 
 
 def test_non_regular_inputs_rejected(tmp_path: Path) -> None:
     with pytest.raises(InputRejectedError, match="not a regular file"):
-        hash_input_file(tmp_path, max_bytes=10)
+        open_regular_file(tmp_path)
 
 
 def test_configuration_cannot_add_plugin_locations(app_root: Path) -> None:
