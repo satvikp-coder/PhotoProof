@@ -214,31 +214,50 @@ def _gh(*args: str) -> str:
     return result.stdout.strip()
 
 
-def _issue_milestone(repo: str, number: int) -> int | None:
-    """The issue's milestone number, or ``None`` if it has none or does not exist."""
-    try:
-        found = _gh("api", f"repos/{repo}/issues/{number}", "--jq", ".milestone.number // empty")
-    except OSError:  # a reference to a number that is not an issue must not fail the PR
-        return None
+def _milestone_of(repo: str, number: int) -> int | None:
+    """The live milestone of an issue or PR, or ``None`` if it has none.
+
+    Raises ``OSError`` if the answer is unavailable, so a rate limit or outage fails the job
+    and can be retried, instead of looking like an issue with no milestone.
+    """
+    found = _gh("api", f"repos/{repo}/issues/{number}", "--jq", ".milestone.number // empty")
     return int(found) if found else None
 
 
-def cmd_milestone(repo: str, pull_request: int, current: int | None, body_file: Path) -> int:
+def _linked_milestone(repo: str, number: int) -> int | None:
+    """Like ``_milestone_of``, but a reference to something that does not exist is fine."""
+    try:
+        return _milestone_of(repo, number)
+    except OSError as error:
+        if "HTTP 404" in str(error) or "HTTP 410" in str(error):
+            return None
+        raise
+
+
+def cmd_milestone(repo: str, pull_request: int, body_file: Path) -> int:
     linked = linked_issues(body_file.read_text("utf-8"))
-    chosen = choose_milestone(
-        current=current, linked=[_issue_milestone(repo, number) for number in linked]
-    )
+    try:
+        # Read live, not from the event: a person may have set one since it fired.
+        current = _milestone_of(repo, pull_request)
+        chosen = choose_milestone(
+            current=current, linked=[_linked_milestone(repo, number) for number in linked]
+        )
+        if chosen is not None:
+            _gh(
+                "api",
+                "-X",
+                "PATCH",
+                f"repos/{repo}/issues/{pull_request}",
+                "-F",
+                f"milestone={chosen}",
+            )
+    except OSError as error:
+        summary(f"❌ PR #{pull_request}: could not check or set the milestone: {error}\n")
+        return 1
     if chosen is None:
         summary(f"PR #{pull_request}: milestone unchanged (linked issues: {linked or 'none'}).\n")
-        return 0
-    try:
-        _gh(
-            "api", "-X", "PATCH", f"repos/{repo}/issues/{pull_request}", "-F", f"milestone={chosen}"
-        )
-    except OSError as error:
-        summary(f"❌ PR #{pull_request}: could not set milestone {chosen}: {error}\n")
-        return 1
-    summary(f"PR #{pull_request}: set milestone {chosen} from linked issues {linked}.\n")
+    else:
+        summary(f"PR #{pull_request}: set milestone {chosen} from linked issues {linked}.\n")
     return 0
 
 
@@ -287,7 +306,6 @@ def main(argv: list[str] | None = None) -> int:
     milestone = sub.add_parser("milestone")
     milestone.add_argument("--repo", required=True)
     milestone.add_argument("--pull-request", type=int, required=True)
-    milestone.add_argument("--current", default="")  # empty when the PR has none
     milestone.add_argument("--body-file", type=Path, required=True)
     report = sub.add_parser("summary")
     report.add_argument("--junit", type=Path, required=True)
@@ -303,8 +321,7 @@ def main(argv: list[str] | None = None) -> int:
             args.base, args.title, args.body_file, set(filter(None, args.labels.split(",")))
         )
     if args.command == "milestone":
-        current = int(args.current) if args.current else None
-        return cmd_milestone(args.repo, args.pull_request, current, args.body_file)
+        return cmd_milestone(args.repo, args.pull_request, args.body_file)
     return cmd_summary(args.junit, args.coverage, args.title)
 
 

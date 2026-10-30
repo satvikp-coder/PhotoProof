@@ -28,8 +28,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BODY: ${{ github.event.pull_request.body }}
           NUMBER: ${{ github.event.pull_request.number }}
-          CURRENT: ${{ github.event.pull_request.milestone.number }}
         run: |
           printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
           python .github/scripts/governance.py milestone --repo "$GITHUB_REPOSITORY" \
-            --pull-request "$NUMBER" --current "$CURRENT" --body-file "$RUNNER_TEMP/body.md"
+            --pull-request "$NUMBER" --body-file "$RUNNER_TEMP/body.md"
