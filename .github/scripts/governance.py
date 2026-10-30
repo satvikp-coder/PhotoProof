@@ -31,6 +31,7 @@ TITLE = re.compile(
 ISSUE_REF = re.compile(r"(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?|refs?|part of)\s+#\d+")
 SECTION = re.compile(r"^## \[(?P<version>[^\]]+)\](?: - (?P<date>\d{4}-\d{2}-\d{2}))?\s*$", re.M)
 EXEMPT_LABEL = "governance:exempt"
+RELEASE_TITLE = "chore(release):"
 
 
 def summary(markdown: str) -> None:
@@ -134,22 +135,27 @@ def evaluate_pr(
     if not ISSUE_REF.search(body):
         failures.append("PR body must reference an issue, e.g. `Closes #42` (CONTRIBUTING.md §5).")
 
+    # Versions are set at release time, so an ordinary PR leaves this alone (CONTRIBUTING.md §6).
     old, new = SemVer.parse(app_version(base_app_toml)), SemVer.parse(app_version(head_app_toml))
-    kind = bump_kind(old, new)
-    if kind is None:
-        failures.append(
-            f"app.toml version must be bumped exactly once from `{old}` "
-            f"(PATCH `{SemVer(old.major, old.minor, old.patch + 1)}`, "
-            f"MINOR `{SemVer(old.major, old.minor + 1, 0)}` or "
-            f"MAJOR `{SemVer(old.major + 1, 0, 0)}`);"
-            f" found `{new}`. See CONTRIBUTING.md §6."
-        )
-    else:
-        breaking = bool(re.match(r"^\w+(\([^)]*\))?!:", title))
-        if breaking and kind != "major":
-            failures.append("A breaking change (`!` in the title) requires a MAJOR version bump.")
-        if title.startswith("feat") and kind == "patch":
-            warnings.append("`feat` usually needs a MINOR bump; confirm PATCH is correct.")
+    if new != old:
+        kind = bump_kind(old, new)
+        if kind is None:
+            failures.append(
+                f"app.toml version must stay `{old}`, or change by one step "
+                f"(PATCH `{SemVer(old.major, old.minor, old.patch + 1)}`, "
+                f"MINOR `{SemVer(old.major, old.minor + 1, 0)}` or "
+                f"MAJOR `{SemVer(old.major + 1, 0, 0)}`) in a release PR;"
+                f" found `{new}`. See CONTRIBUTING.md §6."
+            )
+        else:
+            breaking = bool(re.match(r"^\w+(\([^)]*\))?!:", title))
+            if breaking and kind != "major":
+                failures.append("A breaking change (`!` in the title) requires a MAJOR version.")
+            if not title.startswith(RELEASE_TITLE):
+                warnings.append(
+                    "Only release PRs need to change the version; "
+                    "you can leave `app.toml` as it is (CONTRIBUTING.md §6)."
+                )
 
     if "CHANGELOG.md" not in changed:
         failures.append(
@@ -173,14 +179,16 @@ def evaluate_pr(
 
 def cmd_pr(base: str, title: str, body_file: Path, labels: set[str]) -> int:
     changed = set(_git("diff", "--name-only", f"{base}...HEAD").split())
+    # Compare with where this branch left main, so main moving on cannot fail an open PR.
+    fork_point = _git("merge-base", base, "HEAD").strip()
     failures, warnings = evaluate_pr(
         title=title,
         body=body_file.read_text("utf-8"),
         labels=labels,
-        base_app_toml=_git("show", f"{base}:app.toml"),
+        base_app_toml=_git("show", f"{fork_point}:app.toml"),
         head_app_toml=(ROOT / "app.toml").read_text("utf-8"),
         changed=changed,
-        base_changelog=_git("show", f"{base}:CHANGELOG.md"),
+        base_changelog=_git("show", f"{fork_point}:CHANGELOG.md"),
         head_changelog=(ROOT / "CHANGELOG.md").read_text("utf-8"),
     )
     lines = [f"| ❌ | {f} |" for f in failures] + [f"| ⚠️ | {w} |" for w in warnings]

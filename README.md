@@ -86,7 +86,7 @@ configured (`.readthedocs.yaml`) but not yet connected. Key pages:
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md). In short: issue → branch → tests → docs →
-changelog → version bump → PR → review → squash merge. Report vulnerabilities
+changelog → PR → review → squash merge. Report vulnerabilities
 privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
