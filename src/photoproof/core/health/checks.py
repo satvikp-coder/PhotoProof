@@ -4,6 +4,7 @@ A check never changes anything. Repairs are separate callables attached to the
 result and are executed only by ``health.repair``.
 """
 
+import os
 import re
 import shutil
 from collections.abc import Callable
@@ -13,11 +14,17 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from photoproof.contracts.enums import Repairability, Severity
-from photoproof.contracts.exceptions import DatabaseError, MigrationRequiredError, PlanningError
+from photoproof.contracts.exceptions import (
+    DatabaseError,
+    MigrationRequiredError,
+    PlanningError,
+    StorageError,
+)
 from photoproof.core.cache.run_cache import RunCache
 from photoproof.core.database.store import LATEST_VERSION, Database
 from photoproof.core.pipeline.planner import validate_graph
 from photoproof.core.storage.store import BlobKind
+from photoproof.core.storage.windows_acl import UnsupportedACL
 from photoproof.versioning.build import distribution_version
 
 if TYPE_CHECKING:
@@ -108,18 +115,39 @@ def check_runtime_directories(app: "Application") -> CheckResult:
 
 
 def check_runtime_permissions(app: "Application") -> CheckResult:
-    insecure = app.storage.insecure_dirs()
+    try:
+        insecure = app.storage.insecure_dirs()
+    except UnsupportedACL as error:
+        return CheckResult(
+            "runtime.permissions",
+            Severity.WARNING,
+            "runtime ACL protection is unsupported",
+            (str(error),),
+            RepairAction("move runtime to a local ACL-capable volume", Repairability.MANUAL),
+        )
+    except (StorageError, OSError) as error:
+        if os.name != "nt":
+            raise  # preserve the existing POSIX health-registry failure behavior
+        return CheckResult(
+            "runtime.permissions",
+            Severity.ERROR,
+            "cannot verify runtime permissions",
+            (str(error),),
+            RepairAction(
+                "inspect ownership, permissions and reparse points locally", Repairability.MANUAL
+            ),
+        )
     if not insecure:
         return _ok("runtime.permissions", "runtime directories are owner-only")
 
     def restrict() -> str:
-        for name in insecure:
-            (app.storage.root / name).chmod(0o700)
-        return "restricted to 0700: " + ", ".join(insecure)
+        app.storage.restrict_permissions(insecure)
+        prefix = "restricted Windows ACLs: " if os.name == "nt" else "restricted to 0700: "
+        return prefix + ", ".join(insecure)
 
     return CheckResult(
         "runtime.permissions",
-        Severity.WARNING,
+        Severity.ERROR if os.name == "nt" else Severity.WARNING,
         "runtime directories accessible to other users",
         tuple(insecure),
         RepairAction("restrict permissions to owner-only", Repairability.SAFE, restrict),

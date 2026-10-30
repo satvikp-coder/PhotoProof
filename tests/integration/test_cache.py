@@ -2,7 +2,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from helpers import plugin_config, update_settings
+from helpers import make_blob_writable, plugin_config, update_settings
 
 from photoproof.contracts.analysis import AnalysisRequest, AnalysisResult, InputDescriptor
 from photoproof.contracts.enums import RunStatus
@@ -66,7 +66,7 @@ def test_missing_artifact_invalidates(make_app: Factory) -> None:
     app = make_app()
     _run(app)
     artifact = _artifact(app)
-    artifact.chmod(0o600)
+    make_blob_writable(artifact)
     artifact.unlink()
     result = _run(app)
     assert not result.cache_hit and result.status is RunStatus.COMPLETED  # recomputed
@@ -76,7 +76,7 @@ def test_corrupted_artifact_invalidates(make_app: Factory) -> None:
     app = make_app()
     _run(app)
     artifact = _artifact(app)
-    artifact.chmod(0o600)
+    make_blob_writable(artifact)
     artifact.write_bytes(b"tampered")
     # The recomputation cannot overwrite a corrupt blob silently, so the source plugin fails
     # and the run is not reported as a cached success.

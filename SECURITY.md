@@ -101,7 +101,6 @@ to fix them without doing so.
 |---|---|
 | Decoders and plugins are not isolated in separate processes yet | #9, #52, #59 |
 | Audit entries are not hash-chained | #81 |
-| Runtime directories have no owner-only ACLs on Windows | #80 |
 | Dependabot updates do not regenerate lockfiles | #78 |
 | `.venv` is not fully synchronized with the lockfiles on repair | #83 |
 | WebKit has no authentication, so the configuration validator requires a loopback `ui.host` | No issue yet |

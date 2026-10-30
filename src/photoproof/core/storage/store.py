@@ -10,7 +10,9 @@ Both are content-addressed (``<kind>/<sha[:2]>/<sha>``) and written read-only.
 
 import hashlib
 import json
+import logging
 import os
+import sys
 import tempfile
 import time
 from collections.abc import Iterator
@@ -20,6 +22,7 @@ from typing import Literal
 
 from photoproof.contracts.exceptions import StorageError
 from photoproof.core.security.paths import safe_join
+from photoproof.core.storage import windows_acl
 
 RUNTIME_DIRS = (
     "uploads",
@@ -35,6 +38,8 @@ RUNTIME_DIRS = (
 )
 BlobKind = Literal["objects", "artifacts"]
 _POSIX = os.name == "posix"
+_WINDOWS = os.name == "nt"
+_LOG = logging.getLogger(__name__)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -67,6 +72,10 @@ def atomic_write(path: Path, data: bytes, *, mode: int = 0o600) -> None:
         if _POSIX:
             tmp.chmod(mode)
         tmp.replace(path)
+        if _WINDOWS and mode == 0o400:
+            # Publication occurs within a private parent; seal metadata before returning.
+            # A failed seal leaves bytes intact and reports failure, never a successful hash.
+            windows_acl.restrict_file(path, readonly=True)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
@@ -93,6 +102,16 @@ class RuntimeStorage:
     def ensure_layout(self) -> list[str]:
         """Create missing runtime directories; return the ones created."""
         created = self.missing_dirs()
+        if _WINDOWS:
+            try:
+                windows_acl.ensure_directory(self.root)
+                for name in RUNTIME_DIRS:
+                    windows_acl.ensure_directory(self.root / name)
+                return created
+            except windows_acl.UnsupportedACL as error:
+                # Allow diagnosis on unsupported stores, never report ACL protection.
+                # put_blob refuses these filesystems before writing evidence bytes.
+                _LOG.warning("Runtime ACL protection unavailable: %s", error)
         for name in RUNTIME_DIRS:
             directory = self.root / name
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -101,7 +120,24 @@ class RuntimeStorage:
         return created
 
     def insecure_dirs(self) -> list[str]:
-        """Runtime directories that other users can read or write (POSIX only)."""
+        """Insecure managed paths (Windows includes files), or POSIX subdirectories.
+
+        Native inspection failures raise StorageError, never an empty healthy list.
+        """
+        if _WINDOWS:
+            if not self.root.exists():
+                return []  # absence is covered by runtime.directories
+            windows_acl.require_supported_volume(self.root)
+            return [
+                name
+                for name, path, directory, readonly in self._windows_targets()
+                if windows_acl.problems(
+                    windows_acl.inspect(path),
+                    directory=directory,
+                    readonly=readonly,
+                    protected=name in (".", *RUNTIME_DIRS),
+                )
+            ]
         if not _POSIX:
             return []
         return [
@@ -109,6 +145,62 @@ class RuntimeStorage:
             for name in RUNTIME_DIRS
             if (self.root / name).is_dir() and (self.root / name).stat().st_mode & 0o077
         ]
+
+    def _windows_targets(self) -> Iterator[tuple[str, Path, bool, bool]]:
+        """Only the root and known managed trees; never follow reparse points."""
+        if sys.platform != "win32":
+            raise windows_acl.UnsupportedACL("native runtime ACL traversal requires Windows")
+        yield ".", self.root, True, False
+        for name in RUNTIME_DIRS:
+            base = self.root / name
+            if not base.exists():
+                continue
+            stack = [base]
+            while stack:
+                directory = stack.pop()
+                # Inspect before enumeration so junctions cannot redirect the traversal.
+                windows_acl.inspect(directory)
+                yield directory.relative_to(self.root).as_posix(), directory, True, False
+                with os.scandir(directory) as entries:
+                    for entry in entries:
+                        path = Path(entry.path)
+                        attributes = entry.stat(follow_symlinks=False).st_file_attributes
+                        if attributes & windows_acl.REPARSE_POINT:
+                            raise StorageError(
+                                f"{path}: refusing permission traversal of a reparse point"
+                            )
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(path)
+                        elif entry.is_file(follow_symlinks=False):
+                            relative = path.relative_to(self.root)
+                            readonly = (
+                                name in {"objects", "artifacts"}
+                                and len(relative.parts) == 3
+                                and len(path.name) == 64
+                                and all(c in "0123456789abcdef" for c in path.name)
+                            )
+                            yield relative.as_posix(), path, False, readonly
+
+    def restrict_permissions(self, names: list[str]) -> None:
+        """Apply the canonical policy only to enumerated managed paths, then verify."""
+        if _WINDOWS:
+            targets = {
+                name: (path, directory, readonly)
+                for name, path, directory, readonly in self._windows_targets()
+            }
+            for name in names:
+                if name not in targets:
+                    raise StorageError(
+                        f"refusing permission repair outside managed runtime: {name}"
+                    )
+                path, directory, readonly = targets[name]
+                if directory:
+                    windows_acl.ensure_directory(path)
+                else:
+                    windows_acl.restrict_file(path, readonly=readonly)
+        else:
+            for name in names:
+                self.path(name).chmod(0o700)
 
     # ------------------------------------------------------------ JSON files
 
@@ -137,7 +229,14 @@ class RuntimeStorage:
         """Store ``data`` immutably and return its SHA-256. Idempotent."""
         digest = sha256_bytes(data)
         target = self.blob_path(kind, digest)
+        if _WINDOWS:
+            # Refuse unsupported storage before publishing any original bytes.
+            windows_acl.require_supported_volume(self.root)
+            self.ensure_layout()
+            windows_acl.ensure_directory(target.parent)
         if target.is_file() and self.verify_blob(kind, digest):
+            if _WINDOWS:
+                windows_acl.restrict_file(target, readonly=True)
             return digest
         if target.exists():  # present but corrupt: never overwrite silently
             raise StorageError(f"{target}: existing blob fails verification; run --doctor")

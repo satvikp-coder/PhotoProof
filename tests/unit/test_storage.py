@@ -3,6 +3,7 @@ import time
 from pathlib import Path
 
 import pytest
+from helpers import make_blob_writable
 
 from photoproof.contracts.exceptions import StorageError, UnsafePathError
 from photoproof.core.security.paths import safe_join
@@ -39,7 +40,7 @@ def test_blobs_are_content_addressed_and_read_only(storage: RuntimeStorage) -> N
 def test_corrupt_blob_never_overwritten(storage: RuntimeStorage) -> None:
     sha = storage.put_blob("objects", b"evidence")
     path = storage.blob_path("objects", sha)
-    path.chmod(0o600)
+    make_blob_writable(path)
     path.write_bytes(b"tampered")
     assert not storage.verify_blob("objects", sha)
     with pytest.raises(StorageError, match="fails verification"):

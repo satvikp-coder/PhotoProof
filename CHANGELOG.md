@@ -67,6 +67,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
+- Windows runtime storage now creates and verifies SID-based private ACLs, repairs
+  unauthorized access without rewriting evidence, and seals blobs with read-only
+  attributes and DACLs. Unsupported/network stores warn and refuse evidence writes (#80).
 - Booleans and feature flags in configuration must be real booleans (`"yes"` or `1`
   are rejected).
 - Plugin IDs in the blacklist, denylist and profiles must be well-formed. The new

@@ -1,6 +1,8 @@
 """Test helpers (importable as ``helpers``; see pytest ``pythonpath``)."""
 
 import io
+import os
+import subprocess
 import sys
 import tomllib
 import uuid
@@ -85,3 +87,24 @@ def registry_of(tmp_path: Path, *metadata: dict[str, Any]) -> PluginRegistry:
 
 
 RESULTS: dict[str, Any] = {}
+
+
+def make_blob_writable(path: Path) -> None:
+    """Test-only owner tampering/cleanup: explicitly change the DACL before chmod.
+
+    Windows read-only blob ACLs deliberately prohibit WRITE_ATTRIBUTES/WRITE_DATA.
+    The owner can still change their DACL; this models that privileged action rather
+    than weakening the actual corruption-detection assertions or production policy.
+    Only pass disposable test artifacts, never original user evidence.
+    """
+    if os.name == "nt":
+        from photoproof.core.storage.windows_acl import current_user_sid
+
+        command = Path(os.environ["SYSTEMROOT"]) / "System32" / "icacls.exe"
+        subprocess.run(
+            [str(command), str(path), "/grant:r", f"*{current_user_sid()}:(F)"],
+            shell=False,
+            check=True,
+            capture_output=True,
+        )
+    path.chmod(0o600)
