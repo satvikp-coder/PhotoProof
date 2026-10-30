@@ -57,12 +57,28 @@ registry invalid (`RegistryError`).
 ## Decoded and working images (planned)
 
 `imaging/normalization.py` already turns a decoded image into a working image: sRGB, with EXIF
-orientation applied, and a log of every transform. Plugins cannot reach either image yet. #12
-will expose both, and each plugin will choose:
+orientation applied, and a log of every transform. Plugins cannot reach any of these yet. #12
+will expose them, and each plugin will choose:
 
 - **`image.working`** for detectors that compare pixels across regions or images.
 - **`image.decoded`** for compression and noise detectors. Colour conversion changes pixel
   statistics, so ELA, DCT and noise-residual analysis should use the unconverted pixels.
+- **`image.working_hdr`** for detectors that can use more than 8 bits. It exists only when the
+  source has more than 8 bits per channel.
+
+| Field of `image.working_hdr` | Meaning |
+|---|---|
+| `dtype` | Always `uint16`, stored little-endian |
+| `mode` | `I;16`, `RGB;16` or `RGBA;16` |
+| `bit_depth` | Bits actually used, for example 10, 12 or 16. Values are not rescaled |
+| `transfer` | `srgb`, `bt709`, `pq`, `hlg` or `linear`, or `icc` if an ICC profile defines it |
+| `primaries` | `bt709`, `p3` or `bt2020`, or `icc` if an ICC profile defines them |
+| `icc_profile` | The profile bytes when `transfer` and `primaries` are `icc`, otherwise empty |
+| `transforms` | What was assumed or applied, for example `transfer_assumed` |
+
+Code values are unchanged apart from orientation. A plugin that needs floats converts them itself,
+because it knows which conversion its maths needs. `image.working` is always 8-bit: high-depth
+sources reach it through a documented, per-channel tone curve, recorded in `transforms`.
 
 ## Supported formats
 

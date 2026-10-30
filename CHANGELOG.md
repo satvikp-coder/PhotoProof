@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- 16-bit PNGs decode without loss. High-depth images get a `uint16` view with their transfer
+  function and primaries, and an 8-bit derivative through a documented tone curve. The pipeline
+  does not use these yet (#12).
 - `normalize` turns a decoded image into a working image in sRGB with EXIF orientation applied,
   and records every transform. The decoded image stays available and unchanged. The pipeline
   does not use it yet (#12).
