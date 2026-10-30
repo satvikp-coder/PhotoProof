@@ -34,7 +34,7 @@ class DecodedImage:
     icc_profile: bytes | None = None
     orientation: int = 1  # EXIF orientation as found; normalization is a separate step
     mode: str = ""  # working pixel mode, e.g. "RGB", "RGBA" or "I;16"
-    conversion: str = "none"  # stable code for what changed from the source; see the adapter
+    conversion: str = "none"  # comma-separated codes for what changed; see the adapter
 
 
 class ImageDecoder(Protocol):

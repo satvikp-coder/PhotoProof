@@ -4,7 +4,7 @@ Every input is treated as hostile. Dimensions are checked from the header before
 is allocated, and only the detected format's parser is allowed to run. Decoding runs in the
 calling process until #9, so it has no wall-clock limit yet.
 
-Working modes (``DecodedImage.conversion`` records what was done to get there):
+Working modes. ``DecodedImage.conversion`` records how each was reached, as comma-separated codes:
 
     Source                      Working mode    Conversion
     RGB, RGBA                   same            none
@@ -14,6 +14,7 @@ Working modes (``DecodedImage.conversion`` records what was done to get there):
     transparency chunk          RGBA            transparency_to_rgba
     16-bit grayscale PNG        I;16            none (little-endian); rejected if transparent
     16-bit colour PNG           RGB or RGBA     16_bit_to_8_bit (Pillow keeps 8 bits; see #5)
+    16-bit colour with tRNS     RGBA            16_bit_to_8_bit,transparency_to_rgba
     CMYK or YCCK JPEG           RGB             cmyk_to_rgb (naive, ignores any ICC profile)
 """
 
@@ -205,9 +206,13 @@ def _to_working_mode(
             )
         return _to_sixteen_bit_little_endian(image), "none", 16
     if mode in {"RGB", "RGBA"}:
+        depth_note = _colour_depth_note(data, media_format)
         if mode == "RGB" and has_transparency:
-            return image.convert("RGBA"), "transparency_to_rgba", 8
-        return image, _colour_depth_note(data, media_format), 8
+            notes = "transparency_to_rgba"
+            if depth_note != "none":
+                notes = f"{depth_note},{notes}"
+            return image.convert("RGBA"), notes, 8
+        return image, depth_note, 8
     if mode in {"L", "1"}:
         target = "RGBA" if has_transparency else "RGB"
         note = "transparency_to_rgba" if has_transparency else "gray_to_rgb"
