@@ -4,7 +4,7 @@
 
 | Asset | Threat | Current control | Planned |
 |---|---|---|---|
-| Original evidence | Silent modification | Content-addressed, read-only storage; integrity check; never auto-repaired | Ingestion that stores originals before any processing |
+| Original evidence | Silent modification | Stored before any processing; content-addressed, read-only; verified on every read; never overwritten or auto-repaired | Upload handling (#11) |
 | Host system | Malicious image exploiting a native decoder | Decoder interface with mandatory limits; no decoder yet | Isolated decoder process with resource limits; fuzzing |
 | Host system | Decompression bomb / resource exhaustion | `resources.max_input_bytes` enforced while streaming; `max_image_pixels` contract | Header-level pixel checks, memory limits |
 | Runtime data | Path traversal | `safe_join` on every runtime path | — |
@@ -54,9 +54,11 @@ milestone job can write pull requests.
 
 ## Evidence preservation
 
-Originals are never modified or replaced. Derived outputs are separate
+Originals are never modified or replaced. `analyze` stores each input before any
+processing, and every read re-hashes it first (see the
+[evidence store](../operations/runtime.md#evidence-store)). Derived outputs are separate
 content-addressed artifacts, and manifests record every input and artifact hash.
-A corrupt evidence blob is a MANUAL critical finding.
+A corrupt or missing evidence blob is a MANUAL critical finding.
 
 Report vulnerabilities privately: see
 [SECURITY.md](https://github.com/satvikp-coder/PhotoProof/blob/main/SECURITY.md).

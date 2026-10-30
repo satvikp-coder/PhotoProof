@@ -31,7 +31,6 @@ from photoproof.core.config.policy import (
 from photoproof.core.controller import AnalysisController
 from photoproof.core.health.checks import CheckResult, default_registry
 from photoproof.core.health.repair import preflight, publish_findings, run_repairs
-from photoproof.core.security.inputs import hash_input_file
 from photoproof.core.storage.store import sha256_file
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_CONFIG, EXIT_HEALTH, EXIT_NOT_COMPLETED = 0, 1, 2, 4, 6, 7
@@ -203,11 +202,6 @@ def cmd_config(app: Application, as_json: bool) -> int:
     return EXIT_OK
 
 
-def _describe(path: Path, role: str, app: Application) -> InputDescriptor:
-    sha, size = hash_input_file(path, max_bytes=app.settings.resources.max_input_bytes)
-    return InputDescriptor(role=role, sha256=sha, size=size)
-
-
 def cmd_analyze(app: Application, args: argparse.Namespace) -> int:
     if args.progress or app.flags.is_enabled("events.progress"):
 
@@ -225,13 +219,26 @@ def cmd_analyze(app: Application, args: argparse.Namespace) -> int:
             EventType.PLUGIN_SKIPPED,
             name="cli-progress",
         )
+    controller = AnalysisController(app)
+    # Before ingesting, so a mistyped profile does not leave a copy of the image behind.
+    controller.resolve_profile(args.profile, has_reference=args.reference is not None)
+    evidence = app.evidence()
+    target = evidence.ingest(args.target, role="target")
+    reference = evidence.ingest(args.reference, role="reference") if args.reference else None
     request = AnalysisRequest(
-        target=_describe(args.target, "target", app),
-        reference=_describe(args.reference, "reference", app) if args.reference else None,
+        target=InputDescriptor(role="target", sha256=target.sha256, size=target.size),
+        reference=(
+            InputDescriptor(role="reference", sha256=reference.sha256, size=reference.size)
+            if reference
+            else None
+        ),
         profile=args.profile,
         use_cache=not args.no_cache,
     )
-    result = AnalysisController(app).analyze(request, override=_override(args))
+    result = controller.analyze(request, override=_override(args))
+    app.database().link_submissions(
+        [record.submission_id for record in (target, reference) if record], result.run_id
+    )
     if args.json:
         print(result.model_dump_json(indent=2))
     else:
