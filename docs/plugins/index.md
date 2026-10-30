@@ -54,6 +54,16 @@ empty `outputs`, outputs named `input.*`, malformed entry points, an incompatibl
 version, or a missing entry module. Duplicate IDs across packages make the whole
 registry invalid (`RegistryError`).
 
+## Decoded and working images (planned)
+
+`imaging/normalization.py` already turns a decoded image into a working image: sRGB, with EXIF
+orientation applied, and a log of every transform. Plugins cannot reach either image yet. #12
+will expose both, and each plugin will choose:
+
+- **`image.working`** for detectors that compare pixels across regions or images.
+- **`image.decoded`** for compression and noise detectors. Colour conversion changes pixel
+  statistics, so ELA, DCT and noise-residual analysis should use the unconverted pixels.
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an

@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `normalize` turns a decoded image into a working image in sRGB with EXIF orientation applied,
+  and records every transform. The decoded image stays available and unchanged. The pipeline
+  does not use it yet (#12).
 - `IngestionService` stages each input in quarantine, enforces the size limit while reading,
   identifies its type from content, and audits every rejection as `INPUT_REJECTED`. `analyze` now
   uses it for all inputs.
