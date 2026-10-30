@@ -106,6 +106,10 @@ insufficient. There is no "authentic" result category.
 | AVIF | Pillow / libavif | #8 | opt-in |
 | TIFF (first page, restricted) | Pillow / libtiff | #8 | opt-in |
 
+Formats are identified from file signatures (#2), not extensions, and `doctor` lists accepted
+formats without a decoder. A polyglot file gets the first match, in this order: JPEG, PNG, WebP,
+JPEG XL, TIFF, then ISO-BMFF (AVIF before HEIF).
+
 High bit depth and HDR representations are specified in #5, and cross-format
 consistency is tested in #69.
 

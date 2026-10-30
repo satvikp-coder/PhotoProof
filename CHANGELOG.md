@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- PhotoProof identifies image formats from file signatures. Formats outside
+  `formats.accepted` are rejected before being stored, a plugin is `NOT_APPLICABLE` for formats
+  outside its `supported_formats`, and `doctor` lists accepted formats with no decoder.
 - `analyze` stores every input byte for byte in a read-only evidence store before any
   processing. Identical files are kept once with a record of each submission, and every read
   re-verifies the hash. Run `python main.py --repair` once to migrate an existing database
