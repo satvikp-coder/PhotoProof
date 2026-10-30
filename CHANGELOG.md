@@ -17,6 +17,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The pull request template no longer has checkboxes that cannot all be ticked, so a complete
+  PR shows every task as done.
 - `SECURITY.md` adds review guidance (assets, trust boundaries, severity, known gaps) and
   lists `0.2.x` as the supported version.
 - `app.toml`, `pyproject.toml`, `mkdocs.yml` and `LICENSE` name the four developers
