@@ -5,7 +5,7 @@
 | Asset | Threat | Current control | Planned |
 |---|---|---|---|
 | Original evidence | Silent modification | Stored before any processing; content-addressed, read-only; verified on every read; never overwritten or auto-repaired | — |
-| Host system | Malicious image exploiting a native decoder | Decoder interface with mandatory limits; no decoder yet | Isolated decoder process with resource limits; fuzzing |
+| Host system | Malicious image exploiting a native decoder | Decoder interface with mandatory limits; Pillow decoder, not yet used by the pipeline | Isolated decoder process with resource limits; fuzzing |
 | Host system | Decompression bomb / resource exhaustion | `resources.max_input_bytes` enforced while streaming; `max_image_pixels` contract | Header-level pixel checks, memory limits |
 | Runtime data | Path traversal | `safe_join` on every runtime path | — |
 | Configuration | Code execution through config | Safe YAML loader, strict schemas, no dynamic imports from config | — |
@@ -40,6 +40,23 @@ Nothing is isolated yet beyond the policy checks above. In order:
 
 A module named `sandbox.py` that does none of these would be misleading, so none
 exists.
+
+## Decoders
+
+`imaging/adapters/pillow.py` decodes JPEG, PNG and WebP. It treats every file as hostile:
+
+- **Only the detected format's parser runs.** A file can't reach Pillow's other parsers.
+- **Size is checked from the header,** before any pixel is allocated. Width × height × frames
+  must fit `resources.max_image_pixels`, and an animation is rejected by default.
+- **Truncation is rejected,** even when only the end of the file is missing and the pixels
+  are complete. PNG checksums are verified for every chunk, including `IDAT`, which Pillow
+  skips. Data after the end of a PNG is allowed.
+- **Nothing is applied silently.** The ICC profile and EXIF orientation are returned, not
+  applied, and `DecodedImage.conversion` records any change of pixel mode.
+
+**Known limits:** decoding runs in the calling process with no wall-clock limit until #9.
+16-bit colour PNGs are read as 8-bit, recorded as `16_bit_to_8_bit`, until #5. CMYK JPEGs are
+converted naively and recorded as `cmyk_to_rgb`.
 
 ## Dependency security
 

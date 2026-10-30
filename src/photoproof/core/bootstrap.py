@@ -29,7 +29,7 @@ from photoproof.core.pipeline.registry import PluginRegistry
 from photoproof.core.storage.evidence import EvidenceStore
 from photoproof.core.storage.store import RuntimeStorage
 from photoproof.imaging.decoder import DecodeLimits
-from photoproof.imaging.registry import DecoderRegistry
+from photoproof.imaging.registry import DecoderRegistry, default_decoders
 
 # Default repository root for a source checkout: src/photoproof/core/bootstrap.py -> repo
 DEFAULT_ROOT = Path(__file__).resolve().parents[3]
@@ -45,7 +45,7 @@ class Application:
     flags: FeatureFlags
     storage: RuntimeStorage
     bus: EventBus
-    decoders: DecoderRegistry = field(default_factory=DecoderRegistry)
+    decoders: DecoderRegistry = field(default_factory=default_decoders)
     _db: Database | None = field(default=None, repr=False)
     started: bool = False
 

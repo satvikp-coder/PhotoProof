@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 - `IngestionService` stages each input in quarantine, enforces the size limit while reading,
   identifies its type from content, and audits every rejection as `INPUT_REJECTED`. `analyze` now
   uses it for all inputs.
+- `PillowDecoder` decodes JPEG, PNG and WebP with size limits checked before any pixel is
+  allocated, and rejects truncated or corrupted files. Decoder versions are recorded in
+  manifests and cache keys. The pipeline does not use it yet (#12).
 - PhotoProof identifies image formats from file signatures. Formats outside
   `formats.accepted` are rejected before being stored, a plugin is `NOT_APPLICABLE` for formats
   outside its `supported_formats`, and `doctor` lists accepted formats with no decoder.

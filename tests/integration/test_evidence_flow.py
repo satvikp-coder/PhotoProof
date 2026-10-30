@@ -193,3 +193,11 @@ def test_text_file_is_rejected_by_the_cli_and_audited(
     assert objects(app_root) == []
     audit = (app_root / "ARE" / "logs" / "audit.jsonl").read_text(encoding="utf-8")
     assert "INPUT_REJECTED" in audit
+
+
+def test_manifest_records_the_decoder_versions(
+    app_root: Path, target_file: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    result = analyze_json(app_root, capsys, str(target_file))
+    manifest = json.loads(Path(str(result["manifest_path"])).read_text())
+    assert manifest["software"]["image_decoders"]["Pillow"]

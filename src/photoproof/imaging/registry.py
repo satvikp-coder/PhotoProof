@@ -54,3 +54,15 @@ class DecoderRegistry:
         for decoder in self._decoders.values():
             versions.update(decoder.library_versions())
         return versions
+
+
+def default_decoders() -> DecoderRegistry:
+    """The decoders this installation can use. A missing library is a health finding, not
+    a startup failure, so ``doctor`` can still report it."""
+    registry = DecoderRegistry()
+    try:
+        from photoproof.imaging.adapters.pillow import PillowDecoder  # noqa: PLC0415
+    except ImportError:
+        return registry
+    registry.register(PillowDecoder())
+    return registry
