@@ -82,8 +82,9 @@ class WorkingImage:
     transforms: tuple[str, ...] = field(default_factory=tuple)
     dtype: Literal["uint8", "uint16"] = "uint8"
     bit_depth: int = 8
-    transfer: str = "srgb"
-    primaries: str = "bt709"
+    transfer: str = "srgb"  # srgb | bt709 | pq | hlg | linear | icc (see icc_profile)
+    primaries: str = "bt709"  # bt709 | p3 | bt2020 | icc (see icc_profile)
+    icc_profile: bytes | None = None  # only on the unconverted uint16 view, when it applies
 
 
 def normalize(decoded: DecodedImage, policy: NormalizationPolicy = DEFAULT_POLICY) -> WorkingImage:
@@ -142,6 +143,7 @@ def normalize_hdr(
 
     Code values are unchanged apart from orientation. Their meaning is in ``transfer``,
     ``primaries`` and ``bit_depth``, so plugins that need floats can convert them correctly.
+    If an ICC profile defines the colours, those two say ``icc`` and the profile is included.
     Raises ``InputRejectedError`` if the result would be over ``limits.max_decoded_bytes``.
     """
     channels = SIXTEEN_BIT_MODES.get(decoded.mode)
@@ -153,6 +155,7 @@ def normalize_hdr(
             f"high-depth image would need {needed} bytes; the limit is {limits.max_decoded_bytes}"
         )
     transforms = list(decoded.colour_notes)
+    icc_defined = bool(decoded.icc_profile) and "cicp_signalled" not in decoded.colour_notes
     planes = _split_sixteen_bit(decoded.pixels, channels, (decoded.width, decoded.height))
     orientation_applied = False
     if policy.apply_orientation:
@@ -169,8 +172,9 @@ def normalize_hdr(
         transforms=tuple(transforms),
         dtype="uint16",
         bit_depth=decoded.bit_depth,
-        transfer=decoded.transfer,
-        primaries=decoded.primaries,
+        transfer="icc" if icc_defined else decoded.transfer,
+        primaries="icc" if icc_defined else decoded.primaries,
+        icc_profile=decoded.icc_profile if icc_defined else None,
     )
 
 

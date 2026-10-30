@@ -171,8 +171,7 @@ def test_sixteen_bit_gray_with_alpha_records_the_loss_of_depth() -> None:
         + png_chunk(b"IEND", b"")
     )
     decoded = decode(data)
-    expected = "16_bit_to_8_bit,gray_alpha_to_rgba" if colour == 4 else "16_bit_to_8_bit"
-    assert (decoded.bit_depth, decoded.conversion) == (8, expected)
+    assert (decoded.bit_depth, decoded.conversion) == (8, "16_bit_to_8_bit,gray_alpha_to_rgba")
 
 
 def test_input_bytes_are_unchanged_and_never_written_to_disk(

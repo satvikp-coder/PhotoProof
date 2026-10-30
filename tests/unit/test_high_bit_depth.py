@@ -546,6 +546,61 @@ def test_grayscale_with_transparency_uses_its_grayscale_profile() -> None:
     assert (working.pixels[3], working.pixels[7]) == (255, 0)  # the transparent key stays so
 
 
+def test_hdr_view_keeps_the_profile_that_defines_its_colours() -> None:
+    decoded = decode(png_16([1000, 2000, 3000], 1, 1, 2, extra=_p3_profile_chunk()))
+    view = normalize_hdr(decoded, LIMITS)
+    assert view is not None
+    assert (view.transfer, view.primaries) == ("icc", "icc")  # not a false sRGB claim
+    assert view.icc_profile == DISPLAY_P3
+
+
+def test_hdr_view_uses_cicp_and_omits_the_profile_it_overrides() -> None:
+    decoded = decode(png_16([1000, 2000, 3000], 1, 1, 2, extra=_p3_profile_chunk() + cicp(9, 16)))
+    view = normalize_hdr(decoded, LIMITS)
+    assert view is not None
+    assert (view.transfer, view.primaries, view.icc_profile) == ("pq", "bt2020", None)
+
+
+def test_hdr_view_without_any_colour_information_records_the_assumption() -> None:
+    view = normalize_hdr(decode(png_16([1, 2, 3], 1, 1, 2)), LIMITS)
+    assert view is not None
+    assert (view.transfer, view.primaries, view.icc_profile) == ("srgb", "bt709", None)
+    assert "transfer_assumed" in view.transforms
+
+
+def test_sixteen_bit_gray_alpha_uses_its_grayscale_profile_and_keeps_alpha() -> None:
+    from test_normalization import GRAY_GAMMA_18
+
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 16, 4, 0, 0, 0)
+    row = b"\x00" + struct.pack(">HH", 0x8000, 0x2100)
+    data = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"iCCP", b"g\x00\x00" + zlib.compress(GRAY_GAMMA_18))
+        + chunk(b"IDAT", zlib.compress(row))
+        + chunk(b"IEND", b"")
+    )
+    decoded = decode(data)
+    assert decoded.conversion == "16_bit_to_8_bit,gray_alpha_to_rgba"
+    working = normalize(decoded)
+    assert "icc_converted_to_srgb" in working.transforms
+    assert working.mode == "RGBA"
+    assert working.pixels[3] == 0x21
+
+
+def test_sixteen_bit_colour_with_transparency_is_rejected_on_the_lossless_path_too() -> None:
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 16, 2, 0, 0, 0)
+    data = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"tRNS", b"\x12\x34" * 3)
+        + chunk(b"IDAT", zlib.compress(b"\x00" + b"\x12\x34" * 3))
+        + chunk(b"IEND", b"")
+    )
+    with pytest.raises(InputRejectedError, match="16-bit colour with transparency"):
+        decode(data)
+
+
 def test_the_derivative_keeps_the_assumption_notes() -> None:
     working = normalize(decode(png_16([1, 2, 3], 1, 1, 2)))
     assert "transfer_assumed" in working.transforms

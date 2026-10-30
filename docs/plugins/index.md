@@ -71,8 +71,9 @@ will expose them, and each plugin will choose:
 | `dtype` | Always `uint16`, stored little-endian |
 | `mode` | `I;16`, `RGB;16` or `RGBA;16` |
 | `bit_depth` | Bits actually used, for example 10, 12 or 16. Values are not rescaled |
-| `transfer` | `srgb`, `bt709`, `pq`, `hlg` or `linear` |
-| `primaries` | `bt709`, `p3` or `bt2020` |
+| `transfer` | `srgb`, `bt709`, `pq`, `hlg` or `linear`, or `icc` if an ICC profile defines it |
+| `primaries` | `bt709`, `p3` or `bt2020`, or `icc` if an ICC profile defines them |
+| `icc_profile` | The profile bytes when `transfer` and `primaries` are `icc`, otherwise empty |
 | `transforms` | What was assumed or applied, for example `transfer_assumed` |
 
 Code values are unchanged apart from orientation. A plugin that needs floats converts them itself,
