@@ -47,6 +47,7 @@ _MAX_DETAIL_CHARS = 2000
 _POLL_SECONDS = 0.01
 _WATCHDOG_SECONDS = 0.1
 _TERMINATE_GRACE_SECONDS = 0.5
+_KILL_WAIT_SECONDS = 5.0
 _EXIT_GRACE_SECONDS = 1.0  # time to collect a result already in the pipe after the child exits
 _ALARM_MARGIN_SECONDS = 5  # the child kills itself this long after the parent's deadline
 _WINDOWS_ENVIRONMENT = ("SYSTEMROOT", "WINDIR")  # Windows cannot start some services without
@@ -273,11 +274,12 @@ def _stop(process: BaseProcess) -> None:
     process.join(_TERMINATE_GRACE_SECONDS)
     if process.is_alive():
         process.kill()
-        process.join()
-    if sys.platform != "win32":  # the child leads its own process group; see _child_main
+        process.join(_KILL_WAIT_SECONDS)  # bounded: never hang the parent on a stuck child
+    if sys.platform != "win32":  # the child leads its own process group; see _harden
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(process.pid, signal.SIGKILL)
-    process.close()
+    with contextlib.suppress(ValueError):  # still alive after SIGKILL: the OS will reap it
+        process.close()
 
 
 # ------------------------------------------------------------------- Windows containment

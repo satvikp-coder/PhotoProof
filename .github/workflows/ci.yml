@@ -48,6 +48,7 @@ jobs:
   test:
     name: Test · ${{ matrix.os }} · py${{ matrix.python }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30  # a hung test must not hold a runner for the 6-hour default
     strategy:
       fail-fast: false
       matrix:
