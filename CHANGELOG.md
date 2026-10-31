@@ -43,6 +43,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Document the verified repository rules and policy gaps, squash-only merging, private
+  reporting and the existing Read the Docs site and README badge (#63).
+
 - The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave
   `app.toml` alone, so open PRs can't collide on the version, and `main` moving on can't fail them.
 - `analyze` rejects files that are not a recognised image format.
