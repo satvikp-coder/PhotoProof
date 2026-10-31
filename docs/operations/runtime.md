@@ -63,7 +63,7 @@ mismatch. No consumer receives unverified bytes.
 
 An unknown profile or an invalid reference combination is rejected before anything is
 stored. Other rejections can leave an already accepted target in the store, because deletion
-controls do not exist yet (#56).
+requires the explicit controls described under [run deletion](#explicit-run-deletion).
 
 ### Database tables
 
@@ -139,7 +139,7 @@ retention defaults retain indefinitely. Example output (synthetic identity abbre
 
 ```text
 Housekeeping: DRY RUN; no changes
-Protected: original evidence, retained references, audit trails, backups, unknown files
+Protected: shared/pending originals, references, audit trails, backups, unknown files
   cache <sha256>: 512 bytes; 31.00 days; expired disposable cache
 Projected reclaimed: 512 bytes
 ```
@@ -165,7 +165,7 @@ The last guard protects the CLI interval between analysis completion and submiss
 abandoned unlinked submissions intentionally require operator investigation before retirement.
 Shared artifacts stay protected until the last retained manifest/cache/DB reference is gone;
 newly unreferenced artifacts require another plan. This deliberately favors preservation over
-maximum reclamation in one invocation. Evidence deletion and its privacy policy remain #56.
+maximum reclamation in one invocation. Evidence deletion is a separate explicit operation or a positively configured evidence policy below.
 
 ### Audit receipts, rotation and interrupted cleanup
 
@@ -201,7 +201,7 @@ transactions. Run creation/status/cache metadata writes wait or fail with SQLite
 busy timeout. Controller artifact publication now takes its own SQLite write reservation and
 checks the run is still active; a timed-out plugin cannot publish after run completion.
 An analysis that has not created its run record may still ingest original evidence concurrently;
-housekeeping never touches that class. This does not implement #82's shared runtime locks,
+evidence publication now holds a SQLite write reservation through submission commit, excluding deletion of a blob before its new reference is committed. This does not implement #82's shared runtime locks,
 process ownership or stale-run recovery. Do not run repair, external tools or older PhotoProof
 versions concurrently with housekeeping. Direct storage API callers must externally quiesce
 writes; they do not implicitly participate in the controller's reservation protocol.
@@ -217,3 +217,88 @@ main does not include #80 ACL enforcement; this feature does not import it. A re
 derived blob that cannot be unlinked is retained and reported as a failure. No permissions on
 retained evidence or derived files are broadened. An owner can always change their own files:
 these safeguards do not defend against a hostile account already controlling the runtime.
+
+## Explicit run deletion
+
+```console
+python main.py delete RUN_ID
+python main.py delete RUN_ID --with-evidence
+```
+
+The command itself is explicit authorization; there is no interactive prompt, so it works in
+scripts. Consequence warnings are printed to stderr **before** destructive work. Both forms
+require an existing, current, readable database and a verified idle runtime; they skip preflight
+and automatic repair. Invalid IDs, missing runs, uncertain references or incomplete operations
+return nonzero. A matching completed receipt makes a repeated identical request an idempotent
+no-op; a different request cannot escalate an earlier default deletion into evidence deletion.
+
+Default deletion removes only the selected run's manifest, linked cache files/rows, known
+report files, eligible unshared artifact blobs, artifact/plugin associations, submission rows
+and run row. It preserves original blobs and their evidence records; originals may still use
+space. Other runs, other submissions, backups and audit history remain. Filenames belonging
+only to that run are removed from live submission rows. SQLite free pages may still contain old
+bytes: row deletion is **not** secure database erasure.
+
+`--with-evidence` additionally authorizes original removal only if its sole submission belongs
+to the selected run and no other retained run uses it. Multiple submissions protect the original,
+even when linked to one run. A shared/pending/ambiguous original refuses the **whole request**
+before deletion; use the default form to remove run data while retaining that original.
+All manifest input roles, sizes, evidence rows, submission associations and object hashes must
+agree. Unregistered objects, missing submissions/manifests, corrupt hashes and active runs block
+cleanup rather than being interpreted as unreferenced data.
+
+Both paths reuse housekeeping's manifest/SQLite/cache validator. Retained cache artifacts and
+other run associations protect shared blobs. Current report generation is not implemented on
+this stacked base: deletion recognizes only `report.json`, `report.html` and `index.html` directly
+under `reports/RUN_ID/`. Unknown names/subdirectories cause refusal; empty directories remain.
+Retained or unknown report data conservatively protects candidate derived artifacts. New report
+formats need an explicit ownership contract; no format from an unmerged PR is assumed.
+
+### Evidence retention
+
+Set `retention.evidence_days` to a positive integer to make **unreferenced** originals eligible
+for housekeeping. `null` retains indefinitely. The recorded first-seen timestamp determines age,
+not mtime; future timestamps delay eligibility. A dry run changes nothing. Only `--apply` plus
+the policy can delete eligible evidence, and all run/submission references must be absent.
+Any report data conservatively postpones original retention. Default explicit run deletion can
+leave an unreferenced original for a later policy apply. Run-age housekeeping retains submission
+records with cleared run links, as in #55; those unlinked records remain protected and need
+operator investigation. Evidence retention never treats an ambiguous submission as stale.
+
+### Receipts and interrupted operations
+
+A privacy operation writes a `database/deletions/OPERATION_ID.json` journal before
+its audit intent and first unlink (0600 files/0700 directory on POSIX; existing runtime permission
+behavior on Windows). Journals contain opaque IDs, a plan hash, mode and phase,
+not filenames, paths, EXIF or content. Each approved file also has durable intent/deleted audit
+receipts containing its hash/class/size. Failures record a safe category; missing audit storage
+or write failure cannot silently authorize success. Audit history/rotation segments are retained.
+
+The SQLite EXCLUSIVE reservation spans validation, file removal and metadata commit. Original
+publication holds an IMMEDIATE reservation from copying through submission commit, closing the
+same-content concurrent-upload race. This is narrower than #82's future runtime lock/process
+model: do not run repair, external writers or older application versions concurrently. Network
+filesystems are unsupported; detectable Windows non-fixed volumes, standard Linux network/FUSE
+mounts and macOS non-local mounts are refused. This detection does not certify every driver.
+Read-only Windows files that cannot be unlinked are retained with an actionable failure; no
+original's permissions are broadened. POSIX unlink changes the directory entry, not blob bytes.
+
+There is **no atomic rollback across SQLite and files**. A failure after any unlink leaves a
+pending journal; default deletion and housekeeping refuse further automatic work. Even if all
+files disappeared and SQLite committed, a missing final audit receipt keeps the operation
+pending. Failure provably before any removal is cancelled and can be retried safely.
+
+For recovery: stop all runtime writers; preserve the database, all journals, current/rotated audit
+segments and backups; compare the pending operation ID and per-file intent/outcome hashes with
+remaining files and database associations. Restore a complete consistent state from a trusted
+backup or reconcile exactly the authorized rows/files under an independently reviewed procedure.
+Do not delete journals to force a retry or infer successful erasure from missing files. There is
+no automatic recovery/acknowledgment command in this issue. Once reconciled, an authorized owner
+can finalize the journal phase only with verified receipt/database evidence. Audit receipts are
+not a hash chain; stronger tamper detection is future #81.
+
+Removing an original prevents replay/independent verification requiring those bytes; derived
+reports may cease to be reproducible. Backups, exported reports, other externally supplied copies,
+audit hashes and SQLite free pages may remain. Normal unlink is not guaranteed secure physical
+media erasure, nor does it revoke existing open handles. WebKit upload/history controls (#39/#44)
+must call these services and present the same privacy consequences; they are not implemented here.

@@ -31,6 +31,7 @@ from photoproof.core.config.policy import (
 from photoproof.core.controller import AnalysisController
 from photoproof.core.health.checks import CheckResult, default_registry
 from photoproof.core.health.repair import preflight, publish_findings, run_repairs
+from photoproof.core.services.deletion import DeletionService
 from photoproof.core.services.housekeeping import Housekeeping
 from photoproof.core.storage.store import sha256_file
 
@@ -65,6 +66,11 @@ def _parser() -> argparse.ArgumentParser:
     analyze.add_argument("--no-cache", action="store_true")
     analyze.add_argument("--progress", action="store_true", help="print plugin progress to stderr")
     analyze.add_argument("--json", action="store_true")
+    delete = sub.add_parser("delete", help="explicitly delete one run and eligible derived data")
+    delete.add_argument("run_id")
+    delete.add_argument(
+        "--with-evidence", action="store_true", help="also delete a verified unshared original"
+    )
     housekeeping = sub.add_parser("housekeeping", help="plan runtime cleanup; dry run by default")
     housekeeping.add_argument(
         "--apply", action="store_true", help="explicitly authorize eligible deletions"
@@ -305,7 +311,7 @@ def cmd_housekeeping(app: Application, *, apply: bool) -> int:
     service = Housekeeping(app)
     plan = service.plan()
     print("Housekeeping: " + ("APPLY explicitly authorized" if apply else "DRY RUN; no changes"))
-    print("Protected: original evidence, retained references, audit trails, backups, unknown files")
+    print("Protected: shared/pending originals, references, audit trails, backups, unknown files")
     for item in plan.candidates:
         print(
             f"  {item.data_class} {item.sha256}: {item.size} bytes; "
@@ -329,6 +335,16 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
         print(f"configuration error:\n{error}", file=sys.stderr)
         return EXIT_CONFIG
     try:
+        if command == "delete":
+            print(
+                "Deletion warning: originals needed for replay/verification may be lost. "
+                "Derived reports may no longer be reproducible. Backups, exported copies and "
+                "hash-only audit receipts may remain. "
+                "Filesystem unlink is not secure media erasure.",
+                file=sys.stderr,
+            )
+            print(DeletionService(app).delete(args.run_id, with_evidence=args.with_evidence))
+            return EXIT_OK
         if command == "housekeeping":
             return cmd_housekeeping(app, apply=args.apply)
         if command == "version":

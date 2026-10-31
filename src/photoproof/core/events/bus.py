@@ -16,6 +16,7 @@ from typing import ParamSpec, TypeVar
 
 from photoproof.contracts.events import Event, EventType
 from photoproof.contracts.exceptions import EventDeliveryError
+from photoproof.core.logging.privacy import register_operation
 
 Handler = Callable[[Event], None]
 P = ParamSpec("P")
@@ -103,6 +104,7 @@ def instrumented(name: str | None = None) -> Callable[[Callable[P, R]], Callable
 
     def decorate(func: Callable[P, R]) -> Callable[P, R]:
         label = name or func.__qualname__
+        register_operation(label)
         logger = logging.getLogger("photoproof.instrumentation")
 
         @functools.wraps(func)

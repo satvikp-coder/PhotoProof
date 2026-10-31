@@ -15,10 +15,12 @@ from photoproof.contracts.exceptions import StorageError
 from photoproof.core.config.validator import LoggingSettings
 from photoproof.core.events.bus import EventBus
 from photoproof.core.logging.audit import append_audit
+from photoproof.core.logging.privacy import PrivacyFilter, sanitize
 
 _STANDARD_ATTRS = set(vars(logging.makeLogRecord({}))) | {"message", "asctime"}
 
 AUDITED = (
+    EventType.DELETION_APPLIED,
     EventType.HOUSEKEEPING_APPLIED,
     EventType.POLICY_OVERRIDE,
     EventType.INPUT_REJECTED,
@@ -29,6 +31,7 @@ AUDITED = (
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
+        PrivacyFilter().filter(record)
         payload: dict[str, object] = {
             "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
             "level": record.levelname,
@@ -36,8 +39,8 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
         payload.update({k: v for k, v in vars(record).items() if k not in _STANDARD_ATTRS})
-        if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
+        if record.exc_text:
+            payload["exception"] = record.exc_text
         return json.dumps(payload, default=str, sort_keys=True)
 
 
@@ -57,6 +60,7 @@ def configure_logging(settings: LoggingSettings, log_dir: Path | None) -> None:
         if settings.console_format == "json"
         else logging.Formatter("%(levelname)s %(name)s: %(message)s")
     )
+    console.addFilter(PrivacyFilter())
     root.addHandler(console)
 
     if log_dir is not None:
@@ -67,6 +71,7 @@ def configure_logging(settings: LoggingSettings, log_dir: Path | None) -> None:
             encoding="utf-8",
         )
         file_handler.setFormatter(JsonFormatter())
+        file_handler.addFilter(PrivacyFilter())
         root.addHandler(file_handler)
 
 
@@ -92,7 +97,7 @@ def attach_event_logging(
             in {EventType.PLUGIN_FAILED, EventType.RUN_ABORTED, EventType.HEALTH_CHECK_FAILED}
             else logging.INFO
         )
-        events_log.log(level, event.type.value, extra={"event": event.to_dict()})
+        events_log.log(level, event.type.value, extra={"event": sanitize(event.to_dict())})
 
     bus.subscribe(log_event, name="structured-logging")
 
@@ -101,7 +106,7 @@ def attach_event_logging(
 
         def audit(event: Event) -> None:
             if not audit_path.parent.is_dir():  # before first-run setup: say so, do not crash
-                if event.type is EventType.HOUSEKEEPING_APPLIED:
+                if event.type in {EventType.HOUSEKEEPING_APPLIED, EventType.DELETION_APPLIED}:
                     raise StorageError(
                         "housekeeping requires an available audit directory; no deletion authorized"
                     )

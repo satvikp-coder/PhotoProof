@@ -150,6 +150,7 @@ class CacheSettings(_Strict):
 
 
 class RetentionSettings(_Strict):
+    evidence_days: int | None = Field(default=None, ge=1, strict=True)
     cache_days: int | None = Field(default=None, ge=0, strict=True)
     artifact_days: int | None = Field(default=None, ge=0, strict=True)
     run_days: int | None = Field(default=None, ge=0, strict=True)

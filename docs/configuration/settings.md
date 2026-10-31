@@ -70,6 +70,7 @@ Eligibility never authorizes an automatic deletion.
 
 ```yaml
 retention:
+  evidence_days: null
   cache_days: 30
   artifact_days: 90
   run_days: null
@@ -98,5 +99,11 @@ The warning percentage is an integer from 1 through 99. Booleans are rejected as
   as `resource_limit`, even if it catches the writer exception. Existing required-plugin
   abort/degrade policy still applies. Cached outputs are reused, not newly produced bytes.
 
-No `retention.evidence_days` setting is supported here: original-evidence deletion belongs to
-issue #56. See [housekeeping operations](../operations/runtime.md#housekeeping).
+`retention.evidence_days` defaults to `null` (keep originals indefinitely). When set, it must
+be a **positive integer** number of days (zero, booleans and fractions are rejected). It only
+makes a verified original eligible after that many days from recorded `evidence.first_seen_at`,
+with no retained run, submission or report references. Unlinked submissions always protect
+originals; timestamps are not inferred from filesystem modification times. A shared original's
+first-seen time is not reset by another upload. The operator still must invoke
+`housekeeping --apply`; quota pressure and preflight never authorize deletion.
+See [privacy/deletion operations](../operations/runtime.md#explicit-run-deletion).

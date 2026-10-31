@@ -76,6 +76,7 @@ development:
 
 # Retention is opt-in; housekeeping is always a dry run unless --apply is supplied.
 retention:
+  evidence_days: null  # positive days only; original deletion still requires housekeeping --apply
   cache_days: null
   artifact_days: null
   run_days: null

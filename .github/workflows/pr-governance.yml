@@ -2,7 +2,7 @@ name: PR governance
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/55-runtime-retention-quotas]
     types: [opened, edited, synchronize, reopened, labeled, unlabeled]
 
 permissions:

@@ -129,10 +129,38 @@ Report vulnerabilities privately: see
 
 ## Retention boundary
 
-Housekeeping is opt-in and dry-run by default. Original evidence is never eligible, even when
-it shares a content hash with a derived artifact. Retained manifest/database/cache references
+Housekeeping is opt-in and dry-run by default. Original evidence is ineligible by default. Only explicit unshared-source deletion or a positive
+`retention.evidence_days` policy plus `--apply` can authorize its removal. Retained manifest/database/cache references
 protect artifacts. Redirected paths, hard-linked candidates, inconsistent references and hash
 mismatches block deletion. Quotas produce diagnostics or plugin resource failures, never an
 automatic evidence deletion. Explicit run retirement removes derived metadata only; submission
 and evidence records remain. See [runtime housekeeping](../operations/runtime.md#housekeeping)
 for interrupted-operation recovery, local-filesystem assumptions and audit receipt limitations.
+
+## Uploaded-image privacy and logging
+
+`delete RUN_ID` retires that run's eligible derived data and submission metadata, retaining the
+original by default. `--with-evidence` refuses shared, multiply submitted, pending or uncertain
+originals. Manifest inputs, SQLite associations and verified object hashes must agree. No
+recursive deletion, retained-blob chmod or unsupported reference inference is used. Interrupted
+operations retain a blocking journal and hash-only audit receipts; see
+[the operational recovery procedure](../operations/runtime.md#receipts-and-interrupted-operations).
+
+Configured application log handlers apply `PrivacyFilter` before formatting. Diagnostic free text,
+filenames, paths and exception details are one-way SHA-256 correlation tokens; GPS/EXIF/metadata
+fields are suppressed entirely. Unknown structured keys/values are also fingerprinted instead
+of assuming filename extensions or coordinate syntax. Only code-defined event labels, counters,
+validated hashes/opaque IDs, timestamps and registered instrumentation labels remain readable.
+This deliberately trades free-text debugging detail for privacy. A token is pseudonymous and
+may be dictionary-guessed; it is not an anonymity guarantee. Evidence hashes are unchanged.
+The in-process event/persistence contract is not mutated. Audit append sanitizes independently,
+and `JsonFormatter` also sanitizes as defense in depth. New handlers must retain the filter;
+arbitrary third-party handlers are outside the configured logging boundary.
+
+Explicit local CLI feedback and original evidence remain operator-controlled; this change does
+not rewrite existing manifests, backups, old log segments or exported reports. Historical logs
+may predate redaction. Live submission rows hold supplied names until their run is deleted.
+Logical row deletion/unlink is not secure erasure: SQLite free pages, backups, exported copies
+and non-content audit hashes may survive. No secure-media-erasure or remote revocation claim is
+made. Restore and sharing procedures must preserve these limits. No detector authenticity claim
+is added, and #81's tamper-evident audit chain is still deferred.
