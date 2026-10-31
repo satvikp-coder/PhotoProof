@@ -11,8 +11,10 @@ PhotoProof is a modular framework for **digital image forgery detection and
 localization**. Detectors are independent plugins that a dependency-aware pipeline
 plans, runs, records and caches reproducibly.
 
-> **Status: 0.1.0, foundation only.** The architecture is implemented and tested.
-> **No forensic detector, image decoder or web interface exists yet.** An analysis
+> **Status: foundation stage.** The architecture is implemented and tested.
+> **No forensic detector exists yet.** Core decoding and normalization exist but are
+> not yet connected to the analysis pipeline. The web foundation provides
+> navigation and read-only diagnostics, with workflow pages explicitly marked unavailable. An analysis
 > reports `NO_DETECTORS` and never produces an authenticity verdict. The remaining
 > work is tracked as [GitHub issues](https://github.com/satvikp-coder/PhotoProof/issues)
 > and summarized in [docs/planning](docs/planning/index.md).
@@ -51,6 +53,7 @@ cd PhotoProof
 python3.12 main.py                   # set up the environment and show status
 python3.12 main.py --doctor          # diagnose; changes nothing
 python3.12 main.py plugins           # registered plugins and effective policy
+python3.12 main.py web               # local web foundation: http://127.0.0.1:8501
 python3.12 main.py analyze photo.jpg # runs the pipeline (currently: NO_DETECTORS)
 python3.12 main.py manifest <run-id> # inspect the execution manifest
 ```
@@ -69,7 +72,7 @@ python3.12 main.py manifest <run-id> # inspect the execution manifest
 main.py            launcher            app.toml        identity and version
 settings.yaml      global settings     configs/        profiles and plugin parameters
 src/photoproof/    application         tests/          unit … e2e, mock plugins
-docs/              MkDocs site         WebKit/         web UI (planned)
+docs/              MkDocs site         WebKit/         web foundation
 ARE/               runtime data (generated, Git-ignored)
 ```
 

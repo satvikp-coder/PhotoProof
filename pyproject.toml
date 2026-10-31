@@ -28,6 +28,9 @@ dependencies = [
   "Pillow>=13,<14",  # decoder for JPEG, PNG and WebP (MIT-CMU); 13.0 fixes known CVEs
   "pydantic>=2.9,<3",
   "ruamel.yaml>=0.18,<0.20",  # pure-Python wheel: installs on every supported version
+  "fastapi>=0.115,<1",
+  "jinja2>=3.1.6,<4",
+  "uvicorn>=0.34,<1",
 ]
 
 [project.scripts]
@@ -44,6 +47,7 @@ dev = [
   "ruff>=0.8",
   "mypy>=1.13",
   "build>=1.2",
+  "httpx2>=2,<3",  # current Starlette TestClient backend (dev only)
 ]
 docs = ["mkdocs>=1.6", "mkdocs-material>=9.5"]
 security = ["bandit>=1.8", "pip-audit>=2.7"]
@@ -53,11 +57,11 @@ path = "app.toml"
 pattern = '(?m)^version = "(?P<version>[^"]+)"'
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/photoproof"]
-dev-mode-dirs = ["src"]  # editable installs use a .pth file (no `editables` dependency)
+packages = ["src/photoproof", "WebKit"]
+dev-mode-dirs = ["src", "."]  # both core and WebKit are importable in editable installs
 
 [tool.hatch.build.targets.sdist]
-include = ["src/photoproof", "app.toml", "README.md", "LICENSE"]
+include = ["src/photoproof", "WebKit", "app.toml", "README.md", "LICENSE"]
 
 [tool.ruff]
 line-length = 100
@@ -75,7 +79,7 @@ ignore = ["PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "PLR2004"]
 
 [tool.mypy]
 strict = true
-files = ["src", "main.py", ".github/scripts"]
+files = ["src", "WebKit", "main.py", ".github/scripts"]
 mypy_path = "src"
 plugins = ["pydantic.mypy"]
 

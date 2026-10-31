@@ -1,0 +1,7 @@
+<section class="panel placeholder" aria-labelledby="placeholder-title">
+  <div class="placeholder-icon" aria-hidden="true">{% block symbol %}＋{% endblock %}</div>
+  <span class="tag">Not available yet</span>
+  <h2 id="placeholder-title">{% block placeholder_title %}{% endblock %}</h2>
+  <p>{% block placeholder_description %}{% endblock %}</p>
+  <a class="text-link" href="{{ request.url_for('diagnostics') }}">View system diagnostics <span aria-hidden="true">↗</span></a>
+</section>

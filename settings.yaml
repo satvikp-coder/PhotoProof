@@ -68,7 +68,7 @@ services:
   background_workers: 0        # reserved: background job workers are planned; must be 0
 
 ui:
-  host: 127.0.0.1              # reserved for WebKit (planned)
+  host: 127.0.0.1              # web interface; loopback only until authentication exists
   port: 8501
 
 development:

@@ -1,10 +1,19 @@
 """Typed configuration models. Unknown keys are rejected everywhere (``extra="forbid"``)."""
 
 import re
+from ipaddress import ip_address
 from pathlib import PurePosixPath
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 from photoproof.contracts.enums import AnalysisMode, Severity
 from photoproof.versioning.version import SemVer
@@ -197,9 +206,34 @@ class ServiceSettings(_Strict):
     background_workers: int = Field(ge=0, le=0)  # ponytail: workers not implemented yet (backlog)
 
 
+def is_loopback_host(host: str) -> bool:
+    """One definition for configuration and HTTP binding; never resolve DNS names."""
+    try:
+        return host == "localhost" or ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 class UISettings(_Strict):
-    host: str
-    port: int = Field(ge=1, le=65_535)
+    host: str = "127.0.0.1"
+    port: StrictInt = Field(default=8501, ge=1, le=65_535)
+
+    @field_validator("host")
+    @classmethod
+    def _host(cls, value: str) -> str:
+        if value == "localhost":
+            return value
+        try:
+            parsed = ip_address(value)
+        except ValueError as error:
+            raise ValueError(
+                "ui.host must be an IP address or localhost, without a port"
+            ) from error
+        if "%" in value:
+            raise ValueError("ui.host must not contain an IPv6 scope identifier")
+        if not is_loopback_host(str(parsed)):
+            raise ValueError("ui.host must be loopback until WebKit authentication exists")
+        return str(parsed)
 
 
 class DevelopmentSettings(_Strict):
@@ -236,7 +270,7 @@ class Settings(_Strict):
             problems.append("development.debug must be false in production")
         if production and self.security.allow_blacklist_bypass:
             problems.append("security.allow_blacklist_bypass must be false in production")
-        if production and self.ui.host not in {"127.0.0.1", "localhost", "::1"}:
+        if not is_loopback_host(self.ui.host):
             problems.append("ui.host must be a loopback address until WebKit authentication exists")
         overlap = set(self.plugins.blacklist) & set(self.security.forbidden_plugins)
         if overlap:

@@ -1,0 +1,3 @@
+{% extends 'components/base.html' %}
+{% block introduction %}<p class="lede">The request could not be completed. No analysis outcome has been inferred.</p>{% endblock %}
+{% block content %}<section class="panel about"><h2>Return to the workspace</h2><p>Check the address or try again. If the problem continues, inspect the local application logs.</p><a class="text-link" href="{{ request.url_for('analyze') }}">Go to Analyze <span aria-hidden="true">↗</span></a></section>{% endblock %}

@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- A loopback-only web foundation with accessible navigation, honest workflow placeholders,
+  cached read-only diagnostics and application identity from configuration (#38).
+
 - `core/isolation.py` runs a callable in a child process with wall-clock, CPU and memory limits
   and reports typed failures. `doctor` reports which limits this platform can enforce. Decoders
   and plugins do not use it yet (#9, #52).
