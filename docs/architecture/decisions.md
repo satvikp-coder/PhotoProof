@@ -51,3 +51,21 @@ isolated in `requirements-tools.lock` (ADR-003).
 ### ADR-009 · No empty placeholder modules
 Modules that would only contain `pass` are not created. Their absence is documented
 here and in the backlog.
+
+### ADR-011 · Cooperative processes sharing a local runtime
+
+Each process still uses the sequential executor (ADR-001). Several processes can share
+one local runtime: analyses acquire a shared OS lock, repairs an exclusive lock. POSIX
+uses `flock`; Windows uses `LockFileEx`. Locks have bounded acquisition, are released
+by handle closure/process death, and are never stolen using a PID or file timestamp.
+Persistent lock files are coordination objects, not evidence of a running process.
+
+SQLite keeps its rollback journal. Explicit `busy_timeout=10000` and short
+`BEGIN IMMEDIATE` write transactions serialize writers, including read/modify/write
+transactions. WAL is unnecessary for these bounded local writes and would add backup
+and sidecar handling; a worker queue remains outside this change (#50).
+
+Schema 3 records PID, hostname and process creation identity. Only a demonstrably dead
+local owner can be aborted automatically; remote/legacy/ambiguous owners require manual
+investigation. Audit appends and ordinary log rotation have separate OS locks. Audit
+records are JSONL, not a tamper-evident chain (#81).

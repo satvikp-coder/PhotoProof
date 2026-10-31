@@ -77,6 +77,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Concurrent local processes coordinate analysis and repair with OS locks, serialize
+  SQLite writers and audit appends, and recover only demonstrably dead local runs (#82).
+
 - Merging two pull requests close together no longer cancels the first one's CI on `main`, which
   left a failed-looking mark on that commit.
 - `.readthedocs.yaml` quotes its install command, which YAML parsed as a mapping because of

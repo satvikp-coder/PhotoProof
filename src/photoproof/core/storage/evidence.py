@@ -19,6 +19,7 @@ from typing import BinaryIO
 from photoproof.contracts.exceptions import InputRejectedError, StorageError
 from photoproof.core.database.store import Database
 from photoproof.core.security.inputs import open_regular_file
+from photoproof.core.storage.locking import file_lock
 from photoproof.core.storage.store import RuntimeStorage
 from photoproof.imaging.formats import HEADER_BYTES, detect_format, format_from_name
 
@@ -53,6 +54,13 @@ class EvidenceStore:
         self._accepted_formats = accepted_formats  # None accepts every format
 
     def ingest(
+        self, source: Path | bytes, *, role: str, original_name: str | None = None
+    ) -> EvidenceRecord:
+        """Copy original bytes immutably and record provenance, excluding concurrent repair."""
+        with file_lock(self._storage.root, exclusive=False):
+            return self._ingest(source, role=role, original_name=original_name)
+
+    def _ingest(
         self, source: Path | bytes, *, role: str, original_name: str | None = None
     ) -> EvidenceRecord:
         """Store ``source`` immutably and record this submission.

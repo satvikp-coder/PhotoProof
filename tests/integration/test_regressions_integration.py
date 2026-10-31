@@ -136,6 +136,8 @@ def test_stale_runs_detected_and_repaired(make_app: Factory) -> None:
     db = app.database()
     db.create_run("stale", mode="single", profile="standard", cache_key=None)
     db._conn.execute("UPDATE runs SET created_at = '2000-01-01T00:00:00+00:00'")
+    # Simulate a previous incarnation of this PID, rather than declaring a live owner stale.
+    db._conn.execute("UPDATE runs SET process_token = 'previous-process-incarnation'")
     result = {r.check_id: r for r in default_registry().run_all(app)}["database.stale_runs"]
     assert result.severity is Severity.WARNING
     assert result.repair and result.repair.apply

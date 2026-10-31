@@ -34,6 +34,7 @@ from photoproof.core.pipeline.executor import ExecutionReport, SequentialExecuto
 from photoproof.core.pipeline.manifest import build_manifest
 from photoproof.core.pipeline.planner import ExecutionPlan, plan
 from photoproof.core.pipeline.registry import RegisteredPlugin
+from photoproof.core.storage.locking import file_lock
 from photoproof.core.storage.store import sha256_bytes, sha256_file
 from photoproof.versioning.build import build_info, distribution_version
 
@@ -67,6 +68,12 @@ class AnalysisController:
         return profile_name, profile
 
     def analyze(
+        self, request: AnalysisRequest, *, override: BlacklistOverride | None = None
+    ) -> AnalysisResult:
+        with file_lock(self.app.storage.root, exclusive=False):
+            return self._analyze(request, override=override)
+
+    def _analyze(
         self, request: AnalysisRequest, *, override: BlacklistOverride | None = None
     ) -> AnalysisResult:
         app = self.app

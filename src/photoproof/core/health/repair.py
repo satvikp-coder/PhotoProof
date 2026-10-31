@@ -5,6 +5,7 @@ requested; MANUAL findings are never automated. Every repair is re-verified by
 re-running its check, and every applied repair emits ``REPAIR_APPLIED`` (audited).
 """
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING
@@ -12,6 +13,7 @@ from typing import TYPE_CHECKING
 from photoproof.contracts.enums import Repairability, Severity
 from photoproof.contracts.events import EventType
 from photoproof.core.health.checks import CheckResult, HealthRegistry
+from photoproof.core.storage.locking import file_lock
 
 if TYPE_CHECKING:
     from photoproof.core.bootstrap import Application
@@ -37,6 +39,30 @@ def run_repairs(
     allow_controlled: bool,
     dry_run: bool,
     results: list[CheckResult] | None = None,
+    lock_timeout: float = 10.0,
+) -> list[RepairRecord]:
+    # Re-evaluate findings under the lock: a diagnostic snapshot can become obsolete.
+    with (
+        nullcontext()
+        if dry_run
+        else file_lock(app.storage.root, exclusive=True, timeout=lock_timeout)
+    ):
+        return _run_repairs(
+            app,
+            registry,
+            allow_controlled=allow_controlled,
+            dry_run=dry_run,
+            results=results if dry_run else None,
+        )
+
+
+def _run_repairs(
+    app: "Application",
+    registry: HealthRegistry,
+    *,
+    allow_controlled: bool,
+    dry_run: bool,
+    results: list[CheckResult] | None,
 ) -> list[RepairRecord]:
     records: list[RepairRecord] = []
     for result in results if results is not None else registry.run_all(app):
@@ -83,7 +109,13 @@ def preflight(app: "Application", registry: HealthRegistry) -> PreflightReport:
     """
     results = registry.run_all(app)
     repairs: list[RepairRecord] = []
-    if app.settings.recovery.auto_repair_safe and any(not r.ok for r in results):
+    if app.settings.recovery.auto_repair_safe and any(
+        not r.ok
+        and r.repair is not None
+        and r.repair.category is Repairability.SAFE
+        and r.repair.apply is not None
+        for r in results
+    ):
         repairs = run_repairs(app, registry, allow_controlled=False, dry_run=False, results=results)
         results = registry.run_all(app)
     threshold = Severity(app.settings.health.preflight_fail_on).rank
