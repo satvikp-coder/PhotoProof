@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from photoproof.contracts.exceptions import DatabaseError
+from photoproof.contracts.exceptions import DatabaseError, MigrationRequiredError
 from photoproof.core.database import store
 from photoproof.core.database.store import LATEST_VERSION, Database
 
@@ -31,6 +31,27 @@ def test_transaction_rolls_back(tmp_path: Path) -> None:
         raise RuntimeError("fail mid-transaction")
     assert db.get_run("r1") is None
     db.close()
+
+
+def test_readonly_connections_never_create_migrate_or_write(tmp_path: Path) -> None:
+    missing = tmp_path / "absent/runtime.db"
+    with pytest.raises(DatabaseError):
+        Database.open(missing, read_only=True)
+    assert not missing.parent.exists()
+    empty = tmp_path / "empty.db"
+    empty.touch()
+    with pytest.raises(MigrationRequiredError):
+        Database.open(empty, read_only=True)
+    assert empty.read_bytes() == b""
+    path = tmp_path / "existing.db"
+    Database.open(path).close()
+    db = Database.open(path, read_only=True)
+    try:
+        assert db.integrity_problems() == []
+        with pytest.raises(DatabaseError, match="write failed"):
+            db.create_run("forbidden", mode="single", profile="standard", cache_key=None)
+    finally:
+        db.close()
 
 
 def test_write_failure_is_a_database_error(tmp_path: Path) -> None:

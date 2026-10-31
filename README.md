@@ -12,7 +12,8 @@ localization**. Detectors are independent plugins that a dependency-aware pipeli
 plans, runs, records and caches reproducibly.
 
 > **Status: foundation stage.** The architecture is implemented and tested.
-> **No forensic detector or image decoder exists yet.** The web foundation provides
+> **No forensic detector exists yet.** Core decoding and normalization exist but are
+> not yet connected to the analysis pipeline. The web foundation provides
 > navigation and read-only diagnostics, with workflow pages explicitly marked unavailable. An analysis
 > reports `NO_DETECTORS` and never produces an authenticity verdict. The remaining
 > work is tracked as [GitHub issues](https://github.com/satvikp-coder/PhotoProof/issues)
@@ -88,7 +89,7 @@ configured (`.readthedocs.yaml`) but not yet connected. Key pages:
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md). In short: issue → branch → tests → docs →
-changelog → version bump → PR → review → squash merge. Report vulnerabilities
+changelog → PR → review → squash merge. Report vulnerabilities
 privately as described in [SECURITY.md](SECURITY.md).
 
 ## License

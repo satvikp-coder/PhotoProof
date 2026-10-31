@@ -33,14 +33,11 @@ pytest ...
 
 ## Documentation changes
 
-- [ ] Updated: <!-- docs pages -->
-- [ ] Not needed because: <!-- reason -->
+<!-- List the pages you updated, or say why none needed changing. -->
 
 ## Version impact
 
-- [ ] PATCH  - [ ] MINOR  - [ ] MAJOR (maintainer approval + migration notes required)
-
-`app.toml` version: `x.y.z → x.y.z`
+<!-- For the next release, write one: PATCH, MINOR or MAJOR. Don't change `app.toml`. -->
 
 ## Changelog entry
 

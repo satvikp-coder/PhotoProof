@@ -17,7 +17,7 @@ PhotoProof/
 │   ├── contracts/          stable shared types (no core imports)
 │   ├── versioning/         SemVer, compatibility, build info
 │   ├── core/               bootstrap, controller and services
-│   ├── imaging/            decoder security interface (no decoders yet)
+│   ├── imaging/            format detection, decoder interface and adapters
 │   └── plugins/            trusted built-in detectors (none yet)
 ├── WebKit/                 server-rendered web foundation
 ├── models/                 pretrained model weights (planned; Git-ignored)

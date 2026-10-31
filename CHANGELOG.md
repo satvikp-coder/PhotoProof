@@ -8,10 +8,35 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- A server-rendered web foundation (`python main.py web`) with accessible navigation,
-  system light/dark appearance, honest workflow placeholders and real read-only health
-  and plugin-policy diagnostics. Binding comes from validated `ui.*` settings, with
-  secure request boundaries and explicit warnings for unauthenticated network access (#38).
+- A loopback-only web foundation with accessible navigation, honest workflow placeholders,
+  cached read-only diagnostics and application identity from configuration (#38).
+
+- `core/isolation.py` runs a callable in a child process with wall-clock, CPU and memory limits
+  and reports typed failures. `doctor` reports which limits this platform can enforce. Decoders
+  and plugins do not use it yet (#9, #52).
+- Pull requests automatically get the milestone of the issue they reference, unless someone has
+  already set one.
+- 16-bit PNGs decode without loss. High-depth images get a `uint16` view with their transfer
+  function and primaries, and an 8-bit derivative through a documented tone curve. The pipeline
+  does not use these yet (#12).
+- `normalize` turns a decoded image into a working image in sRGB with EXIF orientation applied,
+  and records every transform. The decoded image stays available and unchanged. The pipeline
+  does not use it yet (#12).
+- `IngestionService` stages each input in quarantine, enforces the size limit while reading,
+  identifies its type from content, and audits every rejection as `INPUT_REJECTED`. `analyze` now
+  uses it for all inputs.
+- `PillowDecoder` decodes JPEG, PNG and WebP with size limits checked before any pixel is
+  allocated, and rejects truncated or corrupted files. Decoder versions are recorded in
+  manifests and cache keys. The pipeline does not use it yet (#12).
+- PhotoProof identifies image formats from file signatures. Formats outside
+  `formats.accepted` are rejected before being stored, a plugin is `NOT_APPLICABLE` for formats
+  outside its `supported_formats`, and `doctor` lists accepted formats with no decoder.
+- `analyze` stores every input byte for byte in a read-only evidence store before any
+  processing. Identical files are kept once with a record of each submission, and every read
+  re-verifies the hash. Run `python main.py --repair` once to migrate an existing database
+  (a backup is taken first).
+- `doctor` reports an original that the database knows about but `objects/` no longer holds
+  as a critical finding.
 - Support for Python 3.14 and 3.15 in the launcher, packaging and the CI matrix
   (3 OSes × Python 3.11–3.15). The launcher smoke test covers the oldest and newest.
 - The team page (`docs/planning/team.md`), which allocates every backlog issue to an
@@ -21,6 +46,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave
+  `app.toml` alone, so open PRs can't collide on the version, and `main` moving on can't fail them.
+- `analyze` rejects files that are not a recognised image format.
+- The pull request template no longer has checkboxes that cannot all be ticked, so a complete
+  PR shows every task as done. `CONTRIBUTING.md` explains how to fill it in and how to link an
+  issue so that it closes on merge.
+- `analyze` rejects symlinks and empty files, and it rejects an unknown profile or an invalid
+  reference combination before storing anything.
 - `SECURITY.md` adds review guidance (assets, trust boundaries, severity, known gaps) and
   lists `0.2.x` as the supported version.
 - `app.toml`, `pyproject.toml`, `mkdocs.yml` and `LICENSE` name the four developers
@@ -47,6 +80,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Merging two pull requests close together no longer cancels the first one's CI on `main`, which
+  left a failed-looking mark on that commit.
 - `.readthedocs.yaml` quotes its install command, which YAML parsed as a mapping because of
   `:all:`, failing the Read the Docs build.
 - `python main.py repair --dry-run` performed a real repair: the launcher consumed

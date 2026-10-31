@@ -59,6 +59,23 @@ MIGRATIONS: Sequence[str] = (
         message TEXT NOT NULL
     );
     """,
+    # 2: original evidence and who submitted it
+    """
+    CREATE TABLE evidence (
+        sha256 TEXT PRIMARY KEY CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+        size INTEGER NOT NULL,
+        first_seen_at TEXT NOT NULL
+    );
+    CREATE TABLE submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sha256 TEXT NOT NULL REFERENCES evidence(sha256),
+        role TEXT NOT NULL,
+        original_name TEXT,
+        submitted_at TEXT NOT NULL,
+        run_id TEXT REFERENCES runs(run_id)
+    );
+    CREATE INDEX submissions_sha256 ON submissions(sha256);
+    """,
 )
 LATEST_VERSION = len(MIGRATIONS)
 
@@ -75,15 +92,24 @@ class Database:
     # --------------------------------------------------------------- lifecycle
 
     @classmethod
-    def open(cls, path: Path, *, allow_migration: bool = False) -> "Database":
+    def open(
+        cls, path: Path, *, allow_migration: bool = False, read_only: bool = False
+    ) -> "Database":
         """Open and, when safe, migrate the database.
 
         A new (empty) database is always initialized. Migrating an existing database
         requires ``allow_migration`` (the CONTROLLED ``--repair`` path).
         """
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if not read_only:
+            path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            conn = sqlite3.connect(path, isolation_level=None)  # explicit transactions
+            conn = (
+                sqlite3.connect(
+                    path.resolve().as_uri() + "?mode=ro", uri=True, isolation_level=None
+                )
+                if read_only
+                else sqlite3.connect(path, isolation_level=None)
+            )
             conn.execute("PRAGMA foreign_keys = ON")
             conn.row_factory = sqlite3.Row
         except sqlite3.Error as error:
@@ -107,6 +133,11 @@ class Database:
                 "Run `python main.py --repair` (a backup is taken first)."
             )
         if version < LATEST_VERSION:
+            if read_only:
+                conn.close()
+                raise MigrationRequiredError(
+                    "database needs initialization or migration; run local repair"
+                )
             try:
                 db._migrate(version)
             except DatabaseError:
@@ -260,6 +291,47 @@ class Database:
             (_now(), check_id, severity, message),
         )
 
+    def record_submission(
+        self, *, sha256: str, size: int, role: str, original_name: str | None
+    ) -> dict[str, object]:
+        """Record one submission of stored evidence, atomically with its first sighting.
+
+        Returns ``submission_id``, ``first_seen_at`` and ``is_new`` (first time these bytes
+        were seen).
+        """
+        now = _now()
+        try:
+            with self.transaction() as conn:
+                inserted = conn.execute(
+                    "INSERT OR IGNORE INTO evidence (sha256, size, first_seen_at) VALUES (?, ?, ?)",
+                    (sha256, size, now),
+                )
+                submission = conn.execute(
+                    "INSERT INTO submissions (sha256, role, original_name, submitted_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (sha256, role, original_name, now),
+                )
+                first_seen = conn.execute(
+                    "SELECT first_seen_at FROM evidence WHERE sha256 = ?", (sha256,)
+                ).fetchone()
+                return {
+                    "submission_id": submission.lastrowid,
+                    "first_seen_at": first_seen[0],
+                    "is_new": inserted.rowcount == 1,
+                }
+        except sqlite3.Error as error:
+            raise DatabaseError(f"{self.path}: write failed: {error}") from error
+
+    def link_submissions(self, submission_ids: Sequence[int], run_id: str) -> None:
+        try:
+            with self.transaction() as conn:
+                conn.executemany(
+                    "UPDATE submissions SET run_id = ? WHERE id = ?",
+                    [(run_id, submission_id) for submission_id in submission_ids],
+                )
+        except sqlite3.Error as error:
+            raise DatabaseError(f"{self.path}: write failed: {error}") from error
+
     # ------------------------------------------------------------------- reads
 
     def get_run(self, run_id: str) -> dict[str, object] | None:
@@ -278,3 +350,16 @@ class Database:
             "SELECT * FROM runs ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def submissions(self, sha256: str) -> list[dict[str, object]]:
+        rows = self._conn.execute(
+            "SELECT * FROM submissions WHERE sha256 = ? ORDER BY id", (sha256,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def evidence_hashes(self) -> list[str]:
+        try:
+            rows = self._conn.execute("SELECT sha256 FROM evidence ORDER BY sha256").fetchall()
+        except sqlite3.Error as error:
+            raise DatabaseError(f"{self.path}: read failed: {error}") from error
+        return [str(row[0]) for row in rows]

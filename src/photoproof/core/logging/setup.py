@@ -16,7 +16,12 @@ from photoproof.core.events.bus import EventBus
 
 _STANDARD_ATTRS = set(vars(logging.makeLogRecord({}))) | {"message", "asctime"}
 
-AUDITED = (EventType.POLICY_OVERRIDE, EventType.REPAIR_APPLIED, EventType.HEALTH_CHECK_FAILED)
+AUDITED = (
+    EventType.POLICY_OVERRIDE,
+    EventType.INPUT_REJECTED,
+    EventType.REPAIR_APPLIED,
+    EventType.HEALTH_CHECK_FAILED,
+)
 
 
 class JsonFormatter(logging.Formatter):

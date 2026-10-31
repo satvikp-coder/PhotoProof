@@ -206,6 +206,14 @@ class ServiceSettings(_Strict):
     background_workers: int = Field(ge=0, le=0)  # ponytail: workers not implemented yet (backlog)
 
 
+def is_loopback_host(host: str) -> bool:
+    """One definition for configuration and HTTP binding; never resolve DNS names."""
+    try:
+        return host == "localhost" or ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 class UISettings(_Strict):
     host: str = "127.0.0.1"
     port: StrictInt = Field(default=8501, ge=1, le=65_535)
@@ -223,6 +231,8 @@ class UISettings(_Strict):
             ) from error
         if "%" in value:
             raise ValueError("ui.host must not contain an IPv6 scope identifier")
+        if not is_loopback_host(str(parsed)):
+            raise ValueError("ui.host must be loopback until WebKit authentication exists")
         return str(parsed)
 
 
@@ -260,7 +270,7 @@ class Settings(_Strict):
             problems.append("development.debug must be false in production")
         if production and self.security.allow_blacklist_bypass:
             problems.append("security.allow_blacklist_bypass must be false in production")
-        if production and self.ui.host not in {"127.0.0.1", "localhost", "::1"}:
+        if not is_loopback_host(self.ui.host):
             problems.append("ui.host must be a loopback address until WebKit authentication exists")
         overlap = set(self.plugins.blacklist) & set(self.security.forbidden_plugins)
         if overlap:

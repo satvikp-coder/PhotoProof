@@ -1,6 +1,10 @@
 """Read-only, explicitly redacted projections of existing core services."""
 
+import asyncio
 from datetime import UTC, datetime
+from time import monotonic
+
+from starlette.concurrency import run_in_threadpool
 
 from photoproof.core.bootstrap import Application
 from photoproof.core.config.policy import OverrideOrigin, decide_all
@@ -18,10 +22,18 @@ _LABELS = {
     "application.version": "Installed application version",
     "plugins.graph": "Plugin dependency graph",
     "plugins.policy": "Plugin policy references",
+    "imaging.codecs": "Image decoder availability",
+    "isolation.capabilities": "Process isolation capabilities",
 }
 
 
-def status_context(app: Application) -> dict[str, object]:
+def status_context(services: Application) -> dict[str, object]:
+    """Inspect with thread-owned, read-only database services; never borrow live SQLite."""
+    with services.diagnostic_view() as app:
+        return _collect(app)
+
+
+def _collect(app: Application) -> dict[str, object]:
     """Return allowlisted display fields, never raw settings, paths or error details.
 
     Quick checks inspect structure, not evidence hashes. Repairs are never run from
@@ -63,3 +75,20 @@ def status_context(app: Application) -> dict[str, object]:
         ],
         "checked_at": datetime.now(UTC).strftime("%H:%M:%S UTC"),
     }
+
+
+class StatusCache:
+    """One bounded-age snapshot per application and at most one in-flight collection."""
+
+    def __init__(self) -> None:
+        self._value: dict[str, object] | None = None
+        self._expires = 0.0
+        self._lock = asyncio.Lock()
+
+    async def get(self, app: Application) -> dict[str, object]:
+        """Run filesystem work off the event loop, with fresh read-only core services."""
+        async with self._lock:
+            if self._value is None or monotonic() >= self._expires:
+                self._value = await run_in_threadpool(status_context, app)
+                self._expires = monotonic() + 30
+            return self._value

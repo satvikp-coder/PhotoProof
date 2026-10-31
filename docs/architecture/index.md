@@ -53,7 +53,8 @@ flowchart LR
 | Cache | Run-level result cache keyed by every result-affecting identity | `core/cache/` |
 | Events and logging | Typed event bus, structured JSON log, audit trail, persistence subscriber | `core/events/`, `core/logging/` |
 | Health | Diagnostics with severity and repairability; safe and controlled repair | `core/health/` |
-| Imaging | Decoder security interface (`ImageDecoder`, `DecodeLimits`); no decoder yet | `photoproof.imaging` |
+| Isolation | Run a callable in a child process with limits; typed failures; not yet used by decoders or plugins | `core/isolation.py`, `core/plaindata.py` |
+| Imaging | Format detection, decoder registry, decoder security interface, Pillow decoder | `photoproof.imaging` |
 
 ## Dependency direction
 
@@ -66,9 +67,22 @@ plugins   →  contracts
 receive everything else through `PluginContext`. The scheduler never needs to know
 what a plugin computes.
 
+## Image pipeline (planned wiring)
+
+`bytes → detect_format → PillowDecoder → DecodedImage → normalize → WorkingImage`
+
+These steps exist as separate, tested functions. `analyze` does not call the decoder or
+`normalize` yet: #12 connects them, and #9 moves decoding into an isolated process. Normalizing
+never changes the `DecodedImage`, so unconverted pixels stay available.
+
+High-depth sources also have `normalize_hdr → WorkingImage` with `uint16` code values, plus their
+transfer function and primaries. Values are stored as `uint16` because `float32` costs twice the
+memory and rounds the low-amplitude noise that detectors look for.
+
 ## Data flow of one analysis
 
-1. The CLI hashes the input file (streamed, size-limited) into an `InputDescriptor`.
+1. The CLI stores the input in the evidence store (streamed, size-limited) and builds an
+   `InputDescriptor` from the record.
 2. The controller resolves the profile and validates the mode (single vs comparison).
 3. An optional `--ignore-blacklist` override is authorized (local CLI origin only) and
    audited.

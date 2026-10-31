@@ -13,18 +13,21 @@ appearance. No external font, script or stylesheet requests are made.
 
 ## Structure and extension points
 
-- `app.py`: `create_app(root=..., services=...)`, lifespan, routes and `serve()`.
+- `app.py`: `create_app(services=...)`, lifespan, routes and `serve()`.
 - `pages/`: individual page templates, including safe errors and honest placeholders.
 - `components/`: reusable layout/placeholder templates and redacted status projections.
 - `static/`: packaged local stylesheet; no directory listing or external symlink access.
 - `security.py`: CSP, other HTTP headers, host validation and signed CSRF tokens.
 
-The factory bootstraps and owns core services on its ASGI thread. The CLI can inject
-already-started services on that same thread. SQLite is thread-bound: use async
-endpoints for these existing synchronous service calls; do not hand the shared
-database to a worker thread. One Uvicorn process runs with no reload, proxy-header
-trust or access-query logging. Quick diagnostic checks are synchronous and may block
-the event loop briefly; long analysis jobs belong in the later job-management issue.
+The CLI bootstraps, runs preflight and starts core services once; the factory requires
+those injected services and never creates a second application lifecycle. The caller
+owns shutdown. Diagnostics reuses one 30-second redacted snapshot, with at most one
+scan in flight. Filesystem checks run off the event loop through a core diagnostic
+view with its own read-only SQLite connection, closed on that worker thread. The live
+application connection is never shared across threads. No request creates/migrates a
+database or applies repairs. The scan cost still grows with stored entries; cached
+requests avoid repeating it. One Uvicorn process runs without reload, proxy-header
+trust or query access logging. Long analysis jobs remain outside this issue.
 
 Issues #39–#45 can replace page bodies and add routers without replacing this layout.
 Use core controllers, registries and contracts, never algorithms in WebKit. Every
@@ -34,11 +37,11 @@ There are no repair, config-dump or blacklist-bypass routes. The CLI also reject
 
 ## Security contract
 
-Loopback is the default. Non-loopback IPs must be configured explicitly and show an
-unauthenticated-network warning both in the UI and server log. Production still rejects
-non-loopback binding. There is no authentication: never expose this to an untrusted
-network. Host checks reject arbitrary DNS names (including on wildcard binds), and
-forwarded headers cannot change the trusted origin.
+Only loopback IP addresses and localhost are allowed in every environment until
+authentication exists. This policy was explicitly confirmed during review; there is
+no unauthenticated development-LAN exception. Configuration and HTTP binding share
+the same loopback definition (including 127.0.0.2). Arbitrary DNS names, wildcard
+binds and forwarded host trust are not supported.
 
 All responses, including errors and static files, receive CSP, `nosniff`, no-referrer,
 frame denial, a restrictive permissions policy and `Cache-Control: no-store`. Error
@@ -50,7 +53,8 @@ No state-changing forms ship in this issue. A defensive CSRF boundary already re
 unsafe methods unless a same-origin `Origin` and matching signed cookie/header token
 are present. The readable token is in `<meta name="csrf-token">`; future HTMX/forms
 must submit it in `X-CSRF-Token`. The cookie is HttpOnly, SameSite=Strict, Secure on
-HTTPS, signed with a per-process random key and expires after one hour. Cross-origin,
+HTTPS, signed with a per-process random key, expires after one hour and refreshes when more
+than half its lifetime has elapsed. Cross-origin,
 missing, expired and forged tokens must be rejected before routing. Changing forms
 must not perform mutations through GET. Authentication, upload-size limits, streaming
 ingestion and authorization must be designed with those later features, not implied
@@ -69,3 +73,13 @@ provides routes/ASGI integration; Jinja2 (BSD-3-Clause) provides autoescaped SSR
 (BSD-3-Clause), without native-speed extras, serves HTTP. Dev-only httpx2
 (BSD-3-Clause) is the current Starlette TestClient backend. Pure Python dependencies
 and existing wheel-based native dependencies preserve the supported OS/Python matrix.
+
+Startup bind failures use the configuration error exit code (4), not the launcher's
+unsupported-platform code. Safe request errors retain detailed exceptions in the
+local photoproof.web application log, never in the HTTP response. GET and HEAD are
+supported; method errors retain their Allow header alongside security headers.
+
+The top-level WebKit layout follows issue 38. Editable installs therefore expose the
+checkout root; an installed wheel is the distribution boundary. Wheel smoke validation
+from outside the checkout guards packaged templates and assets. Moving the package
+under src would be a separate layout decision.

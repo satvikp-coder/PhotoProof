@@ -6,8 +6,9 @@ that need runtime directories: file logging, the audit trail, and state persiste
 """
 
 import os
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import photoproof
@@ -18,6 +19,7 @@ from photoproof.core.config.loader import load_identity, load_profiles, load_set
 from photoproof.core.config.validator import AppIdentity, Profile, Settings
 from photoproof.core.database.store import Database
 from photoproof.core.events.bus import EventBus
+from photoproof.core.ingestion import IngestionService
 from photoproof.core.logging.setup import (
     attach_event_logging,
     configure_logging,
@@ -25,7 +27,10 @@ from photoproof.core.logging.setup import (
 )
 from photoproof.core.pipeline.discovery import BUILTIN_PLUGIN_PACKAGE, discover
 from photoproof.core.pipeline.registry import PluginRegistry
+from photoproof.core.storage.evidence import EvidenceStore
 from photoproof.core.storage.store import RuntimeStorage
+from photoproof.imaging.decoder import DecodeLimits
+from photoproof.imaging.registry import DecoderRegistry, default_decoders
 
 # Default repository root for a source checkout: src/photoproof/core/bootstrap.py -> repo
 DEFAULT_ROOT = Path(__file__).resolve().parents[3]
@@ -41,8 +46,10 @@ class Application:
     flags: FeatureFlags
     storage: RuntimeStorage
     bus: EventBus
+    decoders: DecoderRegistry = field(default_factory=default_decoders)
     _db: Database | None = field(default=None, repr=False)
     started: bool = False
+    _read_only_database: bool = field(default=False, repr=False)
 
     @property
     def database_path(self) -> Path:
@@ -51,14 +58,53 @@ class Application:
     def database(self) -> Database:
         """Open (and initialize if new) the database. Raises ``DatabaseError``."""
         if self._db is None:
-            self._db = Database.open(self.database_path)
+            self._db = Database.open(self.database_path, read_only=self._read_only_database)
         return self._db
+
+    @contextmanager
+    def diagnostic_view(self) -> Iterator["Application"]:
+        """Borrow configuration/services with an independent read-only database connection.
+
+        Construct and close on the calling thread. Never starts logging, emits lifecycle
+        events, migrates a database or closes the running application's services.
+        """
+        view = replace(self, _db=None, started=False, _read_only_database=True)
+        try:
+            yield view
+        finally:
+            if view._db is not None:
+                view._db.close()
 
     def database_or_none(self) -> Database | None:
         try:
             return self.database() if self.database_path.parent.is_dir() else None
         except DatabaseError:
             return None
+
+    def evidence(self) -> EvidenceStore:
+        """The verifying store for original evidence. Raises ``DatabaseError``."""
+        return EvidenceStore(
+            self.storage,
+            self.database(),
+            max_input_bytes=self.settings.resources.max_input_bytes,
+            accepted_formats=self.settings.formats.accepted,
+        )
+
+    def ingestion(self) -> IngestionService:
+        """The only way untrusted files enter PhotoProof. Raises ``DatabaseError``."""
+        return IngestionService(
+            self.storage,
+            self.evidence(),
+            self.bus,
+            max_input_bytes=self.settings.resources.max_input_bytes,
+            accepted_formats=self.settings.formats.accepted,
+        )
+
+    def decode_limits(self) -> DecodeLimits:
+        resources = self.settings.resources
+        return DecodeLimits(
+            max_input_bytes=resources.max_input_bytes, max_pixels=resources.max_image_pixels
+        )
 
     def start(self) -> None:
         """Attach runtime services. Requires the runtime layout (see preflight)."""

@@ -269,7 +269,7 @@ PR-governance workflow check the format.
 Every change follows this path:
 
 ```
-ISSUE → BRANCH → IMPLEMENTATION → TESTS → DOCUMENTATION → CHANGELOG → VERSION → PR → CI → REVIEW → MERGE
+ISSUE → BRANCH → IMPLEMENTATION → TESTS → DOCUMENTATION → CHANGELOG → PR → CI → REVIEW → MERGE
 ```
 
 1. **Find or open an issue.** Use the issue templates. Large or unclear work gets
@@ -285,13 +285,12 @@ ISSUE → BRANCH → IMPLEMENTATION → TESTS → DOCUMENTATION → CHANGELOG �
 7. **Document**: update the relevant pages under `docs/`. Never describe planned
    behaviour as implemented.
 8. **Changelog**: add entries under `## [Unreleased]` in `CHANGELOG.md`.
-9. **Version**: bump `version` in `app.toml` (section 6).
-10. **Open a PR** that references the issue (`Closes #42`) and completes the template.
-11. **Wait for CI.** Fix failures; do not ask reviewers to look at red builds.
-12. **Request review** from at least one other developer.
-13. **Address feedback** with new commits (no force-push after review starts unless
+9. **Open a PR** that references the issue (`Closes #42`) and completes the template.
+10. **Wait for CI.** Fix failures; do not ask reviewers to look at red builds.
+11. **Request review** from at least one other developer.
+12. **Address feedback** with new commits (no force-push after review starts unless
     asked).
-14. **Merge** only when every required check passes and review is approved.
+13. **Merge** only when every required check passes and review is approved.
 
 ---
 
@@ -301,10 +300,12 @@ PhotoProof uses **Semantic Versioning** (`MAJOR.MINOR.PATCH`). The only place th
 version is written is `app.toml` → `[application].version`. The package version is
 derived from it at build time; CI fails if anything disagrees.
 
-**Every merged PR bumps the version once**, using the highest applicable category:
-`MAJOR > MINOR > PATCH`. Multiple commits in one PR share one bump.
+**The version changes only at release time.** Ordinary PRs leave `app.toml` alone, so open PRs
+can't collide on the version. Each PR states its impact in its description, and a release uses the
+highest impact among the changes it includes: `MAJOR > MINOR > PATCH`. See
+[the release process](docs/development/releases.md).
 
-| Bump | When | Example |
+| Impact | When | Example |
 |---|---|---|
 | **PATCH** | Bug fixes, security fixes without interface change, docs, tests, internal refactors, CI fixes, compatible optimizations, logging improvements | `0.1.0 → 0.1.1` |
 | **MINOR** | New feature, forensic algorithm, optional plugin capability, image format; compatible behaviour changes; removing explicitly experimental features | `0.1.4 → 0.2.0` (PATCH resets) |
@@ -315,8 +316,8 @@ derived from it at build time; CI fails if anything disagrees.
   because we are pre-1.0. It needs explicit maintainer approval and migration notes.
 - Plugin versions (`METADATA["version"]`) are independent of the application version
   and follow the same rules for the plugin's own contract.
-- Changing the plugin execution contract also requires bumping
-  `plugin_api_version` in `app.toml`.
+- Changing the plugin execution contract does require bumping `plugin_api_version` in `app.toml`
+  in that PR, because plugins check it.
 
 ---
 
@@ -347,6 +348,18 @@ Complete every section of the PR template:
 - Compatibility and security considerations
 - Screenshots or execution examples where relevant
 
+Filling it in:
+
+- **Version impact and documentation changes are written as text.** State `PATCH`, `MINOR` or
+  `MAJOR` for the next release, without changing `app.toml`. List the pages you updated, or say why
+  none needed changing.
+- **Tick every box in the final checklist.** GitHub counts each `- [ ]` line in the description
+  as a task, so a complete PR shows all of them done. Don't add unticked boxes for alternatives.
+- **Link the issue with `Closes #…`.** Only closing keywords (`Closes`, `Fixes`, `Resolves`)
+  link a PR to its issue and close it on merge. `Refs #…` does neither, so use it only for
+  partial work, such as the first of a detector's two PRs. If a criterion moves to another
+  issue, say so in both places.
+
 Rules:
 
 - At least **one approving review from another developer**.
@@ -359,8 +372,8 @@ Rules:
   [SECURITY.md](SECURITY.md#security-review-guidance). It supports the required human
   approval and does not replace it.
 
-The **PR governance** workflow checks the title, issue reference, version bump and
-changelog entry and reports documentation and test changes. Its messages say how to
+The **PR governance** workflow checks the title, issue reference and changelog entry, and
+reports documentation and test changes. Its messages say how to
 fix each failure. In the rare case a check does not apply (for example, reverting a
 release), a maintainer may add the `governance:exempt` label with a comment explaining
 why.
@@ -375,7 +388,6 @@ An issue is done only when **all** of the following hold:
 - [ ] Relevant automated tests exist and pass.
 - [ ] Ruff, mypy and Bandit pass.
 - [ ] Documentation is updated and `mkdocs build --strict` passes.
-- [ ] `app.toml` version is bumped correctly.
 - [ ] `CHANGELOG.md` is updated.
 - [ ] Security considerations are addressed or explicitly noted as not applicable.
 - [ ] Required review is completed.

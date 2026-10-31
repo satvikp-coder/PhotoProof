@@ -59,11 +59,12 @@ Analyze, Compare and History are labelled placeholders. Diagnostics displays rea
 quick health checks and installed plugin policy; use `python main.py --doctor` for
 full evidence hashing and local-only error details. Requests do not run repairs.
 
-Only local IP addresses/`localhost` are accepted by default. Configure `ui.host` and
+Only loopback IP addresses/`localhost` are accepted in every environment. Configure `ui.host` and
 `ui.port` in `settings.yaml` before launch; there are no command-line bind overrides.
 The service runs one process without reload, proxy-header trust or HTTP access logs
-that could capture query strings. Non-loopback bindings are unauthenticated and
-display a warning. Production rejects them until authentication exists. Hostname-based
+that could capture query strings. Non-loopback bindings are rejected until
+authentication exists. Diagnostics uses a 30-second snapshot collected off the event
+loop with an independent read-only database connection. Hostname-based
 reverse proxy deployments are outside this foundation's supported boundary.
 
 There are no upload, analysis, repair or blacklist-bypass HTTP routes. In particular,

@@ -4,12 +4,13 @@ import hashlib
 import hmac
 import secrets
 import time
-from ipaddress import ip_address
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, Response
 from starlette.types import ASGIApp
+
+from photoproof.core.config.validator import is_loopback_host
 
 SECURITY_HEADERS = {
     "Content-Security-Policy": (
@@ -23,13 +24,14 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Cache-Control": "no-store",
 }
+
 COOKIE_NAME = "photoproof_csrf"
 TOKEN_LIFETIME = 3600
 
 
 def is_loopback(host: str) -> bool:
     """Only literal loopback addresses and localhost count as local bindings."""
-    return host == "localhost" or ip_address(host).is_loopback
+    return is_loopback_host(host)
 
 
 class WebSecurityMiddleware(BaseHTTPMiddleware):
@@ -64,10 +66,7 @@ class WebSecurityMiddleware(BaseHTTPMiddleware):
     def _valid_host(self, request: Request) -> bool:
         try:
             host = request.url.hostname
-            if host in {"localhost", "127.0.0.1", "::1", self.host}:
-                return True
-            # Wildcard binds accept literal addresses, never arbitrary DNS hostnames.
-            return ip_address(self.host).is_unspecified and ip_address(host or "").version in {4, 6}
+            return host in {"localhost", "127.0.0.1", "::1", self.host}
         except ValueError:
             return False
 
@@ -91,10 +90,11 @@ class WebSecurityMiddleware(BaseHTTPMiddleware):
                     status_code=403,
                     headers=SECURITY_HEADERS,
                 )
-        request.state.csrf_token = cookie if valid_cookie else self._new_token()
+        refresh = not valid_cookie or time.time() - int(cookie.split(".")[1]) >= TOKEN_LIFETIME / 2
+        request.state.csrf_token = self._new_token() if refresh else cookie
         response = await call_next(request)
         response.headers.update(SECURITY_HEADERS)
-        if not valid_cookie:
+        if refresh:
             response.set_cookie(
                 COOKIE_NAME,
                 request.state.csrf_token,

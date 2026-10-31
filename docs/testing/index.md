@@ -25,4 +25,7 @@ Critical configuration, policy, planner and executor branches have explicit test
   are covered only on their respective CI runners.
 - POSIX permission assertions are skipped on Windows. Symlink-escape tests need
   symlink privileges on Windows.
-- Native-code crashes cannot occur yet (no native decoders).
+- The Pillow decoder exists but is not connected to the analysis pipeline or isolated
+  runner yet. The child-process runner is tested against real crashes.
+- A real segfault opens a macOS crash dialog, so that test runs in CI only on macOS. Locally,
+  `killed_abruptly` covers the same path.

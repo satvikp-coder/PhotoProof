@@ -6,10 +6,12 @@
 | `security.yml` | PR, push, weekly, manual | Lockfile pin/hash integrity and pyproject↔lock consistency, pip-audit, Bandit, security policy tests, TruffleHog secret scan, CodeQL (`security-extended`) |
 | `docs.yml` | PR, push, manual | Backlog source validation, `mkdocs build --strict` (broken links, nav and anchors fail), site artifact |
 | `release.yml` | Tag `vX.Y.Z` pushed by a maintainer | Validate tag, version and changelog; refuse duplicates; test; build; create GitHub release |
-| `pr-governance.yml` | PR events | Conventional title, issue reference, exactly-one version bump, changelog entry; warnings for missing docs/tests |
+| `pr-milestone.yml` | PR opened, edited, reopened or marked ready | Copies the milestone from the issue the PR references (`Closes`, `Refs` and so on). A milestone set by hand is never overwritten, and if linked issues disagree the earliest wins. PRs from forks are skipped, because their token cannot write |
+| `pr-governance.yml` | PR events | Conventional title, issue reference, changelog entry; warnings for missing docs/tests |
 
 All actions are pinned to full commit SHAs (with the tag in a comment). Workflows
-default to `permissions: contents: read`. `pull_request_target` is not used, and PR
+default to `permissions: contents: read`, and `pr-milestone.yml` adds `pull-requests: write`
+for its one job. `pull_request_target` is not used, and PR
 text reaches scripts through environment variables, never through shell
 interpolation.
 

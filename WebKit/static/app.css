@@ -77,8 +77,6 @@ td, th { padding: .8rem .75rem .8rem 0; border-top: 1px solid var(--line); }
 .plugin-id { display: block; font-weight: 400; overflow-wrap: anywhere; }
 .identity-list > div { display: flex; gap: 2rem; padding: .75rem 0; border-top: 1px solid var(--line); font-size: .85rem; }
 .identity-list dt { width: 8rem; color: var(--muted); }
-.network-warning { border: 1px solid var(--warning); background: var(--warning-bg); color: var(--warning); padding: 1rem 1.25rem; border-radius: .5rem; margin-bottom: 1.5rem; font-size: .85rem; }
-.network-warning p { margin: .4rem 0 0; }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #151e1b; --surface: #1d2923; --ink: #ecf2ed; --muted: #bac9bf; --line: #455c4d; --accent: #a2d6b5; --wash: #2a4032; --notice: #213328; --warning: #f4d28c; --warning-bg: #352c1c; --focus: #9acaef; }
 }

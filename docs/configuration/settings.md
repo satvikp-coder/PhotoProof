@@ -5,7 +5,7 @@ feature flags) must be real YAML booleans: `true`/`false`, not `"yes"`, `1` or
 `"false"`. Configuration files larger than 1 MiB are rejected.
 
 !!! note "Reserved sections"
-    `formats`, `services` and `ui` are validated now but consumed by planned
+    `services` and `ui` are validated now but consumed by planned
     components (ingestion, background workers, WebKit). They are documented here so
     that their meaning is fixed before the code arrives.
 
@@ -38,10 +38,10 @@ feature flags) must be real YAML booleans: `true`/`false`, not `"yes"`, `1` or
 | `resources.min_free_disk_mb` | `1024` | ≥ 0 | Health check threshold for the runtime root. |
 | `security.forbidden_plugins` | `[]` | unique plugin IDs | **Non-bypassable** denial. Not affected by `--ignore-blacklist`. |
 | `security.allow_blacklist_bypass` | `true` | bool | Whether `--ignore-blacklist` is honoured at all. **Must be `false` in production.** |
-| `formats.accepted` | `[jpeg, png, webp]` | subset of `jpeg png webp heif avif jxl tiff` | *Reserved* for ingestion. |
+| `formats.accepted` | `[jpeg, png, webp]` | subset of `jpeg png webp heif avif jxl tiff` | Only files whose signature matches one of these formats are accepted. Everything else is rejected at ingestion and audited. |
 | `reporting.include_effective_settings` | `true` | bool | Embed effective settings in manifests. |
 | `services.background_workers` | `0` | must be `0` | *Reserved*; workers are not implemented. |
-| `ui.host` | `127.0.0.1` | IP literal or `localhost` | Operational WebKit binding. No URL, port or arbitrary DNS name. Non-loopback requires an explicit setting and displays an unauthenticated-network warning; production still requires loopback. |
+| `ui.host` | `127.0.0.1` | IP literal or `localhost` | Operational WebKit binding. No URL, port or arbitrary DNS name. Only loopback addresses/localhost are accepted in all environments until authentication exists. |
 | `ui.port` | `8501` | integer, 1–65535 | Operational WebKit port; booleans, strings and fractional numbers are rejected. |
 | `development.debug` | `false` | bool | **Must be `false` in production.** |
 
@@ -49,15 +49,15 @@ feature flags) must be real YAML booleans: `true`/`false`, not `"yes"`, `1` or
 
 Run the server with `python main.py web`. An empty `ui: {}` uses the loopback/port
 defaults above. Host and port are validated before binding; there are no web request
-overrides. Debug settings do not enable HTTP tracebacks. Non-loopback development
-bindings are unauthenticated and should only be used on a trusted, isolated network.
+overrides. Debug settings do not enable HTTP tracebacks. Non-loopback binding is rejected in every environment; there is no development
+network exception.
 `0.0.0.0`/`::` bind all interfaces; host-header checks still reject arbitrary DNS names.
 
 Validation fails when:
 
 - `environment.mode: production` with `development.debug: true`;
 - `environment.mode: production` with `security.allow_blacklist_bypass: true`;
-- `environment.mode: production` with a non-loopback `ui.host`;
+- any environment with a non-loopback `ui.host`;
 - a plugin is listed in both `plugins.blacklist` and `security.forbidden_plugins`.
 
 ## Migrating the schema

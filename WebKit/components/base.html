@@ -27,7 +27,6 @@
     <div class="workspace">
       <div class="topbar"><span>{{ eyebrow }}</span><span class="tag">Read-only foundation</span></div>
       <main id="main" tabindex="-1">
-        {% if network_warning %}<section class="network-warning" aria-label="Network exposure warning"><strong>Unauthenticated network access</strong><p>This interface is bound beyond loopback. Anyone who can reach it can view its pages. Authentication is not implemented. Use loopback for private work.</p></section>{% endif %}
         <div class="page-heading"><p class="overline">{{ identity.name }} / {{ page | capitalize }}</p><h1>{{ title }}</h1>{% block introduction %}{% endblock %}</div>
         <aside class="foundation-notice" aria-label="Foundation stage notice"><span class="notice-symbol" aria-hidden="true">i</span><div><strong>Foundation stage · no forensic verdicts</strong><p>Analysis workflows and forensic detectors are not implemented in this interface. No authenticity verdict is produced. A missing result is not evidence of authenticity.</p></div></aside>
         {% block content %}{% endblock %}
