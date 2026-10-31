@@ -182,6 +182,7 @@ def _sid_text(sid: int | ctypes.c_void_p) -> str:
         api.kernel.LocalFree(output)
 
 
+@lru_cache(maxsize=1)
 def current_user_sid() -> str:
     """Read TokenUser, not USERNAME or the default token owner (which may be a group)."""
     api, token, size = _api(), ctypes.c_void_p(), ctypes.c_uint32()
@@ -431,15 +432,13 @@ def _set_acl(handle: int, path: Path, *, directory: bool, readonly: bool = False
             raise _error("SetSecurityInfo", path, code=result)
 
 
-def ensure_directory(path: Path) -> None:
+def ensure_directory(path: Path, *, repair_existing: bool = True, protected: bool = True) -> None:
     """Create with a protected descriptor, or restrict this one existing directory."""
     require_supported_volume(path)
     _reject_reparse_ancestors(path)
     if not path.exists():
         if not path.parent.exists():
-            ensure_directory(
-                path.parent
-            )  # only newly missing parents; existing ancestors untouched
+            ensure_directory(path.parent, repair_existing=repair_existing)
         with _descriptor(descriptor_sddl(current_user_sid(), directory=True)) as descriptor:
             attributes = _SecurityAttributes(ctypes.sizeof(_SecurityAttributes), descriptor, False)
             if (
@@ -447,13 +446,25 @@ def ensure_directory(path: Path) -> None:
                 and _last_error() != 183  # already exists: inspect, never assume safe
             ):
                 raise _error("CreateDirectoryW with private ACL", path)
-    with _handle(path, access=MAXIMUM_ALLOWED, share=0x3) as handle:
-        if not _file_info(handle, path).attributes & 0x10:
-            raise StorageError(f"{path}: runtime directory is not a directory")
-        _set_acl(handle, path, directory=True)
-        issues = problems(_snapshot(handle, path), directory=True, protected=True)
-        if issues:
-            raise StorageError(f"{path}: directory ACL readback failed: {'; '.join(issues)}")
+    initial = inspect(path)
+    if not initial.attributes & 0x10:
+        raise StorageError(f"{path}: runtime directory is not a directory")
+    if not problems(initial, directory=True, protected=protected):
+        return
+    if not repair_existing:
+        raise StorageError(f"{path}: insecure runtime ACL; run --doctor and explicit/SAFE repair")
+    try:
+        with _handle(path, access=MAXIMUM_ALLOWED, share=0x3) as handle:
+            _set_acl(handle, path, directory=True)
+            issues = problems(_snapshot(handle, path), directory=True, protected=True)
+            if issues:
+                raise StorageError(f"{path}: directory ACL readback failed: {'; '.join(issues)}")
+    except StorageError:
+        # Concurrent initialization may have completed the same restriction first.
+        # Only a fresh, exact native verification permits success after a denied open.
+        if not problems(inspect(path), directory=True, protected=True):
+            return
+        raise
 
 
 def restrict_file(path: Path, *, readonly: bool) -> None:
@@ -467,23 +478,32 @@ def restrict_file(path: Path, *, readonly: bool) -> None:
         raise StorageError(f"{path}: expected a file, not a directory")
     if initial.owner not in {current_user_sid(), SYSTEM_SID, ADMINISTRATORS_SID}:
         raise StorageError(f"{path}: unapproved owner; arrange an explicit ownership migration")
+    if not problems(initial, directory=False, readonly=readonly, protected=True):
+        return
     access = 0x60080 | (0x100 if readonly and not initial.attributes & READONLY else 0)
-    with _handle(path, access=access, share=0x3) as handle:
-        before = _snapshot(handle, path)
-        if not problems(before, directory=False, readonly=readonly, protected=True):
+    try:
+        with _handle(path, access=access, share=0x3) as handle:
+            before = _snapshot(handle, path)
+            if not problems(before, directory=False, readonly=readonly, protected=True):
+                return
+            if readonly and not before.attributes & READONLY:
+                # The retained handle has original rights; no temporary write grant is made.
+                basic = _BasicInfo()
+                # FILE_ATTRIBUTE_NORMAL must not be combined with other attributes.
+                basic.attributes = (before.attributes & ~0x80) | READONLY
+                if not _api().kernel.SetFileInformationByHandle(
+                    handle, 0, ctypes.byref(basic), ctypes.sizeof(basic)
+                ):
+                    raise _error("SetFileInformationByHandle read-only attribute", path)
+            _set_acl(handle, path, directory=False, readonly=readonly)
+            issues = problems(
+                _snapshot(handle, path), directory=False, readonly=readonly, protected=True
+            )
+            if issues:
+                raise StorageError(f"{path}: file ACL readback failed: {'; '.join(issues)}")
+    except StorageError:
+        # Another publisher can seal this same content address between inspection
+        # and opening for metadata changes. Never grant write rights to retry.
+        if not problems(inspect(path), directory=False, readonly=readonly, protected=True):
             return
-        if readonly and not before.attributes & READONLY:
-            # The retained handle has original rights; no temporary write grant is made.
-            basic = _BasicInfo()
-            # FILE_ATTRIBUTE_NORMAL must not be combined with other attributes.
-            basic.attributes = (before.attributes & ~0x80) | READONLY
-            if not _api().kernel.SetFileInformationByHandle(
-                handle, 0, ctypes.byref(basic), ctypes.sizeof(basic)
-            ):
-                raise _error("SetFileInformationByHandle read-only attribute", path)
-        _set_acl(handle, path, directory=False, readonly=readonly)
-        issues = problems(
-            _snapshot(handle, path), directory=False, readonly=readonly, protected=True
-        )
-        if issues:
-            raise StorageError(f"{path}: file ACL readback failed: {'; '.join(issues)}")
+        raise

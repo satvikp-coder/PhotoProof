@@ -4,7 +4,7 @@
 
 | Asset | Threat | Current control | Planned |
 |---|---|---|---|
-| Original evidence | Silent modification | Content-addressed, read-only storage; integrity check; never auto-repaired | Ingestion that stores originals before any processing |
+| Original evidence | Silent modification | Stored before any processing; content-addressed, read-only; verified on every read; never overwritten or auto-repaired | Upload handling (#11) |
 | Host system | Malicious image exploiting a native decoder | Decoder interface with mandatory limits; no decoder yet | Isolated decoder process with resource limits; fuzzing |
 | Host system | Decompression bomb / resource exhaustion | `resources.max_input_bytes` enforced while streaming; `max_image_pixels` contract | Header-level pixel checks, memory limits |
 | Runtime data | Path traversal | `safe_join` on every runtime path | — |
@@ -99,17 +99,32 @@ guarantee, even if a server advertises ACL support.
 
 ## Evidence preservation
 
-Originals are never modified or replaced. Derived outputs are separate
+Originals are never modified or replaced. `analyze` stores each input before any
+processing, and every read re-hashes it first (see the
+[evidence store](../operations/runtime.md#evidence-store)). Derived outputs are separate
 content-addressed artifacts, and manifests record every input and artifact hash.
-A corrupt evidence blob is a MANUAL critical finding.
+A corrupt or missing evidence blob is a MANUAL critical finding.
 
 On Windows, newly published blobs receive `FILE_ATTRIBUTE_READONLY` and a protected
 DACL granting **read only** (`FILE_GENERIC_READ`) to the same three principals.
 Normal new opens cannot write data or clear the read-only attribute. Sealing is
 verified before a successful hash is returned; failed sealing leaves bytes intact
-and reports failure. Existing valid blobs are sealed on reuse. Permission repair
+and reports failure. Existing valid blobs must already be sealed on reuse; broadened
+ACLs are reported rather than silently repaired by a write. Permission repair
 can restore blob metadata but never replaces bytes or repairs a hash mismatch.
 Security metadata changes may change filesystem metadata timestamps.
+
+Ordinary writes verify the root, staging and destination directories without repairing
+existing ACLs. Repairs belong to the audited SAFE health path. Publication through one
+`RuntimeStorage` instance is serialized so its concurrent writers cannot observe a
+half-sealed blob. Across instances/processes, an incompletely sealed blob can cause a safe, retryable
+permission failure; no existing original is replaced. Unsupported Windows storage is
+rejected before the evidence store creates a staging file.
+
+If a privileged actor removes the read-only attribute while leaving the read-only
+DACL sealed, the process may lack `WRITE_ATTRIBUTES` to restore it. This is detected
+and repair reports access denied; it does not temporarily broaden the blob DACL to
+obtain that right. Explicit owner-authorized metadata repair is then required.
 
 This is **not WORM storage**. Owners can explicitly change their DACLs; privileged
 administrators/SYSTEM can recover ownership or use backup privileges, and existing

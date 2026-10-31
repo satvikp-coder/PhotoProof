@@ -4,16 +4,18 @@ Layout (all created with owner-only permissions on POSIX):
 
     uploads/ quarantine/ objects/ artifacts/ cache/ reports/ manifests/ logs/ database/ tmp/
 
-``objects/`` is reserved for original evidence and ``artifacts/`` for plugin outputs.
+``objects/`` holds original evidence (see ``evidence.py``) and ``artifacts/`` plugin outputs.
 Both are content-addressed (``<kind>/<sha[:2]>/<sha>``) and written read-only.
 """
 
+import errno
 import hashlib
 import json
 import logging
 import os
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -38,6 +40,7 @@ RUNTIME_DIRS = (
 )
 BlobKind = Literal["objects", "artifacts"]
 _POSIX = os.name == "posix"
+_NO_HARD_LINKS = {errno.EPERM, errno.ENOTSUP, errno.ENOSYS, errno.EOPNOTSUPP}
 _WINDOWS = os.name == "nt"
 _LOG = logging.getLogger(__name__)
 
@@ -79,8 +82,13 @@ def atomic_write(path: Path, data: bytes, *, mode: int = 0o600) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
-    if _POSIX:  # persist the rename itself across power loss
-        dir_fd = os.open(path.parent, os.O_RDONLY)
+    _fsync_directory(path.parent)
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Persist a rename or link across power loss. Windows has no directory fsync."""
+    if _POSIX:
+        dir_fd = os.open(directory, os.O_RDONLY)
         try:
             os.fsync(dir_fd)
         finally:
@@ -90,6 +98,7 @@ def atomic_write(path: Path, data: bytes, *, mode: int = 0o600) -> None:
 class RuntimeStorage:
     def __init__(self, root: Path) -> None:
         self.root = root
+        self._publication_lock = threading.RLock()
 
     def path(self, *parts: str) -> Path:
         return safe_join(self.root, *parts)
@@ -228,20 +237,96 @@ class RuntimeStorage:
     def put_blob(self, kind: BlobKind, data: bytes) -> str:
         """Store ``data`` immutably and return its SHA-256. Idempotent."""
         digest = sha256_bytes(data)
+        if _WINDOWS and not self.root.exists():
+            windows_acl.require_supported_volume(self.root)
+            for directory in (self.root, self.root / "tmp", self.root / kind):
+                windows_acl.ensure_directory(directory, repair_existing=False)
+        self.prepare_blob_write(kind)
         target = self.blob_path(kind, digest)
         if _WINDOWS:
-            # Refuse unsupported storage before publishing any original bytes.
-            windows_acl.require_supported_volume(self.root)
-            self.ensure_layout()
-            windows_acl.ensure_directory(target.parent)
-        if target.is_file() and self.verify_blob(kind, digest):
-            if _WINDOWS:
-                windows_acl.restrict_file(target, readonly=True)
-            return digest
-        if target.exists():  # present but corrupt: never overwrite silently
-            raise StorageError(f"{target}: existing blob fails verification; run --doctor")
-        atomic_write(target, data, mode=0o400)
+            windows_acl.ensure_directory(target.parent, repair_existing=False, protected=False)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd, name = tempfile.mkstemp(dir=target.parent, prefix=f".{digest}.", suffix=".part")
+        temporary = Path(name)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            self.publish_blob(kind, temporary, digest)
+        finally:
+            temporary.unlink(missing_ok=True)
         return digest
+
+    def prepare_blob_write(self, kind: BlobKind = "objects") -> None:
+        """Verify Windows privacy before staging bytes; POSIX publication is unchanged."""
+        if _WINDOWS:
+            windows_acl.require_supported_volume(self.root)
+            for directory in (self.root, self.root / "tmp", self.root / kind):
+                if not directory.is_dir():
+                    raise StorageError(
+                        f"{directory}: cannot create a temporary file; runtime directory missing"
+                    )
+                windows_acl.ensure_directory(directory, repair_existing=False)
+
+    def publish_blob(self, kind: BlobKind, source: Path, sha256: str) -> bool:
+        """Give the fully written ``source`` its content address, read-only.
+
+        Never writes to an existing blob, even in a race with another process. Returns
+        True if this call created the blob and False if an intact copy already existed.
+        Raises ``StorageError`` if the existing blob fails verification.
+        """
+        if _WINDOWS:
+            with self._publication_lock:
+                return self._publish_blob(kind, source, sha256)
+        return self._publish_blob(kind, source, sha256)
+
+    def _publish_blob(self, kind: BlobKind, source: Path, sha256: str) -> bool:
+        self.prepare_blob_write(kind)
+        target = self.blob_path(kind, sha256)
+        if target.exists() or target.is_symlink():
+            return self._existing_blob_is_intact(kind, sha256, target)
+        if _WINDOWS:
+            windows_acl.ensure_directory(target.parent, repair_existing=False, protected=False)
+            # source is a caller-owned staging file, never the submitted original.
+            # A moved file keeps its DACL: privatize staging before publication.
+            windows_acl.restrict_file(source, readonly=False)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if _POSIX:
+            source.chmod(0o400)
+        try:
+            if _POSIX:
+                os.link(source, target)  # unlike a rename, this fails if the target exists
+            else:
+                os.rename(source, target)  # on Windows this fails if the target exists
+        except FileExistsError:  # another process stored the same content first
+            return self._existing_blob_is_intact(kind, sha256, target)
+        except OSError as error:
+            if error.errno in _NO_HARD_LINKS:
+                raise StorageError(
+                    f"{target.parent}: this filesystem has no hard links, so blobs cannot be "
+                    "stored without risking an overwrite. Move runtime.root to another volume."
+                ) from error
+            raise
+        _fsync_directory(target.parent)
+        if _WINDOWS:
+            windows_acl.restrict_file(target, readonly=True)
+        return True
+
+    def _existing_blob_is_intact(self, kind: BlobKind, sha256: str, target: Path) -> bool:
+        if self.verify_blob(kind, sha256):
+            if _WINDOWS:
+                issues = windows_acl.problems(
+                    windows_acl.inspect(target), directory=False, readonly=True, protected=True
+                )
+                if issues:
+                    raise StorageError(
+                        f"{target}: insecure existing blob permissions; run --doctor and repair"
+                    )
+            return False
+        raise StorageError(f"{target}: existing blob fails verification; run --doctor")
 
     def verify_blob(self, kind: BlobKind, sha256: str) -> bool:
         target = self.blob_path(kind, sha256)

@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `analyze` stores every input byte for byte in a read-only evidence store before any
+  processing. Identical files are kept once with a record of each submission, and every read
+  re-verifies the hash. Run `python main.py --repair` once to migrate an existing database
+  (a backup is taken first).
+- `doctor` reports an original that the database knows about but `objects/` no longer holds
+  as a critical finding.
 - Support for Python 3.14 and 3.15 in the launcher, packaging and the CI matrix
   (3 OSes × Python 3.11–3.15). The launcher smoke test covers the oldest and newest.
 - The team page (`docs/planning/team.md`), which allocates every backlog issue to an
@@ -17,6 +23,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The pull request template no longer has checkboxes that cannot all be ticked, so a complete
+  PR shows every task as done. `CONTRIBUTING.md` explains how to fill it in and how to link an
+  issue so that it closes on merge.
+- `analyze` rejects symlinks and empty files, and it rejects an unknown profile or an invalid
+  reference combination before storing anything.
 - `SECURITY.md` adds review guidance (assets, trust boundaries, severity, known gaps) and
   lists `0.2.x` as the supported version.
 - `app.toml`, `pyproject.toml`, `mkdocs.yml` and `LICENSE` name the four developers

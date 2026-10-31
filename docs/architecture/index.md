@@ -68,7 +68,8 @@ what a plugin computes.
 
 ## Data flow of one analysis
 
-1. The CLI hashes the input file (streamed, size-limited) into an `InputDescriptor`.
+1. The CLI stores the input in the evidence store (streamed, size-limited) and builds an
+   `InputDescriptor` from the record.
 2. The controller resolves the profile and validates the mode (single vs comparison).
 3. An optional `--ignore-blacklist` override is authorized (local CLI origin only) and
    audited.

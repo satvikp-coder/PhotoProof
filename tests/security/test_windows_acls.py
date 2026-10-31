@@ -135,6 +135,11 @@ def test_readonly_dacl_blocks_write_even_without_dos_attribute(tmp_path: Path) -
         with pytest.raises(PermissionError):
             path.open("r+b")
         assert path.read_bytes() == b"unchanged"
+        # Missing attribute on an already sealed DACL cannot be fixed by silently
+        # granting write-attribute access. Report failure and leave rights intact.
+        with pytest.raises(StorageError, match="WinError 5"):
+            acl.restrict_file(path, readonly=True)
+        assert all(ace.mask == acl.FILE_READ for ace in acl.inspect(path).aces)
         basic.attributes |= acl.READONLY
         assert api.kernel.SetFileInformationByHandle(
             handle, 0, ctypes.byref(basic), ctypes.sizeof(basic)
@@ -300,8 +305,68 @@ def test_junctions_never_redirect_permission_repair(tmp_path: Path) -> None:
             store.insecure_dirs()
         with pytest.raises(StorageError, match="reparse"):
             store.restrict_permissions(["logs/redirect"])
+        _grant(store.root, "S-1-1-0", "R")  # force an actual root ACL update
         store.ensure_layout()  # no inherited propagation through the junction
         assert acl.inspect(unrelated) == before
         assert (unrelated / "keep.txt").read_bytes() == b"unrelated bytes"
     finally:
         junction.rmdir()  # removes this specific test junction, never the target contents
+
+
+def test_ingested_original_is_sealed_without_changing_submitted_source(
+    make_app: Factory,
+    tmp_path: Path,
+) -> None:
+    app = make_app()
+    submitted = tmp_path / "submitted original Ω.bin"
+    submitted.write_bytes(b"original source bytes")
+    before = acl.inspect(submitted)
+    record = app.evidence().ingest(submitted, role="target")
+    target = app.storage.blob_path("objects", record.sha256)
+    assert not acl.problems(acl.inspect(target), directory=False, readonly=True, protected=True)
+    assert acl.inspect(submitted) == before and submitted.read_bytes() == b"original source bytes"
+    with app.evidence().open(record.sha256) as verified:
+        assert verified.read() == b"original source bytes"
+
+
+def test_unsupported_ingest_refuses_before_creating_staging_files(make_app: Factory) -> None:
+    app = make_app()
+    with (
+        patch.object(
+            acl, "require_supported_volume", side_effect=acl.UnsupportedACL("unsupported")
+        ),
+        patch("photoproof.core.storage.evidence.tempfile.mkstemp") as staging,
+        pytest.raises(acl.UnsupportedACL),
+    ):
+        app.evidence().ingest(b"must not be staged", role="target")
+    staging.assert_not_called()
+    assert app.database().evidence_hashes() == []
+
+
+def test_normal_writes_do_not_silently_repair_existing_runtime_acls(make_app: Factory) -> None:
+    app = make_app()
+    unrelated = app.storage.path("logs")
+    _grant(unrelated, "S-1-1-0", "R")
+    before = acl.inspect(unrelated)
+    digest = app.storage.put_blob("artifacts", b"new private artifact")
+    assert acl.inspect(unrelated) == before and "logs" in app.storage.insecure_dirs()
+    assert app.storage.verify_blob("artifacts", digest)
+    relevant = app.storage.path("artifacts")
+    _grant(relevant, "S-1-1-0", "R")
+    before = acl.inspect(relevant)
+    with pytest.raises(StorageError, match="insecure runtime ACL"):
+        app.storage.put_blob("artifacts", b"refuse until repaired")
+    assert acl.inspect(relevant) == before and not check_runtime_permissions(app).ok
+
+
+def test_blob_reuse_reports_broadened_acl_without_silent_repair(make_app: Factory) -> None:
+    app = make_app()
+    digest = app.storage.put_blob("objects", b"unchanged evidence")
+    path = app.storage.blob_path("objects", digest)
+    _grant(path, "S-1-1-0", "R")
+    before = acl.inspect(path)
+    with pytest.raises(StorageError, match="insecure existing blob"):
+        app.storage.put_blob("objects", b"unchanged evidence")
+    assert acl.inspect(path) == before and path.read_bytes() == b"unchanged evidence"
+    app.storage.restrict_permissions(app.storage.insecure_dirs())
+    assert not acl.problems(acl.inspect(path), directory=False, readonly=True, protected=True)
