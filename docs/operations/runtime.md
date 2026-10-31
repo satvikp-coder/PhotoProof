@@ -90,8 +90,9 @@ Windows enforcement remains an error by default, never a healthy result.
 The root and all ten listed trees, including nested directories/files, are checked.
 Unknown entries directly under the root are outside managed permission repair; do not
 store unrelated material there. No recursive ACL command, outside-root traversal or
-evidence-byte rewrite occurs. Reparse points/junctions and hard-linked files are
-refused; use ordinary private directories instead. An unapproved owner requires
+evidence-byte rewrite occurs. The configured root is resolved once, so trusted ancestor junctions can select a
+local runtime. Reparse points/junctions inside that resolved runtime and hard-linked
+files are refused. Cloud/OneDrive redirection is not certified by the local tests. An unapproved owner requires
 operator-managed ownership migration. No elevation is attempted.
 
 Windows originals/artifacts use read-only attributes **and** read-only DACLs while
@@ -157,3 +158,12 @@ python main.py manifest <run_id> --json  # full document
 ```
 
 Historic replay and environment restoration are planned.
+
+## Permission scan and initialization
+
+Layout creation checks existing ACLs without repairing them. Broad permissions remain
+a health finding until explicit/SAFE permission repair. Permission scans check the
+local volume once, reuse directory snapshots within that scan, and still inspect every
+managed file's actual ACL; no results are cached across scans. Windows findings block
+startup deliberately, because unreadable or unsupported native descriptors cannot be
+assumed private; POSIX warning behavior is preserved for compatibility.

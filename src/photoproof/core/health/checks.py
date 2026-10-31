@@ -144,12 +144,18 @@ def check_runtime_permissions(app: "Application") -> CheckResult:
     def restrict() -> str:
         app.storage.restrict_permissions(insecure)
         prefix = "restricted Windows ACLs: " if os.name == "nt" else "restricted to 0700: "
+        if os.name == "nt":
+            return f"restricted Windows ACLs on {len(insecure)} paths: " + ", ".join(insecure[:10])
         return prefix + ", ".join(insecure)
 
     return CheckResult(
         "runtime.permissions",
         Severity.ERROR if os.name == "nt" else Severity.WARNING,
-        "runtime directories accessible to other users",
+        (
+            f"{len(insecure)} runtime paths have noncanonical Windows permissions"
+            if os.name == "nt"
+            else "runtime directories accessible to other users"
+        ),
         tuple(insecure),
         RepairAction("restrict permissions to owner-only", Repairability.SAFE, restrict),
     )

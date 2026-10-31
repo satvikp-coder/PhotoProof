@@ -67,9 +67,6 @@ jobs:
           python -m pip install --no-deps --no-build-isolation -e .
       - name: Unit, plugin-contract and configuration tests
         run: pytest tests/unit --junitxml=reports/unit.xml
-      - name: Native Windows ACL integration (real local filesystem)
-        if: runner.os == 'Windows'
-        run: pytest tests/security/test_windows_acls.py -q --junitxml=reports/windows-acls.xml
       - name: Integration, resilience, security and e2e tests
         run: >-
           pytest tests/integration tests/resilience tests/security tests/e2e

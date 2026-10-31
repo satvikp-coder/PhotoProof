@@ -146,7 +146,7 @@ the result. Directory handles use `MAXIMUM_ALLOWED` to prevent Win32
 `SetSecurityInfo` from automatically propagating changes to children, according to
 [Microsoft's documented handle behavior](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo).
 No recursive ACL command is used. Unknown entries directly under the runtime root and
-all paths outside it are not repermissioned. Reparse points/junctions, redirected
+all paths outside it are not repermissioned. Reparse points/junctions inside the resolved runtime, redirected
 handles and hard links are refused so metadata operations cannot deliberately reach
 an unrelated target. Runtime ancestors must themselves be trusted: this is not a
 sandbox against an administrator concurrently changing ancestor paths or retaining
@@ -200,3 +200,12 @@ POSIX runtime root's creation mode still follows its existing parent/umask behav
 
 Report vulnerabilities privately: see
 [SECURITY.md](https://github.com/satvikp-coder/PhotoProof/blob/main/SECURITY.md).
+
+## Permission scan and initialization
+
+Layout creation checks existing ACLs without repairing them. Broad permissions remain
+a health finding until explicit/SAFE permission repair. Permission scans check the
+local volume once, reuse directory snapshots within that scan, and still inspect every
+managed file's actual ACL; no results are cached across scans. Windows findings block
+startup deliberately, because unreadable or unsupported native descriptors cannot be
+assumed private; POSIX warning behavior is preserved for compatibility.

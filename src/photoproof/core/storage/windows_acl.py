@@ -28,6 +28,28 @@ PERSISTENT_ACLS = 0x8
 MAXIMUM_ALLOWED = 0x02000000
 OWNER_AND_DACL = 0x5
 PROTECTED_DACL = 0x80000004
+READ_CONTROL = 0x20000
+WRITE_DAC = 0x40000
+FILE_READ_ATTRIBUTES = 0x80
+FILE_WRITE_ATTRIBUTES = 0x100
+DIRECTORY_ATTRIBUTE = 0x10
+NORMAL_ATTRIBUTE = 0x80
+SHARE_READ_WRITE = 0x3
+SHARE_READ_WRITE_DELETE = 0x7
+OPEN_EXISTING = 3
+BACKUP_SEMANTICS = 0x02000000
+OPEN_REPARSE_POINT = 0x00200000
+DRIVE_REMOTE = 4
+ERROR_ALREADY_EXISTS = 183
+INHERIT_TO_CHILDREN = 0x3
+INHERITED_ACE = 0x10
+TOKEN_QUERY = 0x8
+TOKEN_USER = 1
+SDDL_REVISION = 1
+INVALID_ATTRIBUTES = 0xFFFFFFFF
+DACL_PROTECTED_CONTROL = 0x1000
+SE_FILE_OBJECT = 1
+FILE_BASIC_INFO = 0
 
 
 class UnsupportedACL(StorageError):
@@ -186,14 +208,18 @@ def _sid_text(sid: int | ctypes.c_void_p) -> str:
 def current_user_sid() -> str:
     """Read TokenUser, not USERNAME or the default token owner (which may be a group)."""
     api, token, size = _api(), ctypes.c_void_p(), ctypes.c_uint32()
-    if not api.security.OpenProcessToken(api.kernel.GetCurrentProcess(), 0x8, ctypes.byref(token)):
+    if not api.security.OpenProcessToken(
+        api.kernel.GetCurrentProcess(), TOKEN_QUERY, ctypes.byref(token)
+    ):
         raise _error("OpenProcessToken")
     try:
-        api.security.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))
+        api.security.GetTokenInformation(token, TOKEN_USER, None, 0, ctypes.byref(size))
         if not size.value:
             raise _error("GetTokenInformation size")
         buffer = ctypes.create_string_buffer(size.value)
-        if not api.security.GetTokenInformation(token, 1, buffer, size, ctypes.byref(size)):
+        if not api.security.GetTokenInformation(
+            token, TOKEN_USER, buffer, size, ctypes.byref(size)
+        ):
             raise _error("GetTokenInformation TokenUser")
         sid = ctypes.c_void_p.from_buffer(buffer).value
         if sid is None:
@@ -217,7 +243,7 @@ def _descriptor(sddl: str) -> Iterator[ctypes.c_void_p]:
     descriptor = ctypes.c_void_p()
     api = _api()
     if not api.security.ConvertStringSecurityDescriptorToSecurityDescriptorW(
-        sddl, 1, ctypes.byref(descriptor), None
+        sddl, SDDL_REVISION, ctypes.byref(descriptor), None
     ):
         raise _error("ConvertStringSecurityDescriptorToSecurityDescriptorW")
     try:
@@ -236,7 +262,9 @@ def require_supported_volume(path: Path) -> None:
     api, volume = _api(), ctypes.create_unicode_buffer(32768)
     if not api.kernel.GetVolumePathNameW(absolute, volume, len(volume)):
         raise _error("GetVolumePathNameW", path)
-    if api.kernel.GetDriveTypeW(volume.value) == 4:  # DRIVE_REMOTE, including mapped shares
+    if (
+        api.kernel.GetDriveTypeW(volume.value) == DRIVE_REMOTE
+    ):  # DRIVE_REMOTE, including mapped shares
         raise UnsupportedACL(
             f"{path}: mapped network runtime ACLs are unverified; use a local volume"
         )
@@ -249,27 +277,37 @@ def require_supported_volume(path: Path) -> None:
         raise UnsupportedACL(f"{path}: filesystem lacks persistent ACLs; use local NTFS/ReFS")
 
 
-def _reject_reparse_ancestors(path: Path) -> None:
+def _reject_reparse_ancestors(path: Path, *, boundary: Path | None = None) -> None:
     api = _api()
     absolute = Path(os.path.abspath(path))
+    if boundary is not None and absolute != boundary and boundary not in absolute.parents:
+        raise StorageError(f"{path}: ACL scan path is outside its trusted runtime")
     for component in (absolute, *absolute.parents):
         attributes = api.kernel.GetFileAttributesW(str(component))
-        if attributes != 0xFFFFFFFF and attributes & REPARSE_POINT:
+        if attributes != INVALID_ATTRIBUTES and attributes & REPARSE_POINT:
             raise StorageError(f"{component}: refusing ACL operations through a reparse point")
+        if component == boundary:
+            break
 
 
 @contextmanager
-def _handle(path: Path, *, access: int = 0x20080, share: int = 0x7) -> Iterator[int]:
-    _reject_reparse_ancestors(path)
+def _handle(
+    path: Path,
+    *,
+    access: int = READ_CONTROL | FILE_READ_ATTRIBUTES,
+    share: int = SHARE_READ_WRITE_DELETE,
+    boundary: Path | None = None,
+) -> Iterator[int]:
+    _reject_reparse_ancestors(path, boundary=boundary)
     api = _api()
     handle = api.kernel.CreateFileW(
         os.path.abspath(path),
         access,
         share,
         None,
-        3,
-        0x02200000,
-        None,  # BACKUP_SEMANTICS | OPEN_REPARSE_POINT
+        OPEN_EXISTING,
+        BACKUP_SEMANTICS | OPEN_REPARSE_POINT,
+        None,
     )
     if handle == ctypes.c_void_p(-1).value:
         raise _error("CreateFileW security handle", path)
@@ -345,7 +383,7 @@ def _snapshot(handle: int, path: Path) -> ACLSnapshot:
         if dacl.value is None:
             return ACLSnapshot(
                 _sid_text(owner),
-                bool(control.value & 0x1000),
+                bool(control.value & DACL_PROTECTED_CONTROL),
                 (),
                 _file_info(handle, path).attributes,
                 null_dacl=True,
@@ -363,7 +401,7 @@ def _snapshot(handle: int, path: Path) -> ACLSnapshot:
             aces.append(ACE(_sid_text(pointer.value + 8), mask, flags, kind))
         return ACLSnapshot(
             _sid_text(owner),
-            bool(control.value & 0x1000),
+            bool(control.value & DACL_PROTECTED_CONTROL),
             tuple(aces),
             _file_info(handle, path).attributes,
         )
@@ -371,10 +409,12 @@ def _snapshot(handle: int, path: Path) -> ACLSnapshot:
         api.kernel.LocalFree(descriptor)
 
 
-def inspect(path: Path) -> ACLSnapshot:
+def inspect(path: Path, *, _scan_root: Path | None = None) -> ACLSnapshot:
     """Inspect actual native DACL/owner/attributes; unsupported reads never mean OK."""
-    require_supported_volume(path)
-    with _handle(path) as handle:
+    if _scan_root is None:
+        require_supported_volume(path)
+    # Internal scans check the volume once and reject all descendant reparse points.
+    with _handle(path, boundary=_scan_root) as handle:
         return _snapshot(handle, path)
 
 
@@ -397,8 +437,8 @@ def problems(
             ace.kind != 0
             or ace.sid not in allowed
             or ace.mask != expected
-            or ace.flags & ~0x13
-            or (directory and ace.flags & 0x3 != 0x3)
+            or ace.flags & ~(INHERIT_TO_CHILDREN | INHERITED_ACE)
+            or (directory and ace.flags & INHERIT_TO_CHILDREN != INHERIT_TO_CHILDREN)
         ):
             issues.append(
                 f"unexpected ACE for {ace.sid} (mask={ace.mask:#x}, flags={ace.flags:#x})"
@@ -427,7 +467,9 @@ def _set_acl(handle: int, path: Path, *, directory: bool, readonly: bool = False
             or not dacl.value
         ):
             raise _error("GetSecurityDescriptorDacl", path)
-        result = _api().security.SetSecurityInfo(handle, 1, PROTECTED_DACL, None, None, dacl, None)
+        result = _api().security.SetSecurityInfo(
+            handle, SE_FILE_OBJECT, PROTECTED_DACL, None, None, dacl, None
+        )
         if result:
             raise _error("SetSecurityInfo", path, code=result)
 
@@ -443,18 +485,19 @@ def ensure_directory(path: Path, *, repair_existing: bool = True, protected: boo
             attributes = _SecurityAttributes(ctypes.sizeof(_SecurityAttributes), descriptor, False)
             if (
                 not _api().kernel.CreateDirectoryW(os.path.abspath(path), ctypes.byref(attributes))
-                and _last_error() != 183  # already exists: inspect, never assume safe
+                and _last_error()
+                != ERROR_ALREADY_EXISTS  # already exists: inspect, never assume safe
             ):
                 raise _error("CreateDirectoryW with private ACL", path)
     initial = inspect(path)
-    if not initial.attributes & 0x10:
+    if not initial.attributes & DIRECTORY_ATTRIBUTE:
         raise StorageError(f"{path}: runtime directory is not a directory")
     if not problems(initial, directory=True, protected=protected):
         return
     if not repair_existing:
         raise StorageError(f"{path}: insecure runtime ACL; run --doctor and explicit/SAFE repair")
     try:
-        with _handle(path, access=MAXIMUM_ALLOWED, share=0x3) as handle:
+        with _handle(path, access=MAXIMUM_ALLOWED, share=SHARE_READ_WRITE) as handle:
             _set_acl(handle, path, directory=True)
             issues = problems(_snapshot(handle, path), directory=True, protected=True)
             if issues:
@@ -474,15 +517,17 @@ def restrict_file(path: Path, *, readonly: bool) -> None:
     # Only an absent DOS attribute needs WRITE_ATTRIBUTES; an already sealed blob
     # can be verified or have a broadened DACL tightened with owner WRITE_DAC alone.
     initial = inspect(path)
-    if initial.attributes & 0x10:
+    if initial.attributes & DIRECTORY_ATTRIBUTE:
         raise StorageError(f"{path}: expected a file, not a directory")
     if initial.owner not in {current_user_sid(), SYSTEM_SID, ADMINISTRATORS_SID}:
         raise StorageError(f"{path}: unapproved owner; arrange an explicit ownership migration")
     if not problems(initial, directory=False, readonly=readonly, protected=True):
         return
-    access = 0x60080 | (0x100 if readonly and not initial.attributes & READONLY else 0)
+    access = READ_CONTROL | WRITE_DAC | FILE_READ_ATTRIBUTES
+    if readonly and not initial.attributes & READONLY:
+        access |= FILE_WRITE_ATTRIBUTES
     try:
-        with _handle(path, access=access, share=0x3) as handle:
+        with _handle(path, access=access, share=SHARE_READ_WRITE) as handle:
             before = _snapshot(handle, path)
             if not problems(before, directory=False, readonly=readonly, protected=True):
                 return
@@ -490,9 +535,9 @@ def restrict_file(path: Path, *, readonly: bool) -> None:
                 # The retained handle has original rights; no temporary write grant is made.
                 basic = _BasicInfo()
                 # FILE_ATTRIBUTE_NORMAL must not be combined with other attributes.
-                basic.attributes = (before.attributes & ~0x80) | READONLY
+                basic.attributes = (before.attributes & ~NORMAL_ATTRIBUTE) | READONLY
                 if not _api().kernel.SetFileInformationByHandle(
-                    handle, 0, ctypes.byref(basic), ctypes.sizeof(basic)
+                    handle, FILE_BASIC_INFO, ctypes.byref(basic), ctypes.sizeof(basic)
                 ):
                     raise _error("SetFileInformationByHandle read-only attribute", path)
             _set_acl(handle, path, directory=False, readonly=readonly)
@@ -501,9 +546,19 @@ def restrict_file(path: Path, *, readonly: bool) -> None:
             )
             if issues:
                 raise StorageError(f"{path}: file ACL readback failed: {'; '.join(issues)}")
-    except StorageError:
+    except StorageError as error:
         # Another publisher can seal this same content address between inspection
         # and opening for metadata changes. Never grant write rights to retry.
         if not problems(inspect(path), directory=False, readonly=readonly, protected=True):
             return
+        if (
+            readonly
+            and not initial.attributes & READONLY
+            and all(ace.mask == FILE_READ for ace in initial.aces)
+        ):
+            raise StorageError(
+                f"{path}: read-only attribute cannot be restored without adding rights; "
+                "preserve the evidence and arrange explicit owner-authorized metadata repair. "
+                f"{error}"
+            ) from error
         raise

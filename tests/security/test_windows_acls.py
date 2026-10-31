@@ -65,6 +65,36 @@ def test_native_directory_acl_unicode_and_idempotence(tmp_path: Path) -> None:
     assert independent["protected"] and set(independent["sids"]) == expected
 
 
+def test_trusted_ancestor_junction_is_resolved_once(tmp_path: Path) -> None:
+    target = tmp_path / "trusted location"
+    target.mkdir()
+    alias = tmp_path / "configured alias"
+    executable = Path(os.environ["SYSTEMROOT"]) / "System32/cmd.exe"
+    subprocess.run(
+        [str(executable), "/c", "mklink", "/J", str(alias), str(target)],
+        check=True,
+        capture_output=True,
+        shell=False,
+        timeout=10,
+    )
+    try:
+        store = RuntimeStorage(alias / "ARE")
+        assert store.root == (target / "ARE").resolve()
+        store.ensure_layout()
+        digest = store.put_blob("objects", b"synthetic through trusted ancestor")
+        assert store.verify_blob("objects", digest) and store.insecure_dirs() == []
+        _grant(store.root / "logs", "S-1-1-0", "R")
+        before = acl.inspect(store.root / "logs")
+        with pytest.raises(StorageError, match="insecure runtime ACL"):
+            store.ensure_layout()
+        assert acl.inspect(store.root / "logs") == before
+        assert "logs" in store.insecure_dirs()
+        store.restrict_permissions(["logs"])
+        assert store.insecure_dirs() == []
+    finally:
+        alias.rmdir()
+
+
 @pytest.mark.parametrize("principal", ["S-1-1-0", "S-1-5-32-545", "S-1-5-11"])
 def test_unauthorized_aces_detected_and_safe_repair_removes_them(
     make_app: Factory, principal: str
@@ -307,7 +337,9 @@ def test_junctions_never_redirect_permission_repair(tmp_path: Path) -> None:
         with pytest.raises(StorageError, match="reparse"):
             store.restrict_permissions(["logs/redirect"])
         _grant(store.root, "S-1-1-0", "R")  # force an actual root ACL update
-        store.ensure_layout()  # no inherited propagation through the junction
+        with pytest.raises(StorageError, match="insecure runtime ACL"):
+            store.ensure_layout()  # no silent permission repair during layout creation
+        acl.ensure_directory(store.root)  # explicit metadata repair; no child propagation
         assert acl.inspect(unrelated) == before
         assert (unrelated / "keep.txt").read_bytes() == b"unrelated bytes"
     finally:

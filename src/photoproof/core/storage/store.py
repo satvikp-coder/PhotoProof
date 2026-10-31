@@ -97,7 +97,7 @@ def _fsync_directory(directory: Path) -> None:
 
 class RuntimeStorage:
     def __init__(self, root: Path) -> None:
-        self.root = root
+        self.root = root.resolve() if _WINDOWS else root
         self._publication_lock = threading.RLock()
 
     def path(self, *parts: str) -> Path:
@@ -113,9 +113,9 @@ class RuntimeStorage:
         created = self.missing_dirs()
         if _WINDOWS:
             try:
-                windows_acl.ensure_directory(self.root)
+                windows_acl.ensure_directory(self.root, repair_existing=False)
                 for name in RUNTIME_DIRS:
-                    windows_acl.ensure_directory(self.root / name)
+                    windows_acl.ensure_directory(self.root / name, repair_existing=False)
                 return created
             except windows_acl.UnsupportedACL as error:
                 # Allow diagnosis on unsupported stores, never report ACL protection.
@@ -137,11 +137,12 @@ class RuntimeStorage:
             if not self.root.exists():
                 return []  # absence is covered by runtime.directories
             windows_acl.require_supported_volume(self.root)
+            snapshots: dict[Path, windows_acl.ACLSnapshot] = {}
             return [
                 name
-                for name, path, directory, readonly in self._windows_targets()
+                for name, path, directory, readonly in self._windows_targets(_snapshots=snapshots)
                 if windows_acl.problems(
-                    windows_acl.inspect(path),
+                    snapshots.get(path) or windows_acl.inspect(path, _scan_root=self.root),
                     directory=directory,
                     readonly=readonly,
                     protected=name in (".", *RUNTIME_DIRS),
@@ -155,7 +156,9 @@ class RuntimeStorage:
             if (self.root / name).is_dir() and (self.root / name).stat().st_mode & 0o077
         ]
 
-    def _windows_targets(self) -> Iterator[tuple[str, Path, bool, bool]]:
+    def _windows_targets(
+        self, *, _snapshots: dict[Path, windows_acl.ACLSnapshot] | None = None
+    ) -> Iterator[tuple[str, Path, bool, bool]]:
         """Only the root and known managed trees; never follow reparse points."""
         if sys.platform != "win32":
             raise windows_acl.UnsupportedACL("native runtime ACL traversal requires Windows")
@@ -168,7 +171,11 @@ class RuntimeStorage:
             while stack:
                 directory = stack.pop()
                 # Inspect before enumeration so junctions cannot redirect the traversal.
-                windows_acl.inspect(directory)
+                snapshot = windows_acl.inspect(
+                    directory, _scan_root=self.root if _snapshots is not None else None
+                )
+                if _snapshots is not None:
+                    _snapshots[directory] = snapshot
                 yield directory.relative_to(self.root).as_posix(), directory, True, False
                 with os.scandir(directory) as entries:
                     for entry in entries:
