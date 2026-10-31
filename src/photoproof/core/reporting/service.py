@@ -65,7 +65,7 @@ def generate_report(
                 or storage.blob_path("objects", item.sha256).stat().st_size != item.size
             ):
                 raise ReportError(
-                    "input evidence is missing or fails hash verification; report not generated"
+                    "input evidence is missing or fails hash/size verification; report not generated"
                 )
         for artifact in report.artifacts:
             if (
@@ -73,7 +73,7 @@ def generate_report(
                 or storage.blob_path("artifacts", artifact.sha256).stat().st_size != artifact.size
             ):
                 raise ReportError(
-                    "artifact evidence is missing or fails hash verification; report not generated"
+                    "artifact evidence is missing or fails hash/size verification; report not generated"
                 )
         payload = (
             canonical_report_json(report)

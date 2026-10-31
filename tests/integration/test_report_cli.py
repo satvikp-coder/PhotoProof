@@ -72,8 +72,9 @@ def test_tampered_and_unrecorded_manifests_are_refused(
 
 
 @pytest.mark.parametrize("kind", ["objects", "artifacts"])
+@pytest.mark.parametrize("damage", ["missing", "corrupt", "wrong_size"])
 def test_missing_blob_is_not_reported_as_verified(
-    make_app: Factory, target_file: Path, kind: str
+    make_app: Factory, target_file: Path, kind: str, damage: str
 ) -> None:
     app = make_app()
     run_id, path = stored_run(app, target_file)
@@ -82,8 +83,20 @@ def test_missing_blob_is_not_reported_as_verified(
         manifest["inputs"][0]["sha256"] if kind == "objects" else manifest["artifacts"][0]["sha256"]
     )
     blob = app.storage.blob_path(kind, digest)
-    blob.chmod(0o600)  # disposable main-branch fixture, not the unmerged Windows ACL implementation
-    blob.unlink()
+    if damage == "wrong_size":
+        manifest["inputs" if kind == "objects" else "artifacts"][0]["size"] += 1
+        data = json.dumps(manifest).encode()
+        path.write_bytes(data)
+        app.database()._conn.execute(
+            "UPDATE runs SET manifest_sha256 = ? WHERE run_id = ?", (sha256_bytes(data), run_id)
+        )
+    else:
+        # Deliberately damage disposable synthetic bytes only, to verify refusal.
+        blob.chmod(0o600)
+        if damage == "missing":
+            blob.unlink()
+        else:
+            blob.write_bytes(b"corrupted synthetic data")
     with pytest.raises(ReportError, match="missing or fails hash"):
         app.report(run_id, format="html")
     assert not app.storage.path("reports", run_id).exists()

@@ -55,8 +55,21 @@ def test_offline_autoescaping_privacy_and_no_preview_embedding() -> None:
 
 
 def test_fixed_language_has_no_unsupported_claims_or_probabilities() -> None:
-    for status in ("COMPLETED", "INCOMPLETE", "ABORTED", "BLOCKED", "NO_DETECTORS"):
-        html = render_html(build_report(manifest(status=status)))
+    sources = [
+        manifest(status=status)
+        for status in ("COMPLETED", "INCOMPLETE", "ABORTED", "BLOCKED", "NO_DETECTORS")
+    ]
+    sources.extend(
+        manifest(assessment=category, comparison=category == "differences_found")
+        for category in (
+            "manipulation_indicated",
+            "differences_found",
+            "no_indicators_found_with_sufficient_coverage",
+            "inconclusive",
+        )
+    )
+    for source in sources:
+        html = render_html(build_report(source))
         assert re.search(r"\b(authentic|genuine|real)\b", html, re.IGNORECASE) is None
         assert "proven manipulated" not in html.lower()
         assert "definitively unmodified" not in html.lower()
