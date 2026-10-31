@@ -11,7 +11,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from photoproof.contracts.analysis import AnalysisRequest, InputDescriptor
+from photoproof.contracts.analysis import AnalysisRequest
 from photoproof.contracts.enums import RunStatus
 from photoproof.contracts.events import Event, EventType
 from photoproof.contracts.exceptions import (
@@ -222,22 +222,21 @@ def cmd_analyze(app: Application, args: argparse.Namespace) -> int:
     controller = AnalysisController(app)
     # Before ingesting, so a mistyped profile does not leave a copy of the image behind.
     controller.resolve_profile(args.profile, has_reference=args.reference is not None)
-    evidence = app.evidence()
-    target = evidence.ingest(args.target, role="target")
-    reference = evidence.ingest(args.reference, role="reference") if args.reference else None
+    ingestion = app.ingestion()
+    target, target_record = ingestion.ingest_path(args.target, role="target")
+    reference, reference_record = (
+        ingestion.ingest_path(args.reference, role="reference") if args.reference else (None, None)
+    )
     request = AnalysisRequest(
-        target=InputDescriptor(role="target", sha256=target.sha256, size=target.size),
-        reference=(
-            InputDescriptor(role="reference", sha256=reference.sha256, size=reference.size)
-            if reference
-            else None
-        ),
+        target=target,
+        reference=reference,
         profile=args.profile,
         use_cache=not args.no_cache,
     )
     result = controller.analyze(request, override=_override(args))
     app.database().link_submissions(
-        [record.submission_id for record in (target, reference) if record], result.run_id
+        [record.submission_id for record in (target_record, reference_record) if record],
+        result.run_id,
     )
     if args.json:
         print(result.model_dump_json(indent=2))

@@ -7,8 +7,10 @@ submitted file name is metadata only. It never contributes to a path.
 
 import hashlib
 import io
+import logging
 import os
 import tempfile
+from collections.abc import Collection
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,7 +20,9 @@ from photoproof.contracts.exceptions import InputRejectedError, StorageError
 from photoproof.core.database.store import Database
 from photoproof.core.security.inputs import open_regular_file
 from photoproof.core.storage.store import RuntimeStorage
+from photoproof.imaging.formats import HEADER_BYTES, detect_format, format_from_name
 
+LOGGER = logging.getLogger(__name__)
 _CHUNK = 1 << 20
 _MAX_NAME_CHARS = 4096
 _NOT_A_LINK = getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
@@ -31,15 +35,22 @@ class EvidenceRecord:
     first_seen_at: str
     submission_id: int
     is_new: bool  # False when identical bytes were already stored
+    media_format: str | None  # from the file's signature; None if it matches no known format
 
 
 class EvidenceStore:
     def __init__(
-        self, storage: RuntimeStorage, database: Database, *, max_input_bytes: int
+        self,
+        storage: RuntimeStorage,
+        database: Database,
+        *,
+        max_input_bytes: int,
+        accepted_formats: Collection[str] | None = None,
     ) -> None:
         self._storage = storage
         self._database = database
         self._max_input_bytes = max_input_bytes
+        self._accepted_formats = accepted_formats  # None accepts every format
 
     def ingest(
         self, source: Path | bytes, *, role: str, original_name: str | None = None
@@ -58,7 +69,8 @@ class EvidenceStore:
         name = _storable_name(original_name)  # before opening, so nothing needs closing
         reader = io.BytesIO(source) if isinstance(source, bytes) else open_regular_file(source)
         with reader:
-            sha256, size = self._store(reader, label)
+            sha256, size, media_format = self._store(reader, label)
+        _note_extension_mismatch(sha256, name, media_format)
         row = self._database.record_submission(
             sha256=sha256, size=size, role=role, original_name=name
         )
@@ -68,6 +80,7 @@ class EvidenceStore:
             first_seen_at=str(row["first_seen_at"]),
             submission_id=int(str(row["submission_id"])),
             is_new=bool(row["is_new"]),
+            media_format=media_format,
         )
 
     def open(self, sha256: str) -> BinaryIO:
@@ -97,8 +110,8 @@ class EvidenceStore:
             raise
         return handle
 
-    def _store(self, reader: BinaryIO, label: str) -> tuple[str, int]:
-        """Copy to ``tmp/`` while hashing, then publish. Returns ``(sha256, size)``."""
+    def _store(self, reader: BinaryIO, label: str) -> tuple[str, int, str | None]:
+        """Copy to ``tmp/`` while hashing, then publish. Returns hash, size and format."""
         self._storage.prepare_blob_write()  # reject unsupported stores before staging evidence
         try:
             descriptor, name = tempfile.mkstemp(dir=self._storage.path("tmp"), prefix="evidence-")
@@ -107,7 +120,7 @@ class EvidenceStore:
         temporary = Path(name)
         try:
             with os.fdopen(descriptor, "wb") as output:
-                sha256, size = self._copy(reader, output, label)
+                sha256, size, media_format = self._copy(reader, output, label)
                 output.flush()
                 os.fsync(output.fileno())
             self._storage.publish_blob("objects", temporary, sha256)
@@ -119,11 +132,12 @@ class EvidenceStore:
         finally:  # a hard kill skips this; runtime.stale_temp cleans up after that
             with suppress(OSError):
                 temporary.unlink(missing_ok=True)
-        return sha256, size
+        return sha256, size, media_format
 
-    def _copy(self, reader: BinaryIO, output: BinaryIO, label: str) -> tuple[str, int]:
+    def _copy(self, reader: BinaryIO, output: BinaryIO, label: str) -> tuple[str, int, str | None]:
         digest = hashlib.sha256()
         size = 0
+        header = b""
         while True:
             try:
                 chunk = reader.read(_CHUNK)
@@ -138,9 +152,30 @@ class EvidenceStore:
                 )
             digest.update(chunk)
             output.write(chunk)
+            if len(header) < HEADER_BYTES:
+                header += chunk[: HEADER_BYTES - len(header)]
         if size == 0:
             raise InputRejectedError(f"{label}: the file is empty; there is nothing to analyse")
-        return digest.hexdigest(), size
+        media_format = detect_format(header)
+        accepted = self._accepted_formats
+        if media_format is not None and accepted is not None and media_format not in accepted:
+            raise InputRejectedError(
+                f"format {media_format} is not accepted by settings.formats.accepted "
+                f"({', '.join(accepted) or 'none'}); add it there to analyse this file"
+            )
+        return digest.hexdigest(), size, media_format
+
+
+def _note_extension_mismatch(sha256: str, name: str | None, media_format: str | None) -> None:
+    """A wrong extension is a provenance note for the record, not an error."""
+    claimed = format_from_name(name) if name else None
+    if claimed and media_format and claimed != media_format:  # the name itself stays out of logs
+        LOGGER.info(
+            "evidence %s has a %s extension but its signature says %s",
+            sha256,
+            claimed,
+            media_format,
+        )
 
 
 def _storable_name(name: str | None) -> str | None:
@@ -149,7 +184,7 @@ def _storable_name(name: str | None) -> str | None:
     Non-UTF-8 file names reach Python as lone surrogates, which SQLite cannot store, so
     those bytes become visible escapes.
     """
-    if name is None:
+    if not name:
         return None
     if len(name) > _MAX_NAME_CHARS:
         raise InputRejectedError(f"file name is longer than {_MAX_NAME_CHARS} characters")

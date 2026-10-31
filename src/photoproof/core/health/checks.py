@@ -22,6 +22,7 @@ from photoproof.contracts.exceptions import (
 )
 from photoproof.core.cache.run_cache import RunCache
 from photoproof.core.database.store import LATEST_VERSION, Database
+from photoproof.core.isolation import capabilities
 from photoproof.core.pipeline.planner import validate_graph
 from photoproof.core.storage.store import BlobKind
 from photoproof.core.storage.windows_acl import UnsupportedACL
@@ -399,11 +400,40 @@ def check_policy_references(app: "Application") -> CheckResult:
     )
 
 
+def check_isolation(app: "Application") -> CheckResult:
+    """Which child-process limits this platform can enforce. A limit it cannot enforce is
+    information for the operator, not a fault: the wall-clock limit always applies."""
+    found = capabilities()
+    limits = ", ".join(
+        f"{name}: {mechanism or 'not enforceable on this platform'}"
+        for name, mechanism in (("memory", found.memory), ("cpu", found.cpu))
+    )
+    return _ok("isolation.capabilities", f"{limits}, wall clock: enforced")
+
+
+def check_imaging_codecs(app: "Application") -> CheckResult:
+    missing = app.decoders.missing(app.settings.formats.accepted)
+    if not missing:
+        return _ok("imaging.codecs", "every accepted format has a decoder")
+    return CheckResult(
+        "imaging.codecs",
+        Severity.WARNING,
+        f"{len(missing)} accepted formats have no decoder: {', '.join(sorted(missing))}",
+        tuple(f"{name}: needs {package}" for name, package in sorted(missing.items())),
+        RepairAction(
+            "install what each format needs, or remove it from formats.accepted",
+            Repairability.MANUAL,
+        ),
+    )
+
+
 def default_registry(*, deep: bool = True) -> HealthRegistry:
     """``deep=False`` (preflight) skips re-hashing stored data; ``doctor`` runs deep."""
     registry = HealthRegistry()
     for check_id, check in (
         ("runtime.directories", check_runtime_directories),
+        ("isolation.capabilities", check_isolation),
+        ("imaging.codecs", check_imaging_codecs),
         ("runtime.permissions", check_runtime_permissions),
         ("runtime.disk_space", check_disk_space),
         ("runtime.stale_temp", check_stale_temp),

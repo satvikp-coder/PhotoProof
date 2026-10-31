@@ -18,7 +18,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Literal
 
@@ -342,6 +342,7 @@ class RuntimeStorage:
     @contextmanager
     def temp_file(self, suffix: str = "") -> Iterator[Path]:
         """Owner-only temporary file under ``tmp/``, removed on exit."""
+        self.prepare_blob_write()
         fd, name = tempfile.mkstemp(dir=self.path("tmp"), suffix=suffix)
         os.close(fd)
         path = Path(name)
@@ -350,23 +351,51 @@ class RuntimeStorage:
         finally:
             path.unlink(missing_ok=True)
 
+    @contextmanager
+    def quarantine_file(self) -> Iterator[Path]:
+        """Owner-only staging file under ``quarantine/`` with a random name, removed on exit."""
+        if _WINDOWS:
+            self.prepare_blob_write()
+            quarantine = self.root / "quarantine"
+            if not quarantine.is_dir():
+                raise StorageError(
+                    f"{quarantine}: cannot create a quarantine file; directory missing"
+                )
+            windows_acl.ensure_directory(quarantine, repair_existing=False)
+        try:
+            fd, name = tempfile.mkstemp(dir=self.path("quarantine"), prefix="staged-")
+        except OSError as error:
+            raise StorageError(f"cannot create a quarantine file: {error}") from error
+        os.close(fd)
+        path = Path(name)
+        try:
+            yield path
+        finally:
+            with suppress(OSError):  # a leftover is cleaned by runtime.stale_temp
+                path.unlink(missing_ok=True)
+
     def stale_temp_files(self, max_age_hours: int, *, now: float | None = None) -> list[Path]:
-        """Old files in ``tmp/`` plus ``.*.part`` leftovers of interrupted atomic writes."""
+        """Old files in ``tmp/`` and ``quarantine/``, plus ``.*.part`` leftovers of interrupted
+        atomic writes."""
         cutoff = (time.time() if now is None else now) - max_age_hours * 3600
-        tmp = self.root / "tmp"
-        candidates = list(tmp.iterdir()) if tmp.is_dir() else []
+        candidates: list[Path] = []
+        for name in ("tmp", "quarantine"):
+            directory = self.root / name
+            if directory.is_dir():
+                candidates += directory.iterdir()
         candidates += self.root.glob("**/.*.part") if self.root.is_dir() else []
         return sorted(p for p in set(candidates) if p.is_file() and p.stat().st_mtime < cutoff)
 
     def remove_temp_files(self, paths: list[Path]) -> list[Path]:
         """Delete specific temporary files. Refuses anything that is not directly inside
-        ``tmp/`` or an atomic-write leftover (``.*.part``) under the runtime root."""
-        tmp, root = self.path("tmp"), self.root.resolve()
+        ``tmp/`` or ``quarantine/``, or an atomic-write leftover (``.*.part``) under the
+        runtime root."""
+        staging, root = {self.path("tmp"), self.path("quarantine")}, self.root.resolve()
         removed = []
         for path in paths:
             resolved = path.resolve()
             leftover = resolved.name.startswith(".") and resolved.name.endswith(".part")
-            if resolved.parent != tmp and not (leftover and root in resolved.parents):
+            if resolved.parent not in staging and not (leftover and root in resolved.parents):
                 raise StorageError(f"refusing to delete {resolved}: not a temporary file")
             resolved.unlink(missing_ok=True)
             removed.append(resolved)

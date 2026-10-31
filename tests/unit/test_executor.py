@@ -187,6 +187,71 @@ def test_not_applicable(tmp_path: Path, settings) -> None:  # type: ignore[no-un
     assert report.status(execution_plan.required) is RunStatus.COMPLETED
 
 
+def _run_with_formats(
+    tmp_path: Path,
+    settings,  # type: ignore[no-untyped-def]
+    run_inputs: Mapping[str, object],
+    **metadata: object,
+) -> dict[str, S]:
+    execution_plan = _setup(tmp_path, settings, meta("p.a", **metadata))
+    executor = SequentialExecutor(
+        bus=EventBus(), on_required_failure="abort", default_timeout_seconds=5
+    )
+    report = executor.execute(
+        execution_plan, run_id="r", run_inputs=run_inputs, invoke=lambda *_: {"p.a.out": 1}
+    )
+    return _states(report)
+
+
+def _target(media_format: str | None) -> dict[str, object]:
+    return {"input.target": {"role": "target", "media_format": media_format}}
+
+
+def test_plugin_runs_on_a_supported_format(tmp_path: Path, settings) -> None:  # type: ignore[no-untyped-def]
+    states = _run_with_formats(tmp_path, settings, _target("jpeg"), supported_formats=["jpeg"])
+    assert states == {"p.a": S.SUCCESS}
+
+
+def test_plugin_is_not_applicable_to_another_format(tmp_path: Path, settings) -> None:  # type: ignore[no-untyped-def]
+    states = _run_with_formats(tmp_path, settings, _target("png"), supported_formats=["jpeg"])
+    assert states == {"p.a": S.NOT_APPLICABLE}
+
+
+def test_plugin_is_not_applicable_to_an_unknown_format(tmp_path: Path, settings) -> None:  # type: ignore[no-untyped-def]
+    states = _run_with_formats(tmp_path, settings, _target(None), supported_formats=["jpeg"])
+    assert states == {"p.a": S.NOT_APPLICABLE}
+
+
+def test_plugin_without_declared_formats_runs_on_anything(tmp_path: Path, settings) -> None:  # type: ignore[no-untyped-def]
+    assert _run_with_formats(tmp_path, settings, _target(None)) == {"p.a": S.SUCCESS}
+
+
+def test_declared_reference_must_also_be_supported(tmp_path: Path, settings) -> None:  # type: ignore[no-untyped-def]
+    run_inputs = {
+        **_target("jpeg"),
+        "input.reference": {"role": "reference", "media_format": "png"},
+    }
+    states = _run_with_formats(
+        tmp_path,
+        settings,
+        run_inputs,
+        supported_formats=["jpeg"],
+        inputs=["input.target", "input.reference"],
+    )
+    assert states == {"p.a": S.NOT_APPLICABLE}
+
+
+def test_undeclared_reference_is_ignored(tmp_path: Path, settings) -> None:  # type: ignore[no-untyped-def]
+    run_inputs = {
+        **_target("jpeg"),
+        "input.reference": {"role": "reference", "media_format": "png"},
+    }
+    states = _run_with_formats(
+        tmp_path, settings, run_inputs, supported_formats=["jpeg"], inputs=["input.target"]
+    )
+    assert states == {"p.a": S.SUCCESS}
+
+
 def test_interruption_aborts_run(tmp_path: Path, settings) -> None:  # type: ignore[no-untyped-def]
     def interrupt(_: Mapping[str, object]) -> Mapping[str, object]:
         raise KeyboardInterrupt
