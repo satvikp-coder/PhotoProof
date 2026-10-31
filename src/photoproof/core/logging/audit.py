@@ -13,6 +13,7 @@ from pathlib import Path
 
 from photoproof.contracts.exceptions import StorageError
 from photoproof.core.storage.managed import checked_path, identity
+from photoproof.core.storage.store import _fsync_directory
 
 if sys.platform == "win32":
     import msvcrt
@@ -112,5 +113,6 @@ def append_audit(path: Path, record: object, *, max_bytes: int = 5_000_000) -> N
                     raise StorageError("audit append made no progress")
                 view = view[written:]
             os.fsync(descriptor)
+            _fsync_directory(path.parent)
         finally:
             os.close(descriptor)
