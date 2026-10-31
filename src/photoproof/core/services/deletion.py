@@ -125,9 +125,11 @@ class DeletionService:
             checked_path(
                 self.app.storage.root, directory.relative_to(self.app.storage.root).as_posix()
             )
-            if directory.name != run_id:
-                # Report contracts are not yet implemented on this base; retained/unknown
-                # reports conservatively protect all candidate derived artifacts.
+            # Report contracts are not yet implemented on this base; retained/unknown
+            # report data conservatively protects artifacts, while empty directories do not.
+            if directory.name != run_id and (
+                not directory.is_dir() or next(directory.iterdir(), None) is not None
+            ):
                 protected.update(selected_hashes)
         directory = checked_path(self.app.storage.root, f"reports/{run_id}")
         if directory.exists():

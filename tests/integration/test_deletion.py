@@ -318,3 +318,22 @@ def test_original_hash_mismatch_is_not_deletion_permission(make_app: Factory) ->
         DeletionService(app).delete(result.run_id, with_evidence=True)
     assert original.read_bytes() == b"corrupt synthetic data"
     assert app.database().get_run(result.run_id)
+
+
+def test_empty_prior_report_directory_does_not_protect_unshared_artifacts(
+    make_app: Factory,
+) -> None:
+    app = make_app()
+    first, _ = create_run(app)
+    second, _ = create_run(app, content=CONTENT + b"second independent run")
+    empty = app.storage.path("reports", first.run_id)
+    empty.mkdir()
+    DeletionService(app).delete(first.run_id)
+    assert empty.is_dir() and not list(empty.iterdir())
+    manifest = app.storage.read_json("manifests", f"{second.run_id}.json")
+    assert isinstance(manifest, dict)
+    DeletionService(app).delete(second.run_id)
+    assert all(
+        not app.storage.blob_path("artifacts", ref["sha256"]).exists()
+        for ref in manifest["artifacts"]
+    )
