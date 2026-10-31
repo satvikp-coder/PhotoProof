@@ -109,7 +109,13 @@ def preflight(app: "Application", registry: HealthRegistry) -> PreflightReport:
     """
     results = registry.run_all(app)
     repairs: list[RepairRecord] = []
-    if app.settings.recovery.auto_repair_safe and any(not r.ok for r in results):
+    if app.settings.recovery.auto_repair_safe and any(
+        not r.ok
+        and r.repair is not None
+        and r.repair.category is Repairability.SAFE
+        and r.repair.apply is not None
+        for r in results
+    ):
         repairs = run_repairs(app, registry, allow_controlled=False, dry_run=False, results=results)
         results = registry.run_all(app)
     threshold = Severity(app.settings.health.preflight_fail_on).rank

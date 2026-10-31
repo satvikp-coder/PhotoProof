@@ -26,7 +26,7 @@ from photoproof.core.health.checks import (
     check_stale_runs,
     check_stale_temp,
 )
-from photoproof.core.health.repair import run_repairs
+from photoproof.core.health.repair import preflight, run_repairs
 from photoproof.core.logging.audit import append_record, audit_problems
 from photoproof.core.storage.locking import file_lock
 from photoproof.core.storage.processes import owner_state, process_token
@@ -375,6 +375,12 @@ def test_remote_run_is_a_manual_finding_not_aborted(app_root: Path) -> None:
         result = check_stale_runs(app)
         assert result.severity is Severity.WARNING
         assert result.repair is not None and result.repair.apply is None
+        checks = HealthRegistry()
+        checks.register("database.stale_runs", check_stale_runs)
+        # A diagnostic-only warning must not attempt an exclusive upgrade at startup.
+        with file_lock(app.storage.root, exclusive=False):
+            report = preflight(app, checks)
+            assert report.passed and report.repairs == []
         db.mark_runs_aborted(["remote"])
         assert db.get_run("remote")["finished_at"] is None
     finally:

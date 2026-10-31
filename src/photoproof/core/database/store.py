@@ -138,7 +138,7 @@ class Database:
         if version < LATEST_VERSION:
             try:
                 db._migrate(version)
-            except DatabaseError:
+            except BaseException:  # also close on lock failure or interrupted acquisition
                 conn.close()
                 raise
         return db
