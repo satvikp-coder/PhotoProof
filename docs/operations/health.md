@@ -8,7 +8,7 @@ checks **never** change anything; repairs are separate, classified actions.
 | ID | Detects | Severity | Repair |
 |---|---|---|---|
 | `runtime.directories` | Missing `ARE/` directories | error | SAFE: create (0700) |
-| `runtime.permissions` | Runtime directories accessible to other users (POSIX) | warning | SAFE: chmod 0700 |
+| `runtime.permissions` | POSIX group/world-accessible directories; Windows noncanonical managed path ACLs or unprotected blobs | POSIX warning; Windows error; unsupported Windows volume warning/manual | SAFE: chmod 0700 or native ACL/read-only repair and readback |
 | `runtime.disk_space` | Free space below `resources.min_free_disk_mb` | error | MANUAL |
 | `runtime.stale_temp` | Old files in `tmp/`, interrupted-write `.*.part` leftovers | warning | SAFE: delete exactly those files |
 | `database.integrity` | Missing DB (warning, SAFE init); pending migration (error, CONTROLLED: back up then migrate); newer/unknown schema or failed `PRAGMA integrity_check` (critical, MANUAL) | — | — |
@@ -23,7 +23,8 @@ checks **never** change anything; repairs are separate, classified actions.
 
 **Quick and deep mode.** Preflight (every launch) runs the checks in quick mode:
 `storage.integrity` only verifies that blobs sit at well-formed content addresses and
-`cache.integrity` only parses entries, so startup time does not grow with stored data.
+`cache.integrity` only parses entries. Windows permission verification also walks the
+managed trees and checks metadata, so its cost grows with the number of entries.
 `doctor` and `repair` run deep mode and re-hash every blob and cached artifact. The
 cache always verifies artifacts before reusing them, whatever the mode.
 

@@ -12,7 +12,7 @@
 | Plugin policy | Unauthorized bypass of the blacklist | Local-CLI-only, settings-gated, forbidden in production, audited | WebKit authentication |
 | Supply chain | Tampered dependencies | Hash-pinned lockfiles, `--only-binary`, pip-audit, Dependabot, pinned action SHAs; `doctor` reports unlocked packages | Automated relocking (#78), exact venv sync (#83) |
 | Results | Edited manifests or audit entries | Manifests verified against the DB hash | Hash-chained audit trail (#81) |
-| Runtime data on Windows | Other local users reading evidence | — (POSIX modes only) | Owner-only ACLs (#80) |
+| Runtime data on Windows | Other local users reading/changing runtime data | Protected SID allowlist, native DACL verification and SAFE repair on local ACL-capable volumes | Authentication and broader isolation remain separate concerns |
 | Users' privacy | Retained uploads and metadata | Runtime data is local and Git-ignored | Retention controls, metadata-free previews |
 
 ## Trust boundaries and assumptions
@@ -116,6 +116,52 @@ argument lists only). Runtime directories are 0700; blobs are 0400. `GITHUB_TOKE
 permissions default to `contents: read`. Only the release job can write contents, and the
 milestone job can write pull requests.
 
+### Windows runtime ACL boundary
+
+On local volumes reporting `FS_PERSISTENT_ACLS` (normally NTFS/ReFS), directories
+receive a protected DACL **at creation**, rather than inheriting broad parent access
+and restricting it afterward. Exactly these principals are approved:
+
+- The process token's **TokenUser SID** (local or domain account), full control.
+- LocalSystem (`S-1-5-18`), full control for service/backup access.
+- Built-in Administrators (`S-1-5-32-544`), full control for administrative recovery.
+
+There are no grants to Everyone, Users or Authenticated Users. No username parsing,
+localized account lookup, shell command, privilege enabling or ownership takeover is
+used in production. New directory ownership is explicitly the token user. Existing
+ownership must already belong to the user, SYSTEM or Administrators; other owners
+require explicit operator-managed migration, never an automatic takeover.
+
+`runtime.permissions` inspects actual owners, DACL control flags, ACE types, SIDs,
+rights and file attributes. It checks the root and directories/files in the ten
+managed runtime trees, including nested hash/cache directories. Unauthorized inherited
+grants are findings, just like explicit grants. Root/top-level DACLs must be protected;
+canonical inherited grants inside those boundaries are allowed. NULL DACLs,
+unknown/conditional/object ACEs and uninspectable permissions never count as healthy.
+The verifier requires a canonical policy, not a partial effective-access calculation
+for arbitrary ACLs.
+
+SAFE repair changes security metadata only on enumerated managed paths and rechecks
+the result. Directory handles use `MAXIMUM_ALLOWED` to prevent Win32
+`SetSecurityInfo` from automatically propagating changes to children, according to
+[Microsoft's documented handle behavior](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo).
+No recursive ACL command is used. Unknown entries directly under the runtime root and
+all paths outside it are not repermissioned. Reparse points/junctions inside the resolved runtime, redirected
+handles and hard links are refused so metadata operations cannot deliberately reach
+an unrelated target. Runtime ancestors must themselves be trusted: this is not a
+sandbox against an administrator concurrently changing ancestor paths or retaining
+already-open handles.
+
+Insecure Windows permissions are an **error**, blocking default preflight until
+repaired. An operation error or failed readback is reported, without a permissive
+fallback or ACL rollback that would reopen access. Unsupported filesystems, UNC
+paths and mapped network drives produce a **warning/manual finding**; diagnostics
+may run, but ACL confidentiality is not claimed and blob/evidence writes are refused
+before bytes are published. Logs/database operations on such a store are not
+certified private. Move the runtime to a trusted local ACL-capable volume. Actual
+SMB server policies, remote credentials and network ACL fidelity are outside the
+guarantee, even if a server advertises ACL support.
+
 ## Evidence preservation
 
 Originals are never modified or replaced. `analyze` stores each input before any
@@ -124,5 +170,42 @@ processing, and every read re-hashes it first (see the
 content-addressed artifacts, and manifests record every input and artifact hash.
 A corrupt or missing evidence blob is a MANUAL critical finding.
 
+On Windows, newly published blobs receive `FILE_ATTRIBUTE_READONLY` and a protected
+DACL granting **read only** (`FILE_GENERIC_READ`) to the same three principals.
+Normal new opens cannot write data or clear the read-only attribute. Sealing is
+verified before a successful hash is returned; failed sealing leaves bytes intact
+and reports failure. Existing valid blobs must already be sealed on reuse; broadened
+ACLs are reported rather than silently repaired by a write. Permission repair
+can restore blob metadata but never replaces bytes or repairs a hash mismatch.
+Security metadata changes may change filesystem metadata timestamps.
+
+Ordinary writes verify the root, staging and destination directories without repairing
+existing ACLs. Repairs belong to the audited SAFE health path. Publication through one
+`RuntimeStorage` instance is serialized so its concurrent writers cannot observe a
+half-sealed blob. Across instances/processes, an incompletely sealed blob can cause a safe, retryable
+permission failure; no existing original is replaced. Unsupported Windows storage is
+rejected before the evidence store creates a staging file.
+
+If a privileged actor removes the read-only attribute while leaving the read-only
+DACL sealed, the process may lack `WRITE_ATTRIBUTES` to restore it. This is detected
+and repair reports access denied; it does not temporarily broaden the blob DACL to
+obtain that right. Explicit owner-authorized metadata repair is then required.
+
+This is **not WORM storage**. Owners can explicitly change their DACLs; privileged
+administrators/SYSTEM can recover ownership or use backup privileges, and existing
+handles may retain rights granted before sealing. Hash and manifest verification
+remain necessary. A read-only bit alone is not access control or tamper-proofing.
+Existing POSIX subdirectory `0700` and blob `0400` behavior remains unchanged; the
+POSIX runtime root's creation mode still follows its existing parent/umask behavior.
+
 Report vulnerabilities privately: see
 [SECURITY.md](https://github.com/satvikp-coder/PhotoProof/blob/main/SECURITY.md).
+
+## Permission scan and initialization
+
+Layout creation checks existing ACLs without repairing them. Broad permissions remain
+a health finding until explicit/SAFE permission repair. Permission scans check the
+local volume once, reuse directory snapshots within that scan, and still inspect every
+managed file's actual ACL; no results are cached across scans. Windows findings block
+startup deliberately, because unreadable or unsupported native descriptors cannot be
+assumed private; POSIX warning behavior is preserved for compatibility.

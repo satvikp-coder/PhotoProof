@@ -11,8 +11,11 @@ Both are content-addressed (``<kind>/<sha[:2]>/<sha>``) and written read-only.
 import errno
 import hashlib
 import json
+import logging
 import os
+import sys
 import tempfile
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
@@ -21,6 +24,7 @@ from typing import Literal
 
 from photoproof.contracts.exceptions import StorageError
 from photoproof.core.security.paths import safe_join
+from photoproof.core.storage import windows_acl
 
 RUNTIME_DIRS = (
     "uploads",
@@ -37,6 +41,8 @@ RUNTIME_DIRS = (
 BlobKind = Literal["objects", "artifacts"]
 _POSIX = os.name == "posix"
 _NO_HARD_LINKS = {errno.EPERM, errno.ENOTSUP, errno.ENOSYS, errno.EOPNOTSUPP}
+_WINDOWS = os.name == "nt"
+_LOG = logging.getLogger(__name__)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -69,6 +75,10 @@ def atomic_write(path: Path, data: bytes, *, mode: int = 0o600) -> None:
         if _POSIX:
             tmp.chmod(mode)
         tmp.replace(path)
+        if _WINDOWS and mode == 0o400:
+            # Publication occurs within a private parent; seal metadata before returning.
+            # A failed seal leaves bytes intact and reports failure, never a successful hash.
+            windows_acl.restrict_file(path, readonly=True)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
@@ -87,7 +97,8 @@ def _fsync_directory(directory: Path) -> None:
 
 class RuntimeStorage:
     def __init__(self, root: Path) -> None:
-        self.root = root
+        self.root = root.resolve() if _WINDOWS else root
+        self._publication_lock = threading.RLock()
 
     def path(self, *parts: str) -> Path:
         return safe_join(self.root, *parts)
@@ -100,6 +111,16 @@ class RuntimeStorage:
     def ensure_layout(self) -> list[str]:
         """Create missing runtime directories; return the ones created."""
         created = self.missing_dirs()
+        if _WINDOWS:
+            try:
+                windows_acl.ensure_directory(self.root, repair_existing=False)
+                for name in RUNTIME_DIRS:
+                    windows_acl.ensure_directory(self.root / name, repair_existing=False)
+                return created
+            except windows_acl.UnsupportedACL as error:
+                # Allow diagnosis on unsupported stores, never report ACL protection.
+                # put_blob refuses these filesystems before writing evidence bytes.
+                _LOG.warning("Runtime ACL protection unavailable: %s", error)
         for name in RUNTIME_DIRS:
             directory = self.root / name
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -108,7 +129,25 @@ class RuntimeStorage:
         return created
 
     def insecure_dirs(self) -> list[str]:
-        """Runtime directories that other users can read or write (POSIX only)."""
+        """Insecure managed paths (Windows includes files), or POSIX subdirectories.
+
+        Native inspection failures raise StorageError, never an empty healthy list.
+        """
+        if _WINDOWS:
+            if not self.root.exists():
+                return []  # absence is covered by runtime.directories
+            windows_acl.require_supported_volume(self.root)
+            snapshots: dict[Path, windows_acl.ACLSnapshot] = {}
+            return [
+                name
+                for name, path, directory, readonly in self._windows_targets(_snapshots=snapshots)
+                if windows_acl.problems(
+                    snapshots.get(path) or windows_acl.inspect(path, _scan_root=self.root),
+                    directory=directory,
+                    readonly=readonly,
+                    protected=name in (".", *RUNTIME_DIRS),
+                )
+            ]
         if not _POSIX:
             return []
         return [
@@ -116,6 +155,68 @@ class RuntimeStorage:
             for name in RUNTIME_DIRS
             if (self.root / name).is_dir() and (self.root / name).stat().st_mode & 0o077
         ]
+
+    def _windows_targets(
+        self, *, _snapshots: dict[Path, windows_acl.ACLSnapshot] | None = None
+    ) -> Iterator[tuple[str, Path, bool, bool]]:
+        """Only the root and known managed trees; never follow reparse points."""
+        if sys.platform != "win32":
+            raise windows_acl.UnsupportedACL("native runtime ACL traversal requires Windows")
+        yield ".", self.root, True, False
+        for name in RUNTIME_DIRS:
+            base = self.root / name
+            if not base.exists():
+                continue
+            stack = [base]
+            while stack:
+                directory = stack.pop()
+                # Inspect before enumeration so junctions cannot redirect the traversal.
+                snapshot = windows_acl.inspect(
+                    directory, _scan_root=self.root if _snapshots is not None else None
+                )
+                if _snapshots is not None:
+                    _snapshots[directory] = snapshot
+                yield directory.relative_to(self.root).as_posix(), directory, True, False
+                with os.scandir(directory) as entries:
+                    for entry in entries:
+                        path = Path(entry.path)
+                        attributes = entry.stat(follow_symlinks=False).st_file_attributes
+                        if attributes & windows_acl.REPARSE_POINT:
+                            raise StorageError(
+                                f"{path}: refusing permission traversal of a reparse point"
+                            )
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(path)
+                        elif entry.is_file(follow_symlinks=False):
+                            relative = path.relative_to(self.root)
+                            readonly = (
+                                name in {"objects", "artifacts"}
+                                and len(relative.parts) == 3
+                                and len(path.name) == 64
+                                and all(c in "0123456789abcdef" for c in path.name)
+                            )
+                            yield relative.as_posix(), path, False, readonly
+
+    def restrict_permissions(self, names: list[str]) -> None:
+        """Apply the canonical policy only to enumerated managed paths, then verify."""
+        if _WINDOWS:
+            targets = {
+                name: (path, directory, readonly)
+                for name, path, directory, readonly in self._windows_targets()
+            }
+            for name in names:
+                if name not in targets:
+                    raise StorageError(
+                        f"refusing permission repair outside managed runtime: {name}"
+                    )
+                path, directory, readonly = targets[name]
+                if directory:
+                    windows_acl.ensure_directory(path)
+                else:
+                    windows_acl.restrict_file(path, readonly=readonly)
+        else:
+            for name in names:
+                self.path(name).chmod(0o700)
 
     # ------------------------------------------------------------ JSON files
 
@@ -143,8 +244,16 @@ class RuntimeStorage:
     def put_blob(self, kind: BlobKind, data: bytes) -> str:
         """Store ``data`` immutably and return its SHA-256. Idempotent."""
         digest = sha256_bytes(data)
+        if _WINDOWS and not self.root.exists():
+            windows_acl.require_supported_volume(self.root)
+            for directory in (self.root, self.root / "tmp", self.root / kind):
+                windows_acl.ensure_directory(directory, repair_existing=False)
+        self.prepare_blob_write(kind)
         target = self.blob_path(kind, digest)
-        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if _WINDOWS:
+            windows_acl.ensure_directory(target.parent, repair_existing=False, protected=False)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         fd, name = tempfile.mkstemp(dir=target.parent, prefix=f".{digest}.", suffix=".part")
         temporary = Path(name)
         try:
@@ -157,6 +266,17 @@ class RuntimeStorage:
             temporary.unlink(missing_ok=True)
         return digest
 
+    def prepare_blob_write(self, kind: BlobKind = "objects") -> None:
+        """Verify Windows privacy before staging bytes; POSIX publication is unchanged."""
+        if _WINDOWS:
+            windows_acl.require_supported_volume(self.root)
+            for directory in (self.root, self.root / "tmp", self.root / kind):
+                if not directory.is_dir():
+                    raise StorageError(
+                        f"{directory}: cannot create a temporary file; runtime directory missing"
+                    )
+                windows_acl.ensure_directory(directory, repair_existing=False)
+
     def publish_blob(self, kind: BlobKind, source: Path, sha256: str) -> bool:
         """Give the fully written ``source`` its content address, read-only.
 
@@ -164,10 +284,23 @@ class RuntimeStorage:
         True if this call created the blob and False if an intact copy already existed.
         Raises ``StorageError`` if the existing blob fails verification.
         """
+        if _WINDOWS:
+            with self._publication_lock:
+                return self._publish_blob(kind, source, sha256)
+        return self._publish_blob(kind, source, sha256)
+
+    def _publish_blob(self, kind: BlobKind, source: Path, sha256: str) -> bool:
+        self.prepare_blob_write(kind)
         target = self.blob_path(kind, sha256)
         if target.exists() or target.is_symlink():
             return self._existing_blob_is_intact(kind, sha256, target)
-        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if _WINDOWS:
+            windows_acl.ensure_directory(target.parent, repair_existing=False, protected=False)
+            # source is a caller-owned staging file, never the submitted original.
+            # A moved file keeps its DACL: privatize staging before publication.
+            windows_acl.restrict_file(source, readonly=False)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if _POSIX:
             source.chmod(0o400)
         try:
@@ -185,10 +318,20 @@ class RuntimeStorage:
                 ) from error
             raise
         _fsync_directory(target.parent)
+        if _WINDOWS:
+            windows_acl.restrict_file(target, readonly=True)
         return True
 
     def _existing_blob_is_intact(self, kind: BlobKind, sha256: str, target: Path) -> bool:
         if self.verify_blob(kind, sha256):
+            if _WINDOWS:
+                issues = windows_acl.problems(
+                    windows_acl.inspect(target), directory=False, readonly=True, protected=True
+                )
+                if issues:
+                    raise StorageError(
+                        f"{target}: insecure existing blob permissions; run --doctor and repair"
+                    )
             return False
         raise StorageError(f"{target}: existing blob fails verification; run --doctor")
 
@@ -206,6 +349,7 @@ class RuntimeStorage:
     @contextmanager
     def temp_file(self, suffix: str = "") -> Iterator[Path]:
         """Owner-only temporary file under ``tmp/``, removed on exit."""
+        self.prepare_blob_write()
         fd, name = tempfile.mkstemp(dir=self.path("tmp"), suffix=suffix)
         os.close(fd)
         path = Path(name)
@@ -217,6 +361,14 @@ class RuntimeStorage:
     @contextmanager
     def quarantine_file(self) -> Iterator[Path]:
         """Owner-only staging file under ``quarantine/`` with a random name, removed on exit."""
+        if _WINDOWS:
+            self.prepare_blob_write()
+            quarantine = self.root / "quarantine"
+            if not quarantine.is_dir():
+                raise StorageError(
+                    f"{quarantine}: cannot create a quarantine file; directory missing"
+                )
+            windows_acl.ensure_directory(quarantine, repair_existing=False)
         try:
             fd, name = tempfile.mkstemp(dir=self.path("quarantine"), prefix="staged-")
         except OSError as error:

@@ -1,14 +1,36 @@
 """Shared fixtures. Every test runs against a temporary copy of the configuration,
 so no test touches the developer's real .venv/, ARE/ or settings."""
 
+import os
 import shutil
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
-from helpers import REPO
+from helpers import REPO, make_blob_writable
 
 from photoproof.core.bootstrap import Application, bootstrap
+
+
+@pytest.fixture(autouse=True)
+def cleanup_private_windows_artifacts(tmp_path: Path) -> Iterator[None]:
+    """After assertions, restore owner write rights only on this test's readonly files.
+
+    Pytest cannot clear read-only attributes with chmod alone once a file DACL is
+    read-only. Do not follow junctions/symlinks or touch the developer's runtime.
+    """
+    yield
+    if os.name == "nt":
+        for directory, subdirs, files in os.walk(tmp_path, followlinks=False):
+            base = Path(directory)
+            subdirs[:] = [
+                name for name in subdirs if not (base / name).lstat().st_file_attributes & 0x400
+            ]
+            for name in files:
+                path = base / name
+                attributes = path.lstat().st_file_attributes
+                if attributes & 0x1 and not attributes & 0x400:
+                    make_blob_writable(path)
 
 
 @pytest.fixture

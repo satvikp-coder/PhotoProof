@@ -2,6 +2,8 @@ import os
 import time
 from collections.abc import Callable
 
+from helpers import make_blob_writable
+
 from photoproof.contracts.enums import Repairability, Severity
 from photoproof.core.bootstrap import Application
 from photoproof.core.health.checks import default_registry
@@ -46,7 +48,7 @@ def test_corrupt_evidence_is_never_repaired(make_app: Factory) -> None:
     app = make_app()
     sha = app.storage.put_blob("objects", b"original evidence")
     path = app.storage.blob_path("objects", sha)
-    path.chmod(0o600)
+    make_blob_writable(path)
     path.write_bytes(b"modified")
     result = _by_id(app)["storage.integrity"]
     assert result.severity is Severity.CRITICAL and result.repair.category is Repairability.MANUAL  # type: ignore[attr-defined]

@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from helpers import make_blob_writable
 
 from photoproof.cli import main as cli_main
 from photoproof.core.bootstrap import Application, bootstrap
@@ -98,7 +99,7 @@ def test_tampered_original_is_critical_in_doctor(
 ) -> None:
     analyze_json(app_root, capsys, str(target_file))
     blob = objects(app_root)[0]
-    blob.chmod(0o600)
+    make_blob_writable(blob)
     blob.write_bytes(b"forged")
 
     def check(app: Application) -> object:
@@ -114,7 +115,7 @@ def test_deleted_original_is_critical_in_doctor(
 ) -> None:
     analyze_json(app_root, capsys, str(target_file))
     blob = objects(app_root)[0]
-    blob.chmod(0o600)
+    make_blob_writable(blob)
     blob.unlink()
     result = inspect(app_root, lambda app: default_registry().run(app, "storage.integrity"))
     assert result.severity.value == "critical"  # type: ignore[attr-defined]

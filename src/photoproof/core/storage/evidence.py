@@ -112,6 +112,7 @@ class EvidenceStore:
 
     def _store(self, reader: BinaryIO, label: str) -> tuple[str, int, str | None]:
         """Copy to ``tmp/`` while hashing, then publish. Returns hash, size and format."""
+        self._storage.prepare_blob_write()  # reject unsupported stores before staging evidence
         try:
             descriptor, name = tempfile.mkstemp(dir=self._storage.path("tmp"), prefix="evidence-")
         except OSError as error:

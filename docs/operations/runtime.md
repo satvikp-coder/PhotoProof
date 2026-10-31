@@ -4,6 +4,9 @@
 
 `ARE/` (configurable via `runtime.root`) holds generated data only and is ignored by
 Git. Directories are created owner-only (0700) on POSIX.
+On supported local Windows volumes, the root and managed trees use protected
+user/SYSTEM/Administrators ACLs, verified through native APIs. See the
+[Windows security boundary](../security/index.md#windows-runtime-acl-boundary).
 
 | Directory | Contents |
 |---|---|
@@ -75,6 +78,37 @@ which takes a backup first.
 | `evidence` | `sha256` (primary key), `size`, `first_seen_at` |
 | `submissions` | `id`, `sha256`, `role`, `original_name`, `submitted_at`, `run_id` (null until the run finishes, or if it never did) |
 
+## Windows permissions and repair
+
+`python main.py --doctor` reports broad, unsupported or unreadable ACLs under
+`runtime.permissions`. On local ACL-capable volumes, SAFE repair replaces unexpected
+directory/file ACEs with the documented SID policy and verifies the actual result.
+`python main.py --repair --dry-run` previews actions; `python main.py --repair`
+applies them. Normal preflight also attempts SAFE repair when enabled. Failed
+Windows enforcement remains an error by default, never a healthy result.
+
+The root and all ten listed trees, including nested directories/files, are checked.
+Unknown entries directly under the root are outside managed permission repair; do not
+store unrelated material there. No recursive ACL command, outside-root traversal or
+evidence-byte rewrite occurs. The configured root is resolved once, so trusted ancestor junctions can select a
+local runtime. Reparse points/junctions inside that resolved runtime and hard-linked
+files are refused. Cloud/OneDrive redirection is not certified by the local tests. An unapproved owner requires
+operator-managed ownership migration. No elevation is attempted.
+
+Windows originals/artifacts use read-only attributes **and** read-only DACLs while
+allowing internal reads. SYSTEM/Administrators retain read access for backup/recovery
+on blobs and full access on directories/mutable files. Authorized owners can still
+change permissions explicitly; this is not immutable hardware storage. Existing
+hashes are checked as before; corrupt evidence remains MANUAL and never overwritten.
+
+UNC/network-mapped paths and volumes without persistent ACL support are unverified:
+initialization/doctor warn, permissions are not declared healthy, and blob writes
+fail before storing bytes. Logs/database confidentiality there is not guaranteed.
+Use local NTFS/ReFS and inspect native operation/readback errors before retrying.
+Windows CI tests real local DACLs and normal write denial. Domain-SID serialization
+and unsupported-volume/network error branches are tested separately; no domain-joined
+host or real SMB/FAT volume is certified by those simulated edge-case tests.
+
 ## Cache
 
 The run-level cache reuses a previous **COMPLETED** run only if the key matches and
@@ -124,3 +158,12 @@ python main.py manifest <run_id> --json  # full document
 ```
 
 Historic replay and environment restoration are planned.
+
+## Permission scan and initialization
+
+Layout creation checks existing ACLs without repairing them. Broad permissions remain
+a health finding until explicit/SAFE permission repair. Permission scans check the
+local volume once, reuse directory snapshots within that scan, and still inspect every
+managed file's actual ACL; no results are cached across scans. Windows findings block
+startup deliberately, because unreadable or unsupported native descriptors cannot be
+assumed private; POSIX warning behavior is preserved for compatibility.

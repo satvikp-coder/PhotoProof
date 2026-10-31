@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from helpers import RESULTS, meta, registry_of, update_settings
+from helpers import RESULTS, make_blob_writable, meta, registry_of, update_settings
 
 from photoproof.cli import main as cli_main
 from photoproof.contracts.analysis import AnalysisRequest, InputDescriptor
@@ -109,7 +109,7 @@ def test_quick_checks_skip_hashing_deep_checks_do_not(make_app: Factory) -> None
     app = make_app()
     sha = app.storage.put_blob("artifacts", b"payload")
     path = app.storage.blob_path("artifacts", sha)
-    path.chmod(0o600)
+    make_blob_writable(path)
     path.write_bytes(b"tampered")
     quick = {r.check_id: r for r in default_registry(deep=False).run_all(app)}
     deep = {r.check_id: r for r in default_registry(deep=True).run_all(app)}

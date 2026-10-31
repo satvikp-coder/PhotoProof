@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from helpers import make_blob_writable
 
 from photoproof.contracts.exceptions import (
     DatabaseError,
@@ -312,7 +313,7 @@ def test_bytes_without_a_name_are_allowed(store: EvidenceStore, database: Databa
 
 
 def _tamper(path: Path, data: bytes) -> None:
-    path.chmod(0o600)
+    make_blob_writable(path)
     path.write_bytes(data)
     path.chmod(0o400)
 
