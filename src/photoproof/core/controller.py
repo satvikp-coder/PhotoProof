@@ -7,9 +7,12 @@ never knows what any individual forensic plugin computes.
 
 import copy
 import logging
+import sqlite3
 import sys
+import threading
 import uuid
 from collections.abc import Mapping
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,7 +21,12 @@ from photoproof.contracts.analysis import AnalysisRequest, AnalysisResult, Plugi
 from photoproof.contracts.artifacts import ArtifactRef
 from photoproof.contracts.enums import AnalysisMode, ExecutionState, RunStatus
 from photoproof.contracts.events import EventType
-from photoproof.contracts.exceptions import ConfigurationError, InputRejectedError
+from photoproof.contracts.exceptions import (
+    ConfigurationError,
+    InputRejectedError,
+    ResourceLimitError,
+    StorageError,
+)
 from photoproof.contracts.plugins import PluginContext
 from photoproof.core.bootstrap import Application
 from photoproof.core.cache.run_cache import RunCache, cache_key
@@ -315,6 +323,11 @@ class AnalysisController:
         # SUCCESS, on this (main) thread. A timed-out plugin that keeps writing in the
         # background therefore never adds artifacts to the run.
         staged: dict[str, list[ArtifactRef]] = {}
+        budget_lock = threading.Lock()
+        produced_bytes = 0
+        exceeded: set[str] = set()
+        limit_mb = app.settings.quotas.max_run_artifacts_mb
+        limit = limit_mb * 1024 * 1024 if limit_mb is not None else None
 
         def invoke(plugin: RegisteredPlugin, inputs: Mapping[str, object]) -> Mapping[str, object]:
             entry = plugin.load_entry_point()
@@ -323,7 +336,26 @@ class AnalysisController:
             def write_artifact(name: str, data: bytes, media_type: str) -> ArtifactRef:
                 if any(ref.name == name for ref in staged.get(plugin.id, [])):
                     raise ValueError(f"{plugin.id}: artifact name {name!r} already written")
-                sha = app.storage.put_blob("artifacts", data)
+                nonlocal produced_bytes
+                # Reserve the cumulative budget even if publication fails. Late writes from
+                # timed-out threads cannot reset or bypass it.
+                with budget_lock:
+                    if limit is not None and produced_bytes + len(data) > limit:
+                        exceeded.add(plugin.id)
+                        raise ResourceLimitError(
+                            "run artifact quota exceeded; reduce plugin output"
+                        )
+                    produced_bytes += len(data)
+                # A separate connection belongs to this plugin thread. Housekeeping's
+                # exclusive transaction excludes publication and checks run liveness.
+                with closing(sqlite3.connect(app.database_path, timeout=5)) as guard:
+                    guard.execute("BEGIN IMMEDIATE")
+                    row = guard.execute(
+                        "SELECT finished_at FROM runs WHERE run_id = ?", (run_id,)
+                    ).fetchone()
+                    if row is None or row[0] is not None:
+                        raise StorageError("artifact publication refused: run is no longer active")
+                    sha = app.storage.put_blob("artifacts", data)
                 ref = ArtifactRef(
                     sha256=sha, name=name, media_type=media_type, size=len(data), producer=plugin.id
                 )
@@ -340,7 +372,10 @@ class AnalysisController:
                 write_artifact=write_artifact,
                 logger=logging.getLogger(f"photoproof.plugins.{plugin.id}"),
             )
-            return entry(ctx)
+            result = entry(ctx)
+            if plugin.id in exceeded:
+                raise ResourceLimitError("plugin exceeded the run artifact quota")
+            return result
 
         report = executor.execute(
             execution_plan, run_id=run_id, run_inputs=run_inputs, invoke=invoke

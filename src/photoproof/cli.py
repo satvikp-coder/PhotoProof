@@ -31,6 +31,7 @@ from photoproof.core.config.policy import (
 from photoproof.core.controller import AnalysisController
 from photoproof.core.health.checks import CheckResult, default_registry
 from photoproof.core.health.repair import preflight, publish_findings, run_repairs
+from photoproof.core.services.housekeeping import Housekeeping
 from photoproof.core.storage.store import sha256_file
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_CONFIG, EXIT_HEALTH, EXIT_NOT_COMPLETED = 0, 1, 2, 4, 6, 7
@@ -64,6 +65,10 @@ def _parser() -> argparse.ArgumentParser:
     analyze.add_argument("--no-cache", action="store_true")
     analyze.add_argument("--progress", action="store_true", help="print plugin progress to stderr")
     analyze.add_argument("--json", action="store_true")
+    housekeeping = sub.add_parser("housekeeping", help="plan runtime cleanup; dry run by default")
+    housekeeping.add_argument(
+        "--apply", action="store_true", help="explicitly authorize eligible deletions"
+    )
     manifest = sub.add_parser("manifest", help="show an execution manifest")
     manifest.add_argument("run_id")
     manifest.add_argument("--json", action="store_true")
@@ -296,6 +301,25 @@ def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
     return EXIT_OK
 
 
+def cmd_housekeeping(app: Application, *, apply: bool) -> int:
+    service = Housekeeping(app)
+    plan = service.plan()
+    print("Housekeeping: " + ("APPLY explicitly authorized" if apply else "DRY RUN; no changes"))
+    print("Protected: original evidence, retained references, audit trails, backups, unknown files")
+    for item in plan.candidates:
+        print(
+            f"  {item.data_class} {item.sha256}: {item.size} bytes; "
+            f"{item.age_days:.2f} days; {item.reason}"
+        )
+    for finding in plan.blocked:
+        print(f"  blocked: {finding}")
+    print(f"Projected reclaimed: {plan.reclaimed_bytes} bytes")
+    if apply:
+        removed = service.apply(plan, authorized=True)
+        print(f"Deleted {len(removed)} approved files")
+    return EXIT_ERROR if plan.blocked else EXIT_OK
+
+
 def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int:
     args = _parser().parse_args(argv)
     command = args.command or "status"
@@ -305,6 +329,8 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
         print(f"configuration error:\n{error}", file=sys.stderr)
         return EXIT_CONFIG
     try:
+        if command == "housekeeping":
+            return cmd_housekeeping(app, apply=args.apply)
         if command == "version":
             print(app.identity.application.version)
             return EXIT_OK

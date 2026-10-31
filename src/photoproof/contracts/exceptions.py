@@ -59,3 +59,7 @@ class EventDeliveryError(PhotoProofError):
 
 class InputRejectedError(PhotoProofError):
     """An input violated an input policy (size, type, location)."""
+
+
+class ResourceLimitError(PhotoProofError):
+    """A configured resource budget would be exceeded."""

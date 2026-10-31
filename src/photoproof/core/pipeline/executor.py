@@ -22,6 +22,7 @@ from photoproof.contracts.exceptions import (
     EventDeliveryError,
     NotApplicableError,
     PluginLoadError,
+    ResourceLimitError,
 )
 from photoproof.core.events.bus import EventBus
 from photoproof.core.pipeline.planner import ExecutionPlan
@@ -225,6 +226,8 @@ class SequentialExecutor:
         try:
             raw = _call_with_timeout(lambda: invoke(plugin, inputs), timeout, ex.plugin_id)
             outputs = normalize_outputs(plugin, raw)
+        except ResourceLimitError as error:
+            self._finish(run_id, ex, S.FAILED, FailureCategory.RESOURCE_LIMIT, str(error), error)
         except NotApplicableError as error:
             self._finish(run_id, ex, S.NOT_APPLICABLE, None, str(error))
         except _Timeout:

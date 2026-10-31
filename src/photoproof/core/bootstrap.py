@@ -140,7 +140,7 @@ def bootstrap(
     configure_logging(settings.logging, None)
     bus = EventBus()
     storage = RuntimeStorage(root / settings.runtime.root)
-    attach_event_logging(bus, storage.root / "logs")
+    attach_event_logging(bus, storage.path("logs"), audit_max_bytes=settings.logging.file_max_bytes)
 
     registry = PluginRegistry(
         discover(plugin_package), host_api=identity.application.plugin_api_version

@@ -23,6 +23,7 @@ from photoproof.core.cache.run_cache import RunCache
 from photoproof.core.database.store import LATEST_VERSION, Database
 from photoproof.core.isolation import capabilities
 from photoproof.core.pipeline.planner import validate_graph
+from photoproof.core.storage.managed import usage
 from photoproof.core.storage.store import BlobKind
 from photoproof.versioning.build import distribution_version
 
@@ -404,6 +405,32 @@ def check_imaging_codecs(app: "Application") -> CheckResult:
     )
 
 
+def check_storage_quota(app: "Application") -> CheckResult:
+    check_id = "storage.quota"
+    try:
+        size = usage(app.storage.root)
+    except (OSError, StorageError):
+        return CheckResult(
+            check_id,
+            Severity.ERROR,
+            "runtime usage uncertain; inspect paths/permissions and retry when idle",
+        )
+    quota = app.settings.quotas
+    if quota.max_total_mb is None:
+        return _ok(check_id, f"{size} managed bytes; total quota disabled")
+    limit = quota.max_total_mb * 1024 * 1024
+    severity = (
+        Severity.ERROR
+        if size >= limit
+        else (Severity.WARNING if size * 100 >= limit * quota.warn_at_percent else Severity.OK)
+    )
+    return CheckResult(
+        check_id,
+        severity,
+        f"{size}/{limit} runtime bytes; cleanup is never automatic; run housekeeping to plan",
+    )
+
+
 def default_registry(*, deep: bool = True) -> HealthRegistry:
     """``deep=False`` (preflight) skips re-hashing stored data; ``doctor`` runs deep."""
     registry = HealthRegistry()
@@ -413,6 +440,7 @@ def default_registry(*, deep: bool = True) -> HealthRegistry:
         ("imaging.codecs", check_imaging_codecs),
         ("runtime.permissions", check_runtime_permissions),
         ("runtime.disk_space", check_disk_space),
+        ("storage.quota", check_storage_quota),
         ("runtime.stale_temp", check_stale_temp),
         ("database.integrity", check_database),
         ("database.stale_runs", check_stale_runs),

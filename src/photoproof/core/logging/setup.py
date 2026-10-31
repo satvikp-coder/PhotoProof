@@ -11,12 +11,15 @@ import sys
 from pathlib import Path
 
 from photoproof.contracts.events import Event, EventType
+from photoproof.contracts.exceptions import StorageError
 from photoproof.core.config.validator import LoggingSettings
 from photoproof.core.events.bus import EventBus
+from photoproof.core.logging.audit import append_audit
 
 _STANDARD_ATTRS = set(vars(logging.makeLogRecord({}))) | {"message", "asctime"}
 
 AUDITED = (
+    EventType.HOUSEKEEPING_APPLIED,
     EventType.POLICY_OVERRIDE,
     EventType.INPUT_REJECTED,
     EventType.REPAIR_APPLIED,
@@ -76,7 +79,9 @@ def shutdown_logging() -> None:
             handler.close()
 
 
-def attach_event_logging(bus: EventBus, log_dir: Path | None) -> None:
+def attach_event_logging(
+    bus: EventBus, log_dir: Path | None, *, audit_max_bytes: int = 5_000_000
+) -> None:
     """Log every event; append audited events to the audit trail."""
     events_log = logging.getLogger("photoproof.events")
 
@@ -96,12 +101,15 @@ def attach_event_logging(bus: EventBus, log_dir: Path | None) -> None:
 
         def audit(event: Event) -> None:
             if not audit_path.parent.is_dir():  # before first-run setup: say so, do not crash
+                if event.type is EventType.HOUSEKEEPING_APPLIED:
+                    raise StorageError(
+                        "housekeeping requires an available audit directory; no deletion authorized"
+                    )
                 logging.getLogger("photoproof.audit").warning(
                     "audit trail unavailable (runtime directories missing): %s", event.type.value
                 )
                 return
-            with audit_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(event.to_dict(), default=str, sort_keys=True) + "\n")
+            append_audit(audit_path, event.to_dict(), max_bytes=audit_max_bytes)
 
         # The audit trail is security-relevant: losing an entry must be surfaced.
         bus.subscribe(audit, *AUDITED, critical=True, name="audit-trail")
