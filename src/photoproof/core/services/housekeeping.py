@@ -129,6 +129,10 @@ class Housekeeping:
         blocked: list[str] = []
         expired_runs: list[Candidate] = []
         cache_sources = {row[0] for row in connection.execute("SELECT run_id FROM cache_entries")}
+        pending_submissions = (
+            connection.execute("SELECT 1 FROM submissions WHERE run_id IS NULL LIMIT 1").fetchone()
+            is not None
+        )
         for run in runs:
             run_id = _hex(run["run_id"], 32)
             run_ids.add(run_id)
@@ -166,7 +170,7 @@ class Housekeeping:
                 and now - _timestamp(run["finished_at"]) >= retention.run_days * 86400
             ):
                 reports = checked_path(root, f"reports/{run_id}")
-                if run_id not in cache_sources and not reports.exists():
+                if run_id not in cache_sources and not reports.exists() and not pending_submissions:
                     info = identity(path)
                     expired_runs.append(
                         Candidate(
@@ -181,7 +185,9 @@ class Housekeeping:
                         )
                     )
                 else:
-                    blocked.append(f"run {run_id}: protected by cache or report data")
+                    blocked.append(
+                        f"run {run_id}: protected by cache, report data or unlinked submissions"
+                    )
         manifest_dir = checked_path(root, "manifests")
         for path in manifest_dir.iterdir():
             if path.name != f"{path.stem}.json" or path.stem not in run_ids:
@@ -332,6 +338,14 @@ class Housekeeping:
                         try:
                             # No chmod: a read-only derived blob that cannot be unlinked stays
                             # in place. Retained evidence permissions are never changed.
+                            checked_path(self.app.storage.root, item.relative_path)
+                            if (
+                                identity(target) != item.file_identity
+                                or sha256_file(target) != item.sha256
+                            ):
+                                raise StorageError(
+                                    "candidate changed during audit; refusing deletion"
+                                )
                             target.unlink()
                             if item.cache_key is not None:
                                 connection.execute(
@@ -352,7 +366,7 @@ class Housekeeping:
                                 connection.execute(
                                     "DELETE FROM runs WHERE run_id = ?", (item.run_id,)
                                 )
-                        except OSError:
+                        except (OSError, StorageError):
                             self.app.bus.emit(
                                 EventType.HOUSEKEEPING_APPLIED,
                                 data={**payload, "outcome": "failed", "reclaimed_bytes": 0},

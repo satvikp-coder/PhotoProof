@@ -86,8 +86,8 @@ The warning percentage is an integer from 1 through 99. Booleans are rejected as
 - `cache_days`: age must exceed both the recorded creation time and file modification time.
 - `artifact_days`: applies only to verified, unreferenced derived blobs; retained manifest,
   SQLite and cache references always win over age.
-- `run_days`: expires completed-run metadata only; a cache source or existing report directory
-  protects the run. Original evidence and submission records remain. Artifacts released by a
+- `run_days`: expires completed-run metadata only; a cache source, existing report directory
+  or any unlinked evidence submission protects the run. Original evidence and submission records remain. Artifacts released by a
   retired run become eligible in a subsequent plan.
 - `max_total_mb`: logical runtime bytes, including originals, logs, backups and unknown files.
   `storage.quota` warns at the configured percentage and errors at 100%. A quota never permits

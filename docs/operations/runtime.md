@@ -160,7 +160,9 @@ are left intact. Quota pressure does not change these protections.
 
 Run retention removes the approved manifest, artifact association rows, plugin execution rows
 and run row. Submission rows are retained with `run_id` cleared, as are all original evidence
-blobs and evidence records. A retained cache source or report directory postpones run retirement.
+blobs and evidence records. A retained cache source, report directory or any unlinked submission postpones run retirement.
+The last guard protects the CLI interval between analysis completion and submission linking;
+abandoned unlinked submissions intentionally require operator investigation before retirement.
 Shared artifacts stay protected until the last retained manifest/cache/DB reference is gone;
 newly unreferenced artifacts require another plan. This deliberately favors preservation over
 maximum reclamation in one invocation. Evidence deletion and its privacy policy remain #56.

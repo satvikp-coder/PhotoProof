@@ -388,3 +388,34 @@ def test_future_timestamps_do_not_expire(make_app: Factory) -> None:
     os.utime(path, (future, future))
     retention(app, artifact_days=0)
     assert Housekeeping(app).plan().candidates == ()
+
+
+def test_pending_submission_protects_post_analysis_linking(make_app: Factory) -> None:
+    app = make_app()
+    result = run(app, cache=False)
+    receipt = app.evidence().ingest(b"\xff\xd8\xff synthetic", role="target")
+    retention(app, run_days=0)
+    service = Housekeeping(app)
+    plan = service.plan()
+    assert plan.blocked and not plan.candidates
+    assert app.database().get_run(result.run_id) is not None
+    app.database().link_submissions([receipt.submission_id], result.run_id)
+    assert any(candidate.run_id == result.run_id for candidate in service.plan().candidates)
+
+
+def test_candidate_changed_during_intent_is_not_deleted(make_app: Factory) -> None:
+    app = make_app()
+    digest = app.storage.put_blob("artifacts", b"derived")
+    target = app.storage.blob_path("artifacts", digest)
+    retention(app, artifact_days=0)
+
+    def change(event: Event) -> None:
+        if event.data["outcome"] == "intent":
+            target.chmod(0o600)
+            target.write_bytes(b"changed")
+
+    app.bus.subscribe(change, EventType.HOUSEKEEPING_APPLIED)
+    service = Housekeeping(app)
+    with pytest.raises(StorageError, match="changed during audit"):
+        service.apply(service.plan(), authorized=True)
+    assert target.read_bytes() == b"changed"
