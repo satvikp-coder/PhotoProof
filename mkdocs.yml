@@ -80,6 +80,8 @@ nav:
       - operations/index.md
       - Health checks and repair: operations/health.md
       - Runtime storage, cache, logs, manifests: operations/runtime.md
+      - Evidence reports: operations/reporting.md
+      - Report format reference: reporting/format.md
       - Troubleshooting: operations/troubleshooting.md
   - Security:
       - security/index.md

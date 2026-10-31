@@ -7,6 +7,9 @@ uses administrator rights and only downloads the hash-verified packages listed i
 
 ## Commands
 
+Stored runs can be exported with `python main.py report RUN_ID --format html|json`.
+See [reporting operations](reporting.md) for integrity checks, privacy and exit codes.
+
 | Command | Behaviour | Exit codes |
 |---|---|---|
 | `python main.py` | Full bootstrap, preflight, then `status` | 0, 3, 4, 5, 6 |

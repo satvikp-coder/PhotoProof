@@ -1,0 +1,620 @@
+{
+  "$defs": {
+    "AnalysisMode": {
+      "enum": [
+        "single",
+        "comparison"
+      ],
+      "title": "AnalysisMode",
+      "type": "string"
+    },
+    "ApplicationIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "plugin_api_version": {
+          "maxLength": 100,
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.+-]+)?$",
+          "title": "Plugin Api Version",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 100,
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.+-]+)?$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "plugin_api_version"
+      ],
+      "title": "ApplicationIdentity",
+      "type": "object"
+    },
+    "ArtifactEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "producer": {
+          "maxLength": 200,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "title": "Producer",
+          "type": "string"
+        },
+        "reference": {
+          "$ref": "#/$defs/SourceReference"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size": {
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        },
+        "verification": {
+          "const": "declared_not_verified",
+          "default": "declared_not_verified",
+          "title": "Verification",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sha256",
+        "size",
+        "producer",
+        "reference"
+      ],
+      "title": "ArtifactEvidence",
+      "type": "object"
+    },
+    "Assessment": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/AssessmentCategory"
+        },
+        "coverage_references": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SourceReference"
+          },
+          "title": "Coverage References",
+          "type": "array"
+        },
+        "limitation_references": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SourceReference"
+          },
+          "title": "Limitation References",
+          "type": "array"
+        },
+        "reason_references": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SourceReference"
+          },
+          "title": "Reason References",
+          "type": "array"
+        },
+        "reasons": {
+          "items": {
+            "enum": [
+              "assessment_not_recorded",
+              "assessment_not_usable",
+              "recorded_assessment"
+            ],
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/SourceReference"
+          },
+          "minItems": 1,
+          "title": "References",
+          "type": "array"
+        }
+      },
+      "required": [
+        "category",
+        "reasons",
+        "references"
+      ],
+      "title": "Assessment",
+      "type": "object"
+    },
+    "AssessmentCategory": {
+      "enum": [
+        "unavailable",
+        "inconclusive",
+        "manipulation_indicated",
+        "differences_found",
+        "no_indicators_found_with_sufficient_coverage"
+      ],
+      "title": "AssessmentCategory",
+      "type": "string"
+    },
+    "ExecutionState": {
+      "description": "Lifecycle state of one plugin within one run. See ``core.pipeline.scheduler``.",
+      "enum": [
+        "PENDING",
+        "READY",
+        "RUNNING",
+        "SUCCESS",
+        "FAILED",
+        "SKIPPED",
+        "NOT_APPLICABLE",
+        "TIMEOUT",
+        "ABORTED"
+      ],
+      "title": "ExecutionState",
+      "type": "string"
+    },
+    "FailureCategory": {
+      "enum": [
+        "exception",
+        "invalid_output",
+        "timeout",
+        "load_error",
+        "config_error",
+        "dependency_unavailable",
+        "interrupted",
+        "aborted_by_policy"
+      ],
+      "title": "FailureCategory",
+      "type": "string"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/FindingCode"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/SourceReference"
+          },
+          "minItems": 1,
+          "title": "References",
+          "type": "array"
+        }
+      },
+      "required": [
+        "code",
+        "references"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "FindingCode": {
+      "enum": [
+        "assessment_missing",
+        "assessment_unusable",
+        "assessment_manipulation",
+        "assessment_differences",
+        "run_limited",
+        "detector_unavailable",
+        "artifact_unverified",
+        "input_unverified",
+        "outputs_uninterpreted"
+      ],
+      "title": "FindingCode",
+      "type": "string"
+    },
+    "InputEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "media_format": {
+          "anyOf": [
+            {
+              "enum": [
+                "jpeg",
+                "png",
+                "webp",
+                "tiff",
+                "bmp",
+                "gif",
+                "heif",
+                "avif"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Media Format"
+        },
+        "reference": {
+          "$ref": "#/$defs/SourceReference"
+        },
+        "role": {
+          "enum": [
+            "target",
+            "reference"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size": {
+          "minimum": 0,
+          "title": "Size",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "role",
+        "sha256",
+        "size",
+        "media_format",
+        "reference"
+      ],
+      "title": "InputEvidence",
+      "type": "object"
+    },
+    "ManifestAppendix": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Canonical Manifest Sha256",
+          "type": "string"
+        },
+        "included_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Included Paths",
+          "type": "array"
+        },
+        "manifest_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Manifest Version",
+          "type": "integer"
+        },
+        "redactions": {
+          "default": [
+            "effective_settings",
+            "outputs_except_assessment_category",
+            "free_text",
+            "software_paths",
+            "unknown_metadata"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Redactions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "canonical_manifest_sha256",
+        "included_paths"
+      ],
+      "title": "ManifestAppendix",
+      "type": "object"
+    },
+    "Method": {
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "const": "omitted_for_privacy",
+          "default": "omitted_for_privacy",
+          "title": "Configuration",
+          "type": "string"
+        },
+        "deterministic": {
+          "title": "Deterministic",
+          "type": "boolean"
+        },
+        "failure_category": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FailureCategory"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "implementation_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Implementation Sha256",
+          "type": "string"
+        },
+        "plugin_id": {
+          "maxLength": 200,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "title": "Plugin Id",
+          "type": "string"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/SourceReference"
+          },
+          "minItems": 1,
+          "title": "References",
+          "type": "array"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutionState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "version": {
+          "maxLength": 100,
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.+-]+)?$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin_id",
+        "version",
+        "implementation_sha256",
+        "required",
+        "deterministic",
+        "state",
+        "failure_category",
+        "references"
+      ],
+      "title": "Method",
+      "type": "object"
+    },
+    "Reproducibility": {
+      "additionalProperties": false,
+      "properties": {
+        "cache_hit": {
+          "title": "Cache Hit",
+          "type": "boolean"
+        },
+        "computational_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Computational Fingerprint",
+          "type": "string"
+        },
+        "pipeline_fingerprint": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pipeline Fingerprint"
+        },
+        "random_seed": {
+          "title": "Random Seed",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pipeline_fingerprint",
+        "computational_fingerprint",
+        "random_seed",
+        "cache_hit"
+      ],
+      "title": "Reproducibility",
+      "type": "object"
+    },
+    "RunStatus": {
+      "description": "Outcome of a whole analysis run. None of these values is an authenticity verdict.",
+      "enum": [
+        "COMPLETED",
+        "INCOMPLETE",
+        "ABORTED",
+        "BLOCKED",
+        "NO_DETECTORS"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    },
+    "SourceReference": {
+      "additionalProperties": false,
+      "description": "RFC 6901 JSON Pointer into the original manifest, with optional recorded identities.",
+      "properties": {
+        "artifact_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Sha256"
+        },
+        "input_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Sha256"
+        },
+        "manifest_path": {
+          "maxLength": 500,
+          "pattern": "^/(?:[^~]|~[01])*$",
+          "title": "Manifest Path",
+          "type": "string"
+        },
+        "plugin_id": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plugin Id"
+        }
+      },
+      "required": [
+        "manifest_path"
+      ],
+      "title": "SourceReference",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Stable derived report, distinct from the source manifest and original evidence.",
+  "properties": {
+    "application": {
+      "$ref": "#/$defs/ApplicationIdentity"
+    },
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/ArtifactEvidence"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "assessment": {
+      "$ref": "#/$defs/Assessment"
+    },
+    "confirmed_differences": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Confirmed Differences",
+      "type": "array"
+    },
+    "evidence_references": {
+      "items": {
+        "$ref": "#/$defs/SourceReference"
+      },
+      "title": "Evidence References",
+      "type": "array"
+    },
+    "inputs": {
+      "items": {
+        "$ref": "#/$defs/InputEvidence"
+      },
+      "title": "Inputs",
+      "type": "array"
+    },
+    "limitations": {
+      "default": [
+        "This report summarizes recorded evidence; it does not establish an image's origin or history.",
+        "Missing, failed, skipped or inapplicable detectors provide no favorable evidence.",
+        "Heuristic scores are not calibrated probabilities and are not reproduced here.",
+        "Raw metadata, filenames, configuration values and diagnostic prose are omitted for privacy.",
+        "No previews are embedded: the current manifest has no reviewed preview authorization contract.",
+        "Hashes support verification against retained sources; this report has no digital signature or independent chain of custody."
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "manifest_appendix": {
+      "$ref": "#/$defs/ManifestAppendix"
+    },
+    "methodology": {
+      "items": {
+        "$ref": "#/$defs/Method"
+      },
+      "title": "Methodology",
+      "type": "array"
+    },
+    "mode": {
+      "$ref": "#/$defs/AnalysisMode"
+    },
+    "report_id": {
+      "pattern": "^report-v1-[0-9a-f]{64}$",
+      "title": "Report Id",
+      "type": "string"
+    },
+    "report_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Report Version",
+      "type": "integer"
+    },
+    "reproducibility": {
+      "$ref": "#/$defs/Reproducibility"
+    },
+    "run_id": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/RunStatus"
+    },
+    "suspected_manipulation": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Suspected Manipulation",
+      "type": "array"
+    },
+    "unavailable_evidence": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Unavailable Evidence",
+      "type": "array"
+    }
+  },
+  "required": [
+    "report_id",
+    "run_id",
+    "application",
+    "status",
+    "mode",
+    "assessment",
+    "inputs",
+    "methodology",
+    "suspected_manipulation",
+    "confirmed_differences",
+    "unavailable_evidence",
+    "reproducibility",
+    "artifacts",
+    "evidence_references",
+    "manifest_appendix"
+  ],
+  "title": "Report",
+  "type": "object"
+}

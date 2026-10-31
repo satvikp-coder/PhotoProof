@@ -9,10 +9,16 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import photoproof
 from photoproof.contracts.events import Event, EventType
-from photoproof.contracts.exceptions import ConfigurationError, DatabaseError, IdentityError
+from photoproof.contracts.exceptions import (
+    ConfigurationError,
+    DatabaseError,
+    IdentityError,
+    ReportError,
+)
 from photoproof.core.config.flags import FeatureFlags
 from photoproof.core.config.loader import load_identity, load_profiles, load_settings
 from photoproof.core.config.validator import AppIdentity, Profile, Settings
@@ -26,6 +32,7 @@ from photoproof.core.logging.setup import (
 )
 from photoproof.core.pipeline.discovery import BUILTIN_PLUGIN_PACKAGE, discover
 from photoproof.core.pipeline.registry import PluginRegistry
+from photoproof.core.reporting.service import generate_report, validate_run_id
 from photoproof.core.storage.evidence import EvidenceStore
 from photoproof.core.storage.store import RuntimeStorage
 from photoproof.imaging.decoder import DecodeLimits
@@ -89,6 +96,19 @@ class Application:
         return DecodeLimits(
             max_input_bytes=resources.max_input_bytes, max_pixels=resources.max_image_pixels
         )
+
+    def report(self, run_id: str, *, format: Literal["html", "json"]) -> Path:
+        """Publish a report only from integrity-verified stored evidence."""
+        validate_run_id(run_id)
+        if not self.database_path.is_file():
+            raise ReportError("no runtime database; analyze an input before generating a report")
+        try:
+            database = self.database()
+        except DatabaseError as error:
+            raise ReportError(
+                "run database unavailable or needs migration; run doctor before reporting"
+            ) from error
+        return generate_report(self.storage, database, run_id, format=format)
 
     def start(self) -> None:
         """Attach runtime services. Requires the runtime layout (see preflight)."""

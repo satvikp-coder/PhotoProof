@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; img-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>{{ report.application.name }} — evidence report {{ report.run_id }}</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; color: #182535; background: #f3f5f7; }
+    body { margin: 0; line-height: 1.6; } main { max-width: 72rem; margin: auto; padding: 2rem; background: #fff; }
+    h1, h2, h3 { line-height: 1.25; } h2 { margin-top: 2.5rem; border-bottom: 1px solid #bbc5d0; padding-bottom: .5rem; }
+    .eyebrow, dt { font-weight: 650; color: #344962; } .summary { padding: 1rem 1.5rem; border-left: 4px solid #344962; background: #eef2f6; }
+    dl { display: grid; grid-template-columns: minmax(8rem, 1fr) 3fr; gap: .4rem 1rem; } dd { margin: 0; }
+    code { overflow-wrap: anywhere; font-size: .9em; } .table-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; text-align: left; } th, td { padding: .75rem; border-bottom: 1px solid #bbc5d0; vertical-align: top; }
+    caption { text-align: left; font-weight: 650; margin: .5rem 0; } a { color: #174e85; } a:focus-visible { outline: 3px solid #174e85; outline-offset: 3px; }
+    li { margin: .5rem 0; } .refs { font-size: .9rem; } footer { border-top: 1px solid #bbc5d0; margin-top: 3rem; padding-top: 1rem; }
+    @media (max-width: 40rem) { main { padding: 1rem; } dl { display: block; } dd { margin-bottom: .8rem; } }
+    @media print { :root, body { background: white; color: black; } main { max-width: none; padding: 0; } h2, h3 { break-after: avoid; } tr { break-inside: avoid; } .table-scroll { overflow: visible; } a { color: black; } }
+  </style>
+</head>
+<body><main id="report">
+  <header>
+    <p class="eyebrow">{{ report.application.name }} · {{ report.application.version }} · Report format {{ report.report_version }}</p>
+    <h1>Evidence report</h1>
+    <p>Recorded observations, source references and limits of interpretation.</p>
+  </header>
+  <section aria-labelledby="summary"><h2 id="summary">Assessment summary</h2>
+    <div class="summary"><h3>{{ assessment_text }}</h3>
+      {% if report.assessment.category.value == 'unavailable' %}<p>No usable evidence-sufficiency assessment is available.</p>
+      {% elif report.assessment.category.value == 'inconclusive' %}<p>The available record does not support a conclusive assessment.</p>
+      {% elif report.assessment.category.value == 'no_indicators_found_with_sufficient_coverage' %}<p>This is a recorded assessment category, not proof of an unmodified input.</p>
+      {% else %}<p>This category is attributed to the recorded assessment, not independently inferred by the report.</p>{% endif %}
+      <p>Assessment reason codes: {{ report.assessment.reasons | join(', ') }}.</p>
+      <p>Raw reason, coverage and limitation text is withheld for privacy. Its manifest pointers appear in the evidence appendix.</p>
+    </div>
+    <dl><dt>Run ID</dt><dd><code>{{ report.run_id }}</code></dd><dt>Pipeline status</dt><dd>{{ report.status.value }} — {{ status_text }}</dd><dt>Mode</dt><dd>{{ report.mode.value }}</dd><dt>Report ID</dt><dd><code>{{ report.report_id }}</code></dd></dl>
+  </section>
+  <section aria-labelledby="inputs"><h2 id="inputs">Input evidence</h2><div class="table-scroll" tabindex="0" role="region" aria-label="Input evidence table">
+    <table><caption>Recorded input identities; original images are not embedded</caption><thead><tr><th scope="col">Role</th><th scope="col">SHA-256</th><th scope="col">Bytes</th><th scope="col">Format</th></tr></thead><tbody>
+    {% for item in report.inputs %}<tr><th scope="row">{{ item.role }}</th><td><code>{{ item.sha256 }}</code></td><td>{{ item.size }}</td><td>{{ item.media_format or 'Unavailable' }}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  <section aria-labelledby="methods"><h2 id="methods">Detector methodology</h2>
+    <p>Configuration values and diagnostic prose are omitted. Fingerprints below bind the recorded configuration. Missing executions are not successful results.</p>
+    {% if report.methodology %}<div class="table-scroll" tabindex="0" role="region" aria-label="Detector methodology table"><table><caption>Recorded plugins and execution states</caption><thead><tr><th scope="col">Plugin</th><th scope="col">Version</th><th scope="col">Execution</th><th scope="col">Failure category</th><th scope="col">Required / deterministic</th></tr></thead><tbody>
+      {% for item in report.methodology %}<tr><th scope="row">{{ item.plugin_id }}</th><td>{{ item.version }}</td><td>{{ item.state.value if item.state else 'Execution unavailable' }}</td><td>{{ item.failure_category.value if item.failure_category else 'None recorded' }}</td><td>{{ item.required }} / {{ item.deterministic }}</td></tr>{% endfor %}
+    </tbody></table></div>{% else %}<p>No detector identities are recorded.</p>{% endif %}
+  </section>
+  {% for heading, identifier, findings in [('Suspected manipulation', 'suspected', report.suspected_manipulation), ('Confirmed comparison differences', 'differences', report.confirmed_differences), ('Unavailable evidence', 'unavailable', report.unavailable_evidence)] %}
+  <section aria-labelledby="{{ identifier }}"><h2 id="{{ identifier }}">{{ heading }}</h2>
+    {% if findings %}<ul>{% for finding in findings %}<li>{{ finding_text[finding.code] }}<ul class="refs">{% for ref in finding.references %}<li>Source: <code>{{ ref.manifest_path }}</code>{% if ref.input_sha256 %} · input <code>{{ ref.input_sha256 }}</code>{% endif %}{% if ref.artifact_sha256 %} · artifact <code>{{ ref.artifact_sha256 }}</code>{% endif %}{% if ref.plugin_id %} · plugin <code>{{ ref.plugin_id }}</code>{% endif %}</li>{% endfor %}</ul></li>{% endfor %}</ul>
+    {% else %}<p>No supported statements in this category are available. This is not a favorable finding.</p>{% endif %}
+  </section>{% endfor %}
+  <section aria-labelledby="limits"><h2 id="limits">Limitations and uncertainty</h2><ul>{% for text in report.limitations %}<li>{{ text }}</li>{% endfor %}</ul></section>
+  <section aria-labelledby="repro"><h2 id="repro">Reproducibility</h2><dl>
+    <dt>Pipeline fingerprint</dt><dd><code>{{ report.reproducibility.pipeline_fingerprint or 'Unavailable' }}</code></dd>
+    <dt>Computational fingerprint</dt><dd><code>{{ report.reproducibility.computational_fingerprint }}</code></dd>
+    <dt>Random seed</dt><dd>{{ report.reproducibility.random_seed }}</dd><dt>Cache hit</dt><dd>{{ report.reproducibility.cache_hit }}</dd>
+    {% for method in report.methodology %}<dt>{{ method.plugin_id }} implementation</dt><dd><code>{{ method.implementation_sha256 }}</code></dd>{% endfor %}
+  </dl></section>
+  <section aria-labelledby="appendix"><h2 id="appendix">Evidence reference and manifest appendix</h2>
+    <p>Manifest format {{ report.manifest_appendix.manifest_version }}. Canonical manifest SHA-256: <code>{{ report.manifest_appendix.canonical_manifest_sha256 }}</code>. This hashes canonical JSON, not the original file's whitespace or a signed report.</p>
+    <p>This appendix is a privacy-filtered index, not a copy of the full manifest.</p>
+    <ol>{% for ref in report.evidence_references %}<li><code>{{ ref.manifest_path }}</code>{% if ref.plugin_id %} · {{ ref.plugin_id }}{% endif %}{% if ref.artifact_sha256 %} · artifact <code>{{ ref.artifact_sha256 }}</code>{% endif %}{% if ref.input_sha256 %} · input <code>{{ ref.input_sha256 }}</code>{% endif %}</li>{% endfor %}</ol>
+    <p>Redactions: {{ report.manifest_appendix.redactions | join(', ') }}.</p>
+  </section>
+  <footer><p>Derived report · Offline document · No original evidence images or external resources</p></footer>
+</main></body></html>

@@ -41,6 +41,10 @@ class StorageError(PhotoProofError):
     """Runtime storage operation failed or detected an integrity problem."""
 
 
+class ReportError(StorageError):
+    """Invalid report source, traceability or publication; public messages omit source values."""
+
+
 class UnsafePathError(StorageError):
     """A path escapes its permitted root or is otherwise unsafe."""
 

@@ -51,3 +51,14 @@ isolated in `requirements-tools.lock` (ADR-003).
 ### ADR-009 · No empty placeholder modules
 Modules that would only contain `pass` are not created. Their absence is documented
 here and in the backlog.
+
+### ADR-011 · Reports are privacy-filtered projections, not detector inference
+
+Report v1 validates manifest v1 and emits deterministic typed JSON and autoescaped,
+offline Jinja HTML. It separates pipeline status from recorded assessment and never
+classifies unknown detector outputs. The #34 assessment shape is provisionally
+supported with conservative execution/coverage gates; raw reasons/configuration are
+replaced with exact source pointers. No current preview contract authorizes embedding.
+Stored reports require manifest/database hash agreement and matching evidence blobs.
+No source or original is repaired. The report format has its own version; application
+versions remain release-owned. See the [format reference](../reporting/format.md).

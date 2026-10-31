@@ -1,0 +1,27 @@
+{
+  "assessment": {
+    "differences_found": "Observed comparison differences",
+    "inconclusive": "Inconclusive",
+    "manipulation_indicated": "Suspected manipulation indicated",
+    "no_indicators_found_with_sufficient_coverage": "No indicators reported with recorded sufficient coverage",
+    "unavailable": "Assessment unavailable"
+  },
+  "finding": {
+    "artifact_unverified": "This artifact hash is declared in the manifest. The manifest alone cannot verify the stored bytes.",
+    "assessment_differences": "The recorded comparison assessment reports observed differences between the supplied inputs. This does not establish which input was changed.",
+    "assessment_manipulation": "The recorded assessment indicates suspected manipulation. Heuristic indicators are not proof.",
+    "assessment_missing": "No assessment was recorded. Evidence sufficiency is unavailable.",
+    "assessment_unusable": "The recorded assessment cannot support a conclusion for this run.",
+    "detector_unavailable": "A recorded detector did not succeed or has no recorded execution. Its evidence is unavailable.",
+    "input_unverified": "This input hash identifies submitted evidence. The manifest alone cannot verify the stored bytes.",
+    "outputs_uninterpreted": "Additional plugin outputs are recorded but have no reviewed reporting adapter and are not interpreted here.",
+    "run_limited": "This pipeline outcome limits the available evidence; no favorable conclusion follows."
+  },
+  "status": {
+    "ABORTED": "The pipeline stopped early. Evidence may be incomplete.",
+    "BLOCKED": "Policy or dependencies prevented the selected pipeline from operating.",
+    "COMPLETED": "The pipeline completed. Successful execution is not a forensic assessment.",
+    "INCOMPLETE": "The pipeline finished with partial evidence; some planned work did not succeed.",
+    "NO_DETECTORS": "No forensic detectors were installed and enabled for this run. No forensic conclusion is available."
+  }
+}
