@@ -95,3 +95,35 @@ memory and rounds the low-amplitude noise that detectors look for.
 10. `RUN_COMPLETED`/`RUN_ABORTED` finalizes the database record.
 
 Continue with the [execution lifecycle](lifecycle.md).
+
+## Runtime concurrency
+
+| Operation | Coordination |
+|---|---|
+| Analyses, ingestion, staging, immutable blob publication | Shared `ARE/.runtime.lock`; may overlap |
+| SAFE/CONTROLLED repair, temporary-file removal | Exclusive runtime lock; waits for active shared work |
+| Doctor, repair dry run | Diagnostic snapshots; no repair or runtime lock creation |
+| SQLite writes | Explicit 10-second busy timeout, short immediate transactions |
+| Schema creation/migration | Exclusive `database/.schema.lock`, schema re-read after acquisition |
+| Audit append/readback | Exclusive/shared `logs/.audit.lock` |
+| Ordinary log write/rotation | Exclusive `logs/.log.lock`, no idle file handles |
+
+Lock order is runtime, then schema/log/audit. No lock upgrade is permitted. Nested
+operations in the same thread can reuse an equally strong or stronger lock. Processes
+have independent services and SQLite connections; a service/connection is not shared
+between threads. Forking with held locks/connections is unsupported; workers use spawn
+and construct their own services.
+
+The controller locks its full analysis. CLI analysis additionally covers ingestion and
+submission linking. Ingestion and staging APIs protect their own lifetimes. A caller
+implementing a larger workflow should hold the shared runtime lock around the whole
+operation. Repairs re-evaluate diagnostics under the exclusive lock before acting.
+Blob publication retains the existing no-overwrite primitive and hash verification;
+analyses never replace an existing original. Concurrent successful cache writes may
+choose either equivalent completed computation; no ordering between independent runs
+is promised. Doctor is a snapshot, not a transaction over all runtime files.
+
+These are cooperative locks on trusted local filesystems, not access control against
+an uncooperative owner. Network/shared-host runtimes are unsupported. See
+[runtime operations](../operations/runtime.md#concurrent-processes-and-recovery) for
+timeouts, crash recovery and process-identity limitations.

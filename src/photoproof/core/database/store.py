@@ -5,6 +5,8 @@ each; an existing database is backed up with the SQLite backup API before any
 migration is applied to it.
 """
 
+import os
+import socket
 import sqlite3
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
@@ -12,6 +14,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from photoproof.contracts.exceptions import DatabaseError, MigrationRequiredError
+from photoproof.core.storage.locking import file_lock
+from photoproof.core.storage.processes import owner_state, process_token
 
 MIGRATIONS: Sequence[str] = (
     # 1: initial schema
@@ -76,8 +80,15 @@ MIGRATIONS: Sequence[str] = (
     );
     CREATE INDEX submissions_sha256 ON submissions(sha256);
     """,
+    # 3: owning process; NULL on legacy rows means unknown, not automatically dead.
+    """
+    ALTER TABLE runs ADD COLUMN pid INTEGER;
+    ALTER TABLE runs ADD COLUMN hostname TEXT;
+    ALTER TABLE runs ADD COLUMN process_token TEXT;
+    """,
 )
 LATEST_VERSION = len(MIGRATIONS)
+BUSY_TIMEOUT_MS = 10_000
 
 
 def _now() -> str:
@@ -101,6 +112,7 @@ class Database:
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             conn = sqlite3.connect(path, isolation_level=None)  # explicit transactions
+            conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
             conn.execute("PRAGMA foreign_keys = ON")
             conn.row_factory = sqlite3.Row
         except sqlite3.Error as error:
@@ -138,16 +150,34 @@ class Database:
         return int(self._conn.execute("PRAGMA user_version").fetchone()[0])
 
     def _migrate(self, current: int) -> None:
+        # Two first launches may both observe an empty schema. Serialize, then re-read.
+        with file_lock(self.path.parent, name=".schema.lock", exclusive=True):
+            self._migrate_locked(self.schema_version())
+
+    def _migrate_locked(self, current: int) -> None:
+        if current >= LATEST_VERSION:
+            return
         if current > 0:
             self.backup(self.path.with_name(f"{self.path.name}.v{current}.bak"))
-        for version in range(current + 1, LATEST_VERSION + 1):
+        # First creation must not expose an intermediate schema that a concurrent opener
+        # would mistake for an old database requiring explicit migration authorization.
+        batches = (
+            [(LATEST_VERSION, MIGRATIONS)]
+            if current == 0
+            else [
+                (version, (MIGRATIONS[version - 1],))
+                for version in range(current + 1, LATEST_VERSION + 1)
+            ]
+        )
+        for version, scripts in batches:
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
                 # ponytail: naive ";" split — migrations must not contain ";" inside
                 # string literals or triggers; switch to a statement parser if they do.
-                for statement in MIGRATIONS[version - 1].split(";"):
-                    if statement.strip():
-                        self._conn.execute(statement)
+                for script in scripts:
+                    for statement in script.split(";"):
+                        if statement.strip():
+                            self._conn.execute(statement)
                 self._conn.execute(f"PRAGMA user_version = {version}")
                 self._conn.execute("COMMIT")
             except sqlite3.Error as error:
@@ -169,14 +199,14 @@ class Database:
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
         """Run statements atomically; any exception rolls everything back."""
-        self._conn.execute("BEGIN")
+        self._conn.execute("BEGIN IMMEDIATE")
         try:
             yield self._conn
+            self._conn.execute("COMMIT")
         except BaseException:
             with suppress(sqlite3.Error):  # never mask the original failure
                 self._conn.execute("ROLLBACK")
             raise
-        self._conn.execute("COMMIT")
 
     def integrity_problems(self) -> list[str]:
         rows = self._conn.execute("PRAGMA integrity_check").fetchall()
@@ -198,9 +228,18 @@ class Database:
 
     def create_run(self, run_id: str, *, mode: str, profile: str, cache_key: str | None) -> None:
         self._write(
-            "INSERT INTO runs (run_id, created_at, status, mode, profile, cache_key) "
-            "VALUES (?, ?, 'CREATED', ?, ?, ?)",
-            (run_id, _now(), mode, profile, cache_key),
+            "INSERT INTO runs (run_id, created_at, status, mode, profile, cache_key, "
+            "pid, hostname, process_token) VALUES (?, ?, 'CREATED', ?, ?, ?, ?, ?, ?)",
+            (
+                run_id,
+                _now(),
+                mode,
+                profile,
+                cache_key,
+                os.getpid(),
+                socket.gethostname(),
+                process_token(os.getpid()),
+            ),
         )
 
     def set_run_status(self, run_id: str, status: str) -> None:
@@ -220,7 +259,11 @@ class Database:
                 conn.executemany(
                     "UPDATE runs SET status = 'ABORTED', finished_at = ? "
                     "WHERE run_id = ? AND finished_at IS NULL",
-                    [(_now(), run_id) for run_id in run_ids],
+                    [
+                        (_now(), run_id)
+                        for run_id in run_ids
+                        if (run := self.get_run(run_id)) is not None and owner_state(run) == "dead"
+                    ],
                 )
         except sqlite3.Error as error:
             raise DatabaseError(f"{self.path}: write failed: {error}") from error

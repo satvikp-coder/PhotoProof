@@ -152,6 +152,10 @@ def test_unfinished_runs_can_be_marked_aborted(tmp_path: Path) -> None:
     db.set_run_status("r1", "RUNNING")
     assert [r["run_id"] for r in db.unfinished_runs(older_than="9999")] == ["r1"]
     db.mark_runs_aborted(["r1"])
+    assert db.get_run("r1")["status"] == "RUNNING"  # type: ignore[index]
+    # Recovery targets a dead process incarnation, not the still-live test process.
+    db._conn.execute("UPDATE runs SET process_token = 'previous-process-incarnation'")
+    db.mark_runs_aborted(["r1"])
     run = db.get_run("r1")
     assert run and run["status"] == "ABORTED" and run["finished_at"]
     db.close()

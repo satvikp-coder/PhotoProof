@@ -13,6 +13,8 @@ from pathlib import Path
 from photoproof.contracts.events import Event, EventType
 from photoproof.core.config.validator import LoggingSettings
 from photoproof.core.events.bus import EventBus
+from photoproof.core.logging.audit import append_record
+from photoproof.core.storage.locking import file_lock
 
 _STANDARD_ATTRS = set(vars(logging.makeLogRecord({}))) | {"message", "asctime"}
 
@@ -38,6 +40,19 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str, sort_keys=True)
 
 
+class ProcessRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """Serialize rotation as well as writes; keep no idle file handle on Windows."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        with file_lock(Path(self.baseFilename).parent, name=".log.lock", exclusive=True):
+            try:
+                super().emit(record)
+            finally:
+                if self.stream is not None:
+                    self.stream.close()
+                    self.stream = None
+
+
 def configure_logging(settings: LoggingSettings, log_dir: Path | None) -> None:
     """Configure the ``photoproof`` logger tree. Safe to call more than once."""
     root = logging.getLogger("photoproof")
@@ -57,11 +72,12 @@ def configure_logging(settings: LoggingSettings, log_dir: Path | None) -> None:
     root.addHandler(console)
 
     if log_dir is not None:
-        file_handler = logging.handlers.RotatingFileHandler(
+        file_handler = ProcessRotatingFileHandler(
             log_dir / "photoproof.log",
             maxBytes=settings.file_max_bytes,
             backupCount=settings.file_backups,
             encoding="utf-8",
+            delay=True,
         )
         file_handler.setFormatter(JsonFormatter())
         root.addHandler(file_handler)
@@ -100,8 +116,7 @@ def attach_event_logging(bus: EventBus, log_dir: Path | None) -> None:
                     "audit trail unavailable (runtime directories missing): %s", event.type.value
                 )
                 return
-            with audit_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(event.to_dict(), default=str, sort_keys=True) + "\n")
+            append_record(audit_path.parent, event.to_dict())
 
         # The audit trail is security-relevant: losing an entry must be surfaced.
         bus.subscribe(audit, *AUDITED, critical=True, name="audit-trail")

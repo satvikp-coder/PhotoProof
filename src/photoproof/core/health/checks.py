@@ -22,7 +22,10 @@ from photoproof.contracts.exceptions import (
 from photoproof.core.cache.run_cache import RunCache
 from photoproof.core.database.store import LATEST_VERSION, Database
 from photoproof.core.isolation import capabilities
+from photoproof.core.logging.audit import audit_problems
 from photoproof.core.pipeline.planner import validate_graph
+from photoproof.core.storage.locking import file_lock
+from photoproof.core.storage.processes import owner_state
 from photoproof.core.storage.store import BlobKind
 from photoproof.versioning.build import distribution_version
 
@@ -331,13 +334,24 @@ def check_stale_runs(app: "Application") -> CheckResult:
     if db is None:
         return _ok("database.stale_runs", "database unavailable; skipped")
     cutoff = (datetime.now(UTC) - STALE_RUN_AGE).isoformat()
-    stale = db.unfinished_runs(older_than=cutoff)
+    candidates = db.unfinished_runs(older_than=cutoff)
+    stale = [run for run in candidates if owner_state(run) == "dead"]
+    unknown = [run for run in candidates if owner_state(run) == "unknown"]
     if not stale:
+        if unknown:
+            return CheckResult(
+                "database.stale_runs",
+                Severity.WARNING,
+                f"{len(unknown)} old runs have unknown/remote ownership; not aborted",
+                tuple(str(run["run_id"]) for run in unknown),
+                RepairAction("verify ownership manually; no automatic abort", Repairability.MANUAL),
+            )
         return _ok("database.stale_runs", "no unfinished runs")
     ids = [str(run["run_id"]) for run in stale]
 
     def mark() -> str:
-        db.mark_runs_aborted(ids)
+        with file_lock(app.storage.root, exclusive=True):
+            db.mark_runs_aborted(ids)  # rechecks process identity inside the transaction
         return f"marked {len(ids)} unfinished runs ABORTED"
 
     return CheckResult(
@@ -388,6 +402,19 @@ def check_isolation(app: "Application") -> CheckResult:
     return _ok("isolation.capabilities", f"{limits}, wall clock: enforced")
 
 
+def check_audit(app: "Application") -> CheckResult:
+    problems = audit_problems(app.storage.path("logs"))
+    if problems:
+        return CheckResult(
+            "logging.audit",
+            Severity.ERROR,
+            "audit trail has damaged records",
+            tuple(problems),
+            RepairAction("preserve and investigate the audit file manually", Repairability.MANUAL),
+        )
+    return _ok("logging.audit", "no invalid audit records found")
+
+
 def check_imaging_codecs(app: "Application") -> CheckResult:
     missing = app.decoders.missing(app.settings.formats.accepted)
     if not missing:
@@ -409,6 +436,7 @@ def default_registry(*, deep: bool = True) -> HealthRegistry:
     registry = HealthRegistry()
     for check_id, check in (
         ("runtime.directories", check_runtime_directories),
+        ("logging.audit", check_audit),
         ("isolation.capabilities", check_isolation),
         ("imaging.codecs", check_imaging_codecs),
         ("runtime.permissions", check_runtime_permissions),

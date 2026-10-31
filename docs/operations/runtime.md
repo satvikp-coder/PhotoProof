@@ -75,6 +75,56 @@ which takes a backup first.
 | `evidence` | `sha256` (primary key), `size`, `first_seen_at` |
 | `submissions` | `id`, `sha256`, `role`, `original_name`, `submitted_at`, `run_id` (null until the run finishes, or if it never did) |
 
+## Run ownership migration
+
+Schema version 3 adds nullable `runs.pid`, `runs.hostname` and `runs.process_token`.
+New runs record the creating process; finishing them retains that provenance. Existing
+rows remain readable with unknown ownership. Existing schema 1/2 databases require
+explicit `python main.py --repair`; the SQLite backup API writes a pre-migration
+`photoproof.db.v<schema>.bak` before transactional migrations. New databases initialize
+automatically. Schema creation/migration has a separate process lock and rechecks the
+schema after waiting, so simultaneous first launches do not apply a migration twice.
+Stop older PhotoProof processes before migration: they do not participate in this
+locking protocol. Do not run an older release against the migrated database.
+
+## Concurrent processes and recovery
+
+Several analyses can share the same **local** ARE. They keep shared locks from CLI
+ingestion through submission linking; the controller, evidence ingestion and temporary
+file contexts also guard direct service use. Repair takes an exclusive lock across
+diagnosis, mutation, verification and audit. It cannot invalidate active analysis data
+or remove staging files held by cooperative work, even when their timestamps look old.
+Do not use internal repair callbacks as a replacement for `run_repairs`.
+
+Runtime locks wait up to 10 seconds by default, then report an actionable error. The
+core `file_lock` and `run_repairs(lock_timeout=...)` APIs accept bounded caller-specific
+timeouts. Finish active work and retry repair. Continuous readers can delay a repair;
+fairness is not guaranteed. Do not delete, replace, chmod to loosen, or “steal” lock
+files. The OS releases a terminated process's locks; leftover files are intentionally
+reused. Existing security descriptors are not relaxed. Links/reparse points and
+hard-linked lock files are refused; runtime parents must remain trusted.
+
+An old unfinished run is eligible for CONTROLLED recovery only if its local process
+is demonstrably dead or its PID has a different creation identity. Live owners are
+excluded regardless of run age. Linux compares boot ID and `/proc` start ticks;
+Windows queries creation/exit FILETIMEs through a process handle. macOS compares
+`ps` start times (second precision, so very fast PID reuse can remain ambiguous).
+Missing ownership, another hostname or denied process inspection is never assumed
+dead: inspect those records manually. Ownership is rechecked before setting ABORTED.
+Staging files left by a dead process can be removed by SAFE repair only after the
+configured age threshold and exclusive acquisition; original evidence is never deleted.
+
+SQLite stays in rollback-journal mode with an explicit 10-second busy timeout and
+immediate write transactions. Contention exceeding that bound is reported as a write
+failure, not silently retried indefinitely. Keep transactions short. Backups continue
+to use SQLite's backup API; there are no new WAL sidecars or background queue.
+
+SMB/NFS, mapped network drives, synchronized folders and runtimes accessed from several
+hosts are unsupported: lock/rename/fsync behavior and process identity cannot be relied
+on. UNC paths are rejected; POSIX remote mounts are not reliably auto-detected, so the
+operator must choose a local filesystem. This change does not replace Windows ACL
+enforcement or introduce guarantees against administrators/owners or already-open handles.
+
 ## Cache
 
 The run-level cache reuses a previous **COMPLETED** run only if the key matches and
@@ -101,6 +151,15 @@ logged to `photoproof.log`. `POLICY_OVERRIDE`, `REPAIR_APPLIED` and
 `HEALTH_CHECK_FAILED` are also appended to `audit.jsonl`. A failing optional
 subscriber is logged and ignored. A failing critical subscriber (state persistence,
 audit) stops the operation.
+
+Concurrent audit writers serialize the complete UTF-8 JSONL append, flush and fsync
+under a separate OS lock. Ordinary logging also serializes writes and rotation, and
+closes its file between records so another Windows process can rotate it safely.
+Audit records have no total semantic ordering across processes and no hash chain yet
+(#81). A crash or power loss may leave a partial record. Appends refuse a file without
+a trailing newline; `logging.audit` reports invalid JSON/non-object/incomplete lines.
+Neither check nor repair truncates or rewrites the audit trail: preserve it and
+investigate manually. A successful fsync is not a guarantee against faulty hardware.
 
 ## Execution manifests
 

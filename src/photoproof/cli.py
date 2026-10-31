@@ -31,6 +31,7 @@ from photoproof.core.config.policy import (
 from photoproof.core.controller import AnalysisController
 from photoproof.core.health.checks import CheckResult, default_registry
 from photoproof.core.health.repair import preflight, publish_findings, run_repairs
+from photoproof.core.storage.locking import file_lock
 from photoproof.core.storage.store import sha256_file
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_CONFIG, EXIT_HEALTH, EXIT_NOT_COMPLETED = 0, 1, 2, 4, 6, 7
@@ -203,6 +204,12 @@ def cmd_config(app: Application, as_json: bool) -> int:
 
 
 def cmd_analyze(app: Application, args: argparse.Namespace) -> int:
+    # Includes ingestion, analysis and submission linking, not just detector execution.
+    with file_lock(app.storage.root, exclusive=False):
+        return _analyze_locked(app, args)
+
+
+def _analyze_locked(app: Application, args: argparse.Namespace) -> int:
     if args.progress or app.flags.is_enabled("events.progress"):
 
         def progress(event: Event) -> None:

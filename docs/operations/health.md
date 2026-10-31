@@ -12,6 +12,7 @@ checks **never** change anything; repairs are separate, classified actions.
 | `runtime.disk_space` | Free space below `resources.min_free_disk_mb` | error | MANUAL |
 | `runtime.stale_temp` | Old files in `tmp/`, interrupted-write `.*.part` leftovers | warning | SAFE: delete exactly those files |
 | `database.integrity` | Missing DB (warning, SAFE init); pending migration (error, CONTROLLED: back up then migrate); newer/unknown schema or failed `PRAGMA integrity_check` (critical, MANUAL) | — | — |
+| `logging.audit` | Invalid or incomplete JSONL records (error, MANUAL; preserve bytes) | — | — |
 | `cache.integrity` | Unparseable entries, missing/corrupt referenced artifacts | warning | SAFE: invalidate entries |
 | `isolation.capabilities` | Which child-process limits this platform can enforce (informational) | — | — |
 | `imaging.codecs` | Accepted formats without a decoder (warning), naming what each needs | — | MANUAL |
@@ -19,7 +20,7 @@ checks **never** change anything; repairs are separate, classified actions.
 | `application.version` | Installed package version ≠ `app.toml` | error | CONTROLLED: `python main.py --repair` |
 | `plugins.graph` | Invalid plugin graph (error) or unavailable plugins (warning) | — | MANUAL |
 | `plugins.policy` | Blacklist, denylist or profile `required_plugins` entries naming unknown plugins (likely typos — a misspelled blacklist entry blocks nothing) | warning | MANUAL |
-| `database.stale_runs` | Runs older than one hour that never finished (killed process) | warning | CONTROLLED: mark them `ABORTED` |
+| `database.stale_runs` | Old unfinished runs with demonstrably dead local owners; live owners excluded | warning | CONTROLLED: mark dead owners `ABORTED`; unknown/remote ownership requires MANUAL investigation |
 
 **Quick and deep mode.** Preflight (every launch) runs the checks in quick mode:
 `storage.integrity` only verifies that blobs sit at well-formed content addresses and
