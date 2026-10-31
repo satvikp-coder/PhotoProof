@@ -67,6 +67,9 @@ def _parser() -> argparse.ArgumentParser:
     manifest = sub.add_parser("manifest", help="show an execution manifest")
     manifest.add_argument("run_id")
     manifest.add_argument("--json", action="store_true")
+    report = sub.add_parser("report", help="generate an integrity-verified offline evidence report")
+    report.add_argument("run_id")
+    report.add_argument("--format", choices=("html", "json"), default="html")
     return parser
 
 
@@ -316,6 +319,9 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
             return cmd_config(app, args.json)
         if command == "plugins":
             return cmd_plugins(app, args.profile, _override(args), args.json)
+        if command == "report":
+            print(app.report(args.run_id, format=args.format))
+            return EXIT_OK
         if (code := _start(app)) is not None:
             return code
         if command == "preflight":

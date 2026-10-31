@@ -15,7 +15,8 @@ Git. Directories are created owner-only (0700) on POSIX.
 | `logs/` | `photoproof.log` (JSON lines, rotated), `audit.jsonl` |
 | `tmp/` | Owner-only temporary files |
 | `quarantine/` | Inputs being validated, under random names. Emptied on success or rejection; `runtime.stale_temp` cleans anything older |
-| `uploads/`, `reports/` | Reserved for WebKit uploads and reporting (planned) |
+| `uploads/` | Reserved for WebKit uploads (planned) |
+| `reports/` | Derived offline HTML/canonical JSON reports under `<run_id>/`; [operations](reporting.md) |
 
 All paths go through `safe_join`, which rejects absolute components, `..`, NUL bytes
 and symlinks escaping the root. Writes are atomic (temp file, `fsync`, then a rename). Blobs
