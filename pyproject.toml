@@ -25,6 +25,7 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
+  "Pillow>=13,<14",  # decoder for JPEG, PNG and WebP (MIT-CMU); 13.0 fixes known CVEs
   "pydantic>=2.9,<3",
   "ruamel.yaml>=0.18,<0.20",  # pure-Python wheel: installs on every supported version
 ]
@@ -83,6 +84,7 @@ testpaths = ["tests"]
 pythonpath = ["tests", "tests/fixtures"]
 addopts = "-ra --strict-markers"
 filterwarnings = ["error"]
+faulthandler_timeout = 120  # dump every stack if a test hangs, so CI shows where
 
 [tool.coverage.run]
 source = ["photoproof"]

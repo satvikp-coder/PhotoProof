@@ -34,4 +34,4 @@ source .venv/bin/activate
 `ISSUE → BRANCH → IMPLEMENTATION → TESTS → DOCUMENTATION → CHANGELOG → VERSION → PR → CI → REVIEW → MERGE`
 
 Branches: `feat/42-image-decoder`. Commits and PR titles: Conventional Commits.
-Every merged PR bumps `app.toml` once and adds a `CHANGELOG.md` entry.
+Every merged PR adds a `CHANGELOG.md` entry. The version changes only at [release time](releases.md).

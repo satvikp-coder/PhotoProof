@@ -24,5 +24,11 @@ Critical configuration, policy, planner and executor branches have explicit test
 - Memory detection on Windows (`GlobalMemoryStatusEx`) and the macOS `UF_HIDDEN` fix
   are covered only on their respective CI runners.
 - POSIX permission assertions are skipped on Windows. Symlink-escape tests need
-  symlink privileges on Windows.
-- Native-code crashes cannot occur yet (no native decoders).
+  symlink privileges on Windows. `test_safe_join_rejects_symlink_escape` needs that
+  permission locally; enabling Windows Developer Mode permits symlink creation without
+  running the test suite as administrator. A WinError 1314 at creation is a local
+  privilege limitation, not a reason to weaken the escape assertion.
+- Native-code crashes in the application cannot occur yet (no native decoders). The
+  child-process runner is tested against real crashes.
+- A real segfault opens a macOS crash dialog, so that test runs in CI only on macOS. Locally,
+  `killed_abruptly` covers the same path.

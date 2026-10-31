@@ -7,18 +7,73 @@ Git. Directories are created owner-only (0700) on POSIX.
 
 | Directory | Contents |
 |---|---|
-| `objects/` | Reserved for original evidence, content-addressed (`<sha[:2]>/<sha>`), read-only |
+| `objects/` | Original evidence, content-addressed (`<sha[:2]>/<sha>`), read-only ([details](#evidence-store)) |
 | `artifacts/` | Plugin outputs, content-addressed, read-only |
 | `cache/runs/` | Run-level cache entries (`<key>.json`) |
 | `manifests/` | Execution manifests (`<run_id>.json`) |
 | `database/` | `photoproof.db` (SQLite) and migration backups |
 | `logs/` | `photoproof.log` (JSON lines, rotated), `audit.jsonl` |
 | `tmp/` | Owner-only temporary files |
-| `uploads/`, `quarantine/`, `reports/` | Reserved for ingestion and reporting (planned) |
+| `quarantine/` | Inputs being validated, under random names. Emptied on success or rejection; `runtime.stale_temp` cleans anything older |
+| `uploads/`, `reports/` | Reserved for WebKit uploads and reporting (planned) |
 
 All paths go through `safe_join`, which rejects absolute components, `..`, NUL bytes
-and symlinks escaping the root. Writes are atomic (temp file in the same directory,
-`fsync`, `os.replace`). An existing blob that fails verification is never overwritten.
+and symlinks escaping the root. Writes are atomic (temp file, `fsync`, then a rename). Blobs
+are published without any possibility of overwriting: see the
+[evidence store](#evidence-store).
+
+## Ingestion
+
+`IngestionService` is the one way untrusted files enter PhotoProof. `analyze` uses it for every
+input, and WebKit will use it too.
+
+1. **Stage** the stream in `quarantine/` under a random name, enforcing
+   `resources.max_input_bytes` while reading. A claimed length is never trusted, and reading stops
+   within one chunk (1 MiB) of the limit.
+2. **Validate** the type from the file's content. Empty files, unknown formats and formats outside
+   `formats.accepted` are rejected.
+3. **Promote** to the evidence store, which hashes and verifies it.
+
+Every rejection writes an `INPUT_REJECTED` entry to `audit.jsonl`, with the reason, size and detected
+format. The file's content and submitted name are not logged. Nothing stays in `quarantine/` or
+`objects/` after a rejection.
+
+A slow sender can hold ingestion open, so WebKit must apply its own per-request timeout (#39).
+
+## Evidence store
+
+`analyze` stores every input in `objects/` before any processing, and later consumers read
+it through `EvidenceStore.open`, which re-hashes the file and raises `StorageError` on any
+mismatch. No consumer receives unverified bytes.
+
+- **One copy.** The storage key is the SHA-256 of the content, so identical bytes are stored
+  once and each submission adds a record.
+- **Never overwritten.** A new blob is published with a hard link, which fails if the target
+  exists, so even a race between processes cannot write to an existing object. A blob that
+  fails verification stays in place for investigation.
+- **Hard links are required on POSIX.** `runtime.root` cannot be on a filesystem without them
+  (exFAT, for example). Storing fails with an error instead of risking an overwrite.
+- **Metadata only.** The submitted file name is stored in the database and never used to
+  build a path. Non-UTF-8 name bytes are stored as visible escapes.
+- **Rejected inputs.** Symlinks, directories, FIFOs and devices, empty files, and files over
+  `resources.max_input_bytes`. Reading stops at the limit, and nothing is stored.
+- **Interruptions.** The copy goes to `tmp/` first. A failure removes it, and a hard kill
+  leaves a file for `runtime.stale_temp` to clean up. If the database write fails after the
+  blob is stored, retrying records the submission against the same blob.
+
+An unknown profile or an invalid reference combination is rejected before anything is
+stored. Other rejections can leave an already accepted target in the store, because deletion
+controls do not exist yet (#56).
+
+### Database tables
+
+Added in schema version 2. Existing databases are migrated by `python main.py --repair`,
+which takes a backup first.
+
+| Table | Columns |
+|---|---|
+| `evidence` | `sha256` (primary key), `size`, `first_seen_at` |
+| `submissions` | `id`, `sha256`, `role`, `original_name`, `submitted_at`, `run_id` (null until the run finishes, or if it never did) |
 
 ## Cache
 

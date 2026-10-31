@@ -29,6 +29,7 @@ from photoproof.core.config.policy import (
     authorize_blacklist_override,
     decide_all,
 )
+from photoproof.core.config.validator import Profile
 from photoproof.core.pipeline.executor import ExecutionReport, SequentialExecutor, event_for
 from photoproof.core.pipeline.manifest import build_manifest
 from photoproof.core.pipeline.planner import ExecutionPlan, plan
@@ -50,20 +51,28 @@ class AnalysisController:
 
     # ------------------------------------------------------------------ public
 
-    def analyze(
-        self, request: AnalysisRequest, *, override: BlacklistOverride | None = None
-    ) -> AnalysisResult:
+    def resolve_profile(self, name: str | None, *, has_reference: bool) -> tuple[str, Profile]:
+        """Return the profile to use, or raise if the request cannot run under it."""
         app = self.app
-        profile_name = request.profile or app.settings.profiles.default
+        profile_name = name or app.settings.profiles.default
         if profile_name not in app.profiles:
             raise ConfigurationError(
                 f"unknown profile {profile_name!r}; known: {sorted(app.profiles)}"
             )
         profile = app.profiles[profile_name]
-        if profile.mode is AnalysisMode.COMPARISON and request.reference is None:
+        if profile.mode is AnalysisMode.COMPARISON and not has_reference:
             raise InputRejectedError(f"profile {profile.name!r} requires a reference image")
-        if profile.mode is AnalysisMode.SINGLE and request.reference is not None:
+        if profile.mode is AnalysisMode.SINGLE and has_reference:
             raise InputRejectedError(f"profile {profile.name!r} does not accept a reference image")
+        return profile_name, profile
+
+    def analyze(
+        self, request: AnalysisRequest, *, override: BlacklistOverride | None = None
+    ) -> AnalysisResult:
+        app = self.app
+        profile_name, profile = self.resolve_profile(
+            request.profile, has_reference=request.reference is not None
+        )
         override = authorize_blacklist_override(app.settings, override)
 
         run_id = uuid.uuid4().hex
@@ -212,7 +221,10 @@ class AnalysisController:
             random_seed=app.settings.scheduling.random_seed,
             artifacts=[a.model_dump(mode="json") for a in artifacts],
             outputs=outputs,
-            software=build_info(app.root),
+            software={
+                **build_info(app.root),
+                "image_decoders": app.decoders.library_versions(),
+            },
         )
         manifest_path = app.storage.write_json(manifest, "manifests", f"{run_id}.json")
         manifest_sha = sha256_bytes(manifest_path.read_bytes())
@@ -373,7 +385,9 @@ class AnalysisController:
         return cache_key(
             {
                 "target": request.target.sha256,
+                "target_format": request.target.media_format,  # decides which plugins apply
                 "reference": request.reference.sha256 if request.reference else None,
+                "reference_format": request.reference.media_format if request.reference else None,
                 "mode": app.profiles[profile_name].mode.value,
                 "profile": app.profiles[profile_name].model_dump(mode="json"),
                 # ponytail: whole settings snapshot — over-invalidates (e.g. on a log-level
@@ -383,6 +397,7 @@ class AnalysisController:
                 "policy": {pid: d.enabled for pid, d in sorted(decisions.items())},
                 "pipeline": execution_plan.fingerprint(),
                 "plugins": self._plugin_identities(execution_plan),
+                "image_decoders": app.decoders.library_versions(),
                 # Raw file bytes, not parsed YAML: a malformed config must fail only its
                 # plugin at run time, exactly as it does with the cache disabled.
                 "plugin_configs": {

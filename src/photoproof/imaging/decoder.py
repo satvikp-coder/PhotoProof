@@ -1,6 +1,6 @@
-"""Decoder security interface that every future image decoder must implement.
+"""Decoder security interface that every image decoder must implement.
 
-No decoder exists yet. This module fixes the contract so ingestion, plugins and the
+This module fixes the contract so ingestion, plugins and the
 future isolated decoder process agree on limits and outputs. Implementing this
 protocol does not by itself provide isolation: decoders parse untrusted bytes with
 native code and must eventually run in a separate, resource-limited process.
@@ -8,6 +8,10 @@ native code and must eventually run in a separate, resource-limited process.
 
 from dataclasses import dataclass
 from typing import Protocol
+
+# Pixel modes holding 16-bit little-endian code values, with their channel counts. Sources of
+# 10 or 12 bits use the same storage, and ``DecodedImage.bit_depth`` says which range applies.
+SIXTEEN_BIT_MODES = {"I;16": 1, "RGB;16": 3, "RGBA;16": 4}
 
 
 @dataclass(frozen=True)
@@ -18,6 +22,7 @@ class DecodeLimits:
     max_pixels: int  # width * height * frames; decompression-bomb guard
     max_frames: int = 1
     timeout_seconds: float = 30.0
+    max_decoded_bytes: int = 2 << 30  # memory for the pixels, checked before they are decoded
 
 
 @dataclass(frozen=True)
@@ -33,6 +38,11 @@ class DecodedImage:
     pixels: bytes  # row-major, interleaved channels
     icc_profile: bytes | None = None
     orientation: int = 1  # EXIF orientation as found; normalization is a separate step
+    mode: str = ""  # working pixel mode, e.g. "RGB", "RGBA" or "I;16"
+    conversion: str = "none"  # comma-separated codes for what changed; see the adapter
+    transfer: str = "srgb"  # srgb | bt709 | pq | hlg | linear
+    primaries: str = "bt709"  # bt709 | p3 | bt2020
+    colour_notes: tuple[str, ...] = ()  # e.g. transfer_assumed, cicp_signalled
 
 
 class ImageDecoder(Protocol):

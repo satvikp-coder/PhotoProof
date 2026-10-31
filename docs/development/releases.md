@@ -19,15 +19,16 @@ Semantic Versioning, strictly, including during `0.x`:
   format, manifest/artifact format, removing supported functionality). Requires
   maintainer approval and migration notes.
 
-Each merged PR bumps once, using the highest category. The PR-governance workflow
-checks that the bump is exactly one valid step and that breaking titles (`!`) are
-MAJOR. Plugin versions are independent.
+Ordinary PRs don't change the version. Each one states its impact in its description, and a
+release uses the highest impact among the changes since the last release. If a PR does change the
+version, the PR-governance workflow warns, and checks that it's one valid step and that breaking
+titles (`!`) are MAJOR. Plugin versions are independent.
 
 ## Release process (maintainers)
 
-1. On `main`, rename `## [Unreleased]` in `CHANGELOG.md` to
-   `## [x.y.z] - YYYY-MM-DD` (it must match `app.toml`) and add an empty
-   `## [Unreleased]` above it, via a PR.
+1. Open a PR titled `chore(release): x.y.z` that sets the version in `app.toml`, renames
+   `## [Unreleased]` in `CHANGELOG.md` to `## [x.y.z] - YYYY-MM-DD`, and adds an empty
+   `## [Unreleased]` above it. Choose `x.y.z` from the highest impact since the last release.
 2. After merge, tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 3. `release.yml` verifies the tag matches `app.toml`, checks the changelog section,
    refuses duplicate releases, runs the tests, builds the sdist and wheel, and creates
