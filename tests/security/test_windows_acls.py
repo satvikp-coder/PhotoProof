@@ -47,7 +47,8 @@ def test_native_directory_acl_unicode_and_idempotence(tmp_path: Path) -> None:
     # Independent .NET ACL readback: no localized username assumptions in assertions.
     executable = Path(os.environ["SYSTEMROOT"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
     script = (
-        "$a = Get-Acl -LiteralPath $env:ACL_TEST_PATH; "
+        "$ErrorActionPreference = 'Stop'; "
+        "$a = [System.IO.Directory]::GetAccessControl($env:ACL_TEST_PATH); "
         "@{protected=$a.AreAccessRulesProtected; sids=@($a.Access | ForEach-Object { "
         "$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value "
         "})} | ConvertTo-Json -Compress"
