@@ -17,7 +17,7 @@ from photoproof.core.events.bus import EventBus
 from photoproof.core.logging.audit import append_audit
 from photoproof.core.logging.privacy import PrivacyFilter, sanitize
 
-_STANDARD_ATTRS = set(vars(logging.makeLogRecord({}))) | {"message", "asctime"}
+_STANDARD_ATTRS = set(vars(logging.makeLogRecord({}))) | {"message", "asctime", "_privacy_guard"}
 
 AUDITED = (
     EventType.DELETION_APPLIED,

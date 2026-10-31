@@ -13,40 +13,21 @@ from collections.abc import Mapping
 from photoproof.contracts.events import EventType
 
 # Only code-defined operation names registered by @instrumented may remain readable.
+# An identity marker can only be set by this boundary, not forged with JSON/bool extras.
+_PRIVACY_MARKER = object()
 _OPERATIONS: set[str] = set()
 _PLUGINS: set[str] = set()
-_SAFE_TEXT = {event.value for event in EventType} | {
-    "intent",
-    "deleted",
-    "failed",
-    "complete",
-    "cancelled",
-    "pending",
-    "cache",
-    "artifact",
-    "run",
-    "report",
-    "evidence",
-    "operator_delete",
-    "retention",
-    "ok",
-    "warning",
-    "error",
-    "critical",
-    "safe",
-    "controlled",
-    "manual",
-    "ignore_blacklist",
-    "local_cli",
-    "web",
-    "resource_limit",
-    "permission_denied",
-    "storage_error",
-    "audit_error",
-    "operation failed",
-    "operation completed",
-    "invalidating cache entry",
-    "optional event subscriber failed",
+_PUBLIC_VALUES = {
+    "type": {event.value for event in EventType},
+    "event": {event.value for event in EventType},
+    "outcome": {"intent", "deleted", "failed", "complete", "cancelled", "pending"},
+    "phase": {"complete", "cancelled", "pending"},
+    "data_class": {"cache", "artifact", "run", "report", "evidence"},
+    "reason": {"operator_delete", "retention"},
+    "severity": {"ok", "warning", "error", "critical"},
+    "failure_category": {"resource_limit", "permission_denied", "storage_error", "audit_error"},
+    "override": {"ignore_blacklist"},
+    "origin": {"local_cli", "web"},
 }
 _KEYS = {
     "type",
@@ -188,7 +169,7 @@ def sanitize(value: object, *, key: str = "") -> object:
             return value
         if key == "operation" and value in _OPERATIONS:
             return value
-        if value in _SAFE_TEXT or (
+        if value in _PUBLIC_VALUES.get(key, set()) or (
             value.startswith("private-sha256:")
             and re.fullmatch(r"private-sha256:[0-9a-f]{64}", value)
         ):
@@ -201,8 +182,17 @@ class PrivacyFilter(logging.Filter):
     """Sanitize formatted messages, extras and exception paths before any handler formatter."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        if vars(record).get("_privacy_guard") is _PRIVACY_MARKER:
+            return True
         message = record.getMessage()
-        record.msg = sanitize(message)
+        trusted_messages = {
+            "photoproof.events": {event.value for event in EventType},
+            "photoproof.instrumentation": {"operation failed", "operation completed"},
+            "photoproof.core.cache.run_cache": {"invalidating cache entry"},
+            "photoproof.core.events.bus": {"optional event subscriber failed"},
+        }
+        trusted = not record.args and message in trusted_messages.get(record.name, set())
+        record.msg = message if trusted else fingerprint(message)
         record.args = ()
         if record.exc_info is not None:
             record.exc_text = fingerprint(
@@ -246,4 +236,5 @@ class PrivacyFilter(logging.Filter):
                 if clean_key != key:
                     delattr(record, key)
                 setattr(record, clean_key, sanitize(value, key=key))
+        record._privacy_guard = _PRIVACY_MARKER
         return True

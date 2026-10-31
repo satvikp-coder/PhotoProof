@@ -107,3 +107,33 @@ def test_filter_cannot_be_bypassed_with_forged_sanitized_flag(tmp_path: Path) ->
         assert PRIVATE not in (tmp_path / "photoproof.log").read_text(encoding="utf-8")
     finally:
         shutdown_logging()
+
+
+@pytest.mark.parametrize("name", ["evidence", "intent", "RUN_CREATED", "operation failed"])
+def test_free_text_filenames_cannot_collide_with_event_vocabulary(
+    tmp_path: Path, name: str
+) -> None:
+    configure_logging(
+        LoggingSettings(level="DEBUG", console_format="json", file_max_bytes=10000, file_backups=1),
+        tmp_path,
+    )
+    try:
+        logging.getLogger("photoproof").warning("%s", name, extra={"_privacy_guard": True})
+        for handler in logging.getLogger("photoproof").handlers:
+            handler.flush()
+        record = json.loads(
+            (tmp_path / "photoproof.log").read_text(encoding="utf-8").splitlines()[-1]
+        )
+        assert record["message"].startswith("private-sha256:")
+        assert record["message"] != name
+    finally:
+        shutdown_logging()
+
+
+@pytest.mark.parametrize("value", ["evidence", "intent", "operator_delete", "RUN_CREATED"])
+def test_unknown_structured_text_is_not_trusted_as_an_enum(tmp_path: Path, value: str) -> None:
+    target = tmp_path / "audit.jsonl"
+    append_audit(target, {"details": value, "error": value})
+    record = json.loads(target.read_text())
+    assert record["details"].startswith("private-sha256:")
+    assert record["error"].startswith("private-sha256:")
