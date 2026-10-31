@@ -73,3 +73,15 @@ ui:
 
 development:
   debug: false                 # must be false when environment.mode is production
+
+# Retention is opt-in; housekeeping is always a dry run unless --apply is supplied.
+retention:
+  cache_days: null
+  artifact_days: null
+  run_days: null
+
+# MiB (1,048,576 bytes); null means unlimited. Quotas never authorize deletion.
+quotas:
+  max_total_mb: null
+  warn_at_percent: 80
+  max_run_artifacts_mb: null

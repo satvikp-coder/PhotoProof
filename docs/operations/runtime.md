@@ -124,3 +124,96 @@ python main.py manifest <run_id> --json  # full document
 ```
 
 Historic replay and environment restoration are planned.
+
+## Housekeeping
+
+```console
+python main.py housekeeping
+python main.py housekeeping --apply
+```
+
+The first command is a pure dry run: it bypasses preflight/startup repair and file logging,
+opens the existing database read-only, and does not write audit events or initialize an absent
+runtime. Missing/uncertain references return a nonzero result. Configure retention first; all
+retention defaults retain indefinitely. Example output (synthetic identity abbreviated):
+
+```text
+Housekeeping: DRY RUN; no changes
+Protected: original evidence, retained references, audit trails, backups, unknown files
+  cache <sha256>: 512 bytes; 31.00 days; expired disposable cache
+Projected reclaimed: 512 bytes
+```
+
+`--apply` is explicit authorization of the currently displayed plan. The service independently
+replans under a SQLite EXCLUSIVE reservation, checks file identity/hash again, and unlinks
+specific approved files only. It never recursively removes directories or follows symlinks,
+junctions or reparse points. Hard-linked deletion candidates and corrupt blobs are refused.
+There is no background scheduler and no preflight housekeeping repair action.
+
+Deletion order is expired cache, unreferenced old derived artifacts, then eligible completed-run
+manifests/metadata. Cache files and rows must agree. Every stored manifest must match its
+SQLite-recorded hash and artifact references; all retained/cache references protect blobs.
+Missing, malformed, unregistered or inconsistent reference data stops planning. A hash mismatch
+is an integrity problem, never a reason to discard data. Unknown files, temporary files, report
+outputs, migration backups and audit history are outside automatic retention. Empty directories
+are left intact. Quota pressure does not change these protections.
+
+Run retention removes the approved manifest, artifact association rows, plugin execution rows
+and run row. Submission rows are retained with `run_id` cleared, as are all original evidence
+blobs and evidence records. A retained cache source, report directory or any unlinked submission postpones run retirement.
+The last guard protects the CLI interval between analysis completion and submission linking;
+abandoned unlinked submissions intentionally require operator investigation before retirement.
+Shared artifacts stay protected until the last retained manifest/cache/DB reference is gone;
+newly unreferenced artifacts require another plan. This deliberately favors preservation over
+maximum reclamation in one invocation. Evidence deletion and its privacy policy remain #56.
+
+### Audit receipts, rotation and interrupted cleanup
+
+Every unlink has a durable `HOUSEKEEPING_APPLIED` intent before deletion, then an outcome
+(`deleted` or `failed`). Receipts contain data class, safe content hash, fixed reason, size and
+reclaimed bytes; no original filenames, GPS or source paths. Intent/failure records claim zero
+reclamation. Audit failures are critical and return nonzero. A failure writing the outcome after
+unlink cannot undo deletion; the durable intent remains evidence of an uncertain outcome,
+which must be reconciled by the operator. Earlier successful removals and their metadata are
+preserved when a later candidate fails.
+
+Filesystem unlink and SQLite commit are not one atomic transaction. A process/power failure
+between unlink and metadata commit may leave a missing-manifest or missing-cache record. The
+next plan fails closed, protecting all remaining blobs. Preserve audit files and database
+backups; compare intent/outcome hashes with the specific missing file and database associations.
+Do not delete blobs or reconstruct forensic results to make the graph pass. An authorized
+operator must reconcile the interrupted derived-data retirement or restore metadata from a
+trusted backup before retrying. Automatic crash recovery of these ambiguous cases is not
+implemented. Audit records are receipts, not a tamper-evident chain (#81).
+
+Audit append/rotation share a bounded native OS lock. Rotation uses `logging.file_max_bytes`
+and increasing `audit.jsonl.1`, `.2`, ... segment numbers. Segments never get renumbered or
+removed automatically; `logging.file_backups` applies only to `photoproof.log`. A single record
+larger than the threshold stays complete. Incomplete/invalid JSONL in the current segment
+blocks append rather than silently truncating crash evidence. Audit history can itself exceed
+the quota; preserve/export it according to an explicit operator policy, never housekeeping.
+
+### Concurrency and platform boundary
+
+Before #82 merges, cleanup requires an idle runtime: any unfinished database run blocks all
+candidates, regardless of age. Housekeeping applications serialize through SQLite EXCLUSIVE
+transactions. Run creation/status/cache metadata writes wait or fail with SQLite's bounded
+busy timeout. Controller artifact publication now takes its own SQLite write reservation and
+checks the run is still active; a timed-out plugin cannot publish after run completion.
+An analysis that has not created its run record may still ingest original evidence concurrently;
+housekeeping never touches that class. This does not implement #82's shared runtime locks,
+process ownership or stale-run recovery. Do not run repair, external tools or older PhotoProof
+versions concurrently with housekeeping. Direct storage API callers must externally quiesce
+writes; they do not implicitly participate in the controller's reservation protocol.
+
+Supported coordination assumes a trusted local filesystem with reliable SQLite/native locks.
+Network shares, mapped network drives and unreliable/removable filesystems are unsupported;
+there is no cross-host guarantee. A changing/inaccessible quota scan reports ERROR rather than
+healthy. Logical-byte usage is a point-in-time estimate, not allocated blocks or a disk reservation.
+Another process can consume space immediately afterward.
+
+On POSIX, unlink removes the directory entry without changing read-only blob modes. Windows
+main does not include #80 ACL enforcement; this feature does not import it. A read-only Windows
+derived blob that cannot be unlinked is retained and reported as a failure. No permissions on
+retained evidence or derived files are broadened. An owner can always change their own files:
+these safeguards do not defend against a hostile account already controlling the runtime.

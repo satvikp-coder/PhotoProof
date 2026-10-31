@@ -112,3 +112,16 @@ the reused plugin states and artifact references for the new run (marked `cached
 !!! danger "A missing result is never evidence of authenticity"
     None of these statuses is a verdict. `NO_DETECTORS`, `INCOMPLETE` and `BLOCKED`
     say nothing about whether an image is authentic.
+
+## Operator housekeeping and quota boundaries
+
+The `housekeeping` command is dispatched before startup/preflight and opens only an existing
+read-only SQLite snapshot for planning. Application bootstrap wires the event bus/audit writer
+without starting logging/persistence. Apply revalidates under a SQLite EXCLUSIVE reservation;
+controller artifact writers hold a separate connection's write reservation while publishing
+and reject writes for finished runs. This narrow protocol does not replace #82's planned
+shared/exclusive runtime lock or process ownership model. Repair and direct storage writers
+must be quiesced. Run manifests and SQLite association rows independently protect artifacts;
+cache entries are an additional reference source. Original evidence is outside this service.
+`storage.quota` is diagnostic only; quota enforcement at the controller artifact callback
+prevents over-budget publication and reports `resource_limit` through the existing failure policy.

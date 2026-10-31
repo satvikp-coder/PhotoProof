@@ -126,3 +126,13 @@ A corrupt or missing evidence blob is a MANUAL critical finding.
 
 Report vulnerabilities privately: see
 [SECURITY.md](https://github.com/satvikp-coder/PhotoProof/blob/main/SECURITY.md).
+
+## Retention boundary
+
+Housekeeping is opt-in and dry-run by default. Original evidence is never eligible, even when
+it shares a content hash with a derived artifact. Retained manifest/database/cache references
+protect artifacts. Redirected paths, hard-linked candidates, inconsistent references and hash
+mismatches block deletion. Quotas produce diagnostics or plugin resource failures, never an
+automatic evidence deletion. Explicit run retirement removes derived metadata only; submission
+and evidence records remain. See [runtime housekeeping](../operations/runtime.md#housekeeping)
+for interrupted-operation recovery, local-filesystem assumptions and audit receipt limitations.

@@ -149,6 +149,18 @@ class CacheSettings(_Strict):
     enabled: StrictBool
 
 
+class RetentionSettings(_Strict):
+    cache_days: int | None = Field(default=None, ge=0, strict=True)
+    artifact_days: int | None = Field(default=None, ge=0, strict=True)
+    run_days: int | None = Field(default=None, ge=0, strict=True)
+
+
+class QuotaSettings(_Strict):
+    max_total_mb: int | None = Field(default=None, gt=0, strict=True)
+    warn_at_percent: int = Field(default=80, ge=1, le=99, strict=True)
+    max_run_artifacts_mb: int | None = Field(default=None, gt=0, strict=True)
+
+
 class LoggingSettings(_Strict):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"]
     console_format: Literal["text", "json"]
@@ -217,6 +229,8 @@ class Settings(_Strict):
     plugins: PluginSettings
     profiles: ProfileSettings
     cache: CacheSettings
+    retention: RetentionSettings = RetentionSettings()
+    quotas: QuotaSettings = QuotaSettings()
     logging: LoggingSettings
     health: HealthSettings
     recovery: RecoverySettings

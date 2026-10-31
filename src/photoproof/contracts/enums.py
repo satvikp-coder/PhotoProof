@@ -22,6 +22,7 @@ class ExecutionState(StrEnum):
 
 
 class FailureCategory(StrEnum):
+    RESOURCE_LIMIT = "resource_limit"
     EXCEPTION = "exception"
     INVALID_OUTPUT = "invalid_output"
     TIMEOUT = "timeout"

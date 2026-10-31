@@ -60,3 +60,43 @@ A change that renames, removes or changes the meaning of a key is a breaking
 configuration change: bump `config_schema_version` in `app.toml`, bump
 `schema_version` here, document the migration in `CHANGELOG.md`, and follow the MAJOR
 version policy.
+
+## Retention and quotas
+
+These optional sections have backwards-compatible defaults; existing settings files need no
+migration. All keys reject unknown fields. Retention periods are nonnegative integer days
+(86,400 seconds); `null` retains indefinitely and `0` permits immediate age eligibility.
+Eligibility never authorizes an automatic deletion.
+
+```yaml
+retention:
+  cache_days: 30
+  artifact_days: 90
+  run_days: null
+quotas:
+  max_total_mb: 10240
+  warn_at_percent: 80
+  max_run_artifacts_mb: 100
+```
+
+Defaults: every retention/quota size is `null`, and `warn_at_percent` is `80`. Quota sizes
+are positive integer MiB (1,048,576 bytes); zero is rejected, use `null` for unlimited.
+The warning percentage is an integer from 1 through 99. Booleans are rejected as numbers.
+
+- `cache_days`: age must exceed both the recorded creation time and file modification time.
+- `artifact_days`: applies only to verified, unreferenced derived blobs; retained manifest,
+  SQLite and cache references always win over age.
+- `run_days`: expires completed-run metadata only; a cache source, existing report directory
+  or any unlinked evidence submission protects the run. Original evidence and submission records remain. Artifacts released by a
+  retired run become eligible in a subsequent plan.
+- `max_total_mb`: logical runtime bytes, including originals, logs, backups and unknown files.
+  `storage.quota` warns at the configured percentage and errors at 100%. A quota never permits
+  removing protected data. Hard links are counted once by filesystem identity where available.
+- `max_run_artifacts_mb`: cumulative attempted artifact payload bytes for one run, including
+  repeated/deduplicated writes and outputs from plugins that later fail. The exact byte boundary
+  is allowed; a write exceeding it is refused before publication. The offending plugin fails
+  as `resource_limit`, even if it catches the writer exception. Existing required-plugin
+  abort/degrade policy still applies. Cached outputs are reused, not newly produced bytes.
+
+No `retention.evidence_days` setting is supported here: original-evidence deletion belongs to
+issue #56. See [housekeeping operations](../operations/runtime.md#housekeeping).
