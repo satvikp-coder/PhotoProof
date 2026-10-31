@@ -13,7 +13,12 @@ from typing import Literal
 
 import photoproof
 from photoproof.contracts.events import Event, EventType
-from photoproof.contracts.exceptions import ConfigurationError, DatabaseError, IdentityError
+from photoproof.contracts.exceptions import (
+    ConfigurationError,
+    DatabaseError,
+    IdentityError,
+    ReportError,
+)
 from photoproof.core.config.flags import FeatureFlags
 from photoproof.core.config.loader import load_identity, load_profiles, load_settings
 from photoproof.core.config.validator import AppIdentity, Profile, Settings
@@ -27,7 +32,6 @@ from photoproof.core.logging.setup import (
 )
 from photoproof.core.pipeline.discovery import BUILTIN_PLUGIN_PACKAGE, discover
 from photoproof.core.pipeline.registry import PluginRegistry
-from photoproof.core.reporting.build import ReportError
 from photoproof.core.reporting.service import generate_report, validate_run_id
 from photoproof.core.storage.evidence import EvidenceStore
 from photoproof.core.storage.store import RuntimeStorage

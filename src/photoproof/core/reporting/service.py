@@ -6,9 +6,9 @@ import stat
 from pathlib import Path
 from typing import Literal
 
-from photoproof.contracts.exceptions import DatabaseError, StorageError
+from photoproof.contracts.exceptions import DatabaseError, ReportError, StorageError
 from photoproof.core.database.store import Database
-from photoproof.core.reporting.build import ReportError, build_report, canonical_report_json
+from photoproof.core.reporting.build import build_report, canonical_report_json
 from photoproof.core.reporting.render import render_html
 from photoproof.core.security.paths import safe_join
 from photoproof.core.storage.store import RuntimeStorage, atomic_write, sha256_bytes

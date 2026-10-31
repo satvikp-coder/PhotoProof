@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, m
 from photoproof.contracts.analysis import InputDescriptor
 from photoproof.contracts.artifacts import ArtifactRef
 from photoproof.contracts.enums import AnalysisMode, ExecutionState, FailureCategory, RunStatus
-from photoproof.contracts.exceptions import StorageError
+from photoproof.contracts.exceptions import ReportError
 from photoproof.core.reporting.model import (
     ApplicationIdentity,
     ArtifactEvidence,
@@ -30,10 +30,6 @@ from photoproof.core.reporting.model import (
     Version,
 )
 from photoproof.core.storage.store import sha256_bytes
-
-
-class ReportError(StorageError):
-    """Invalid source, traceability, or report storage; safe to show without source values."""
 
 
 class _Execution(BaseModel):
