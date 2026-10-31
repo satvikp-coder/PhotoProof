@@ -5,6 +5,7 @@ import os
 import sqlite3
 import time
 from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -269,10 +270,10 @@ def test_hardlink_candidate_is_rejected(make_app: Factory) -> None:
 
 def test_exclusive_database_reservation_rejects_artifact_guard(make_app: Factory) -> None:
     app = make_app()
-    with sqlite3.connect(app.database_path, timeout=0.05) as maintenance:
+    with closing(sqlite3.connect(app.database_path, timeout=0.05)) as maintenance:
         maintenance.execute("BEGIN EXCLUSIVE")
         with (
-            sqlite3.connect(app.database_path, timeout=0.05) as producer,
+            closing(sqlite3.connect(app.database_path, timeout=0.05)) as producer,
             pytest.raises(sqlite3.OperationalError, match="locked"),
         ):
             producer.execute("BEGIN IMMEDIATE")

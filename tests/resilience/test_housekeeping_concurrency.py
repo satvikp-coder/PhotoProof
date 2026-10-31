@@ -3,6 +3,7 @@
 import json
 import multiprocessing
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from photoproof.core.logging.audit import append_audit
@@ -50,14 +51,14 @@ def test_audit_rotation_with_independent_writers(tmp_path: Path) -> None:
 def test_exclusive_maintenance_reservation_blocks_other_process(tmp_path: Path) -> None:
     context = multiprocessing.get_context("spawn")
     path = tmp_path / "runtime.db"
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection:
         connection.execute("CREATE TABLE sample (value TEXT)")
     ready, release = context.Event(), context.Event()
     child = context.Process(target=_reservation, args=(str(path), ready, release))
     child.start()
     try:
         assert ready.wait(10)
-        with sqlite3.connect(path, timeout=0.05) as connection:
+        with closing(sqlite3.connect(path, timeout=0.05)) as connection:
             try:
                 connection.execute("BEGIN IMMEDIATE")
             except sqlite3.OperationalError as error:
@@ -67,8 +68,9 @@ def test_exclusive_maintenance_reservation_blocks_other_process(tmp_path: Path) 
         release.set()
         child.join(10)
         assert child.exitcode == 0
-        with sqlite3.connect(path, timeout=1) as connection:
+        with closing(sqlite3.connect(path, timeout=1)) as connection:
             connection.execute("INSERT INTO sample VALUES ('after release')")
+            connection.commit()
     finally:
         release.set()
         if child.is_alive():
