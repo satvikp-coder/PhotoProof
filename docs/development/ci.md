@@ -1,4 +1,4 @@
-# CI/CD and repository settings
+﻿# CI/CD and repository settings
 
 | Workflow | Trigger | What it does |
 |---|---|---|
@@ -29,7 +29,7 @@ targeting `refs/heads/main`:
   and launcher matrices; these are actual workflow job names.
 - **Stale approvals are not dismissed, conversation resolution is not required, and
   branches need not be up to date.**
-- Bypass actors are repository role **Maintain** (ID 4), pull-request-only bypass,
+- Bypass actors are repository role **Write** (ID 4), pull-request-only bypass,
   and **Admin** (ID 5), always bypass. The authenticated administrator reports
   `current_user_can_bypass: always`; protection must not be described as universal.
 
@@ -115,3 +115,4 @@ unverified hosting status. Issue #63 still requires the remaining protection
 acceptance scenarios and normal human review before it can be completed.
 The existing YAML matches the [RTD configuration reference](https://docs.readthedocs.com/platform/stable/config-file/v2.html);
 preview setup follows [RTD pull request previews](https://docs.readthedocs.com/platform/stable/pull-requests.html).
+
