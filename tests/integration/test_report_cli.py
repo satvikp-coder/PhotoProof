@@ -85,6 +85,16 @@ def test_missing_blob_is_not_reported_as_verified(
     blob = app.storage.blob_path(kind, digest)
     if damage == "wrong_size":
         manifest["inputs" if kind == "objects" else "artifacts"][0]["size"] += 1
+        if kind == "artifacts":
+            # Keep the two recorded descriptors consistent so this case reaches the
+            # independent comparison with physical bytes, rather than descriptor rejection.
+            for output in manifest["outputs"].values():
+                if (
+                    isinstance(output, dict)
+                    and isinstance(output.get("artifact"), dict)
+                    and output["artifact"]["sha256"] == digest
+                ):
+                    output["artifact"]["size"] += 1
         data = json.dumps(manifest).encode()
         path.write_bytes(data)
         app.database()._conn.execute(
