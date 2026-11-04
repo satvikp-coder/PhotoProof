@@ -190,6 +190,19 @@ level is inconsistent with the rest of the image.
   `min_valid_fraction` (default 0.30)
 * Provides coverage fraction and confidence level (high/medium/low)
 
+## Copy-Move Forgery
+
+The `copymove.sift_keypoints` plugin detects SIFT keypoints and computes descriptors
+on the decoded image. This is the first stage of the copy-move detection chain:
+keypoints → matches → clusters → verified transforms → masks.
+
+* Outputs: `copymove.keypoints` (NPZ artifact with keypoints and descriptors) and
+  `copymove.keypoint_stats` (summary statistics)
+* Config: `max_keypoints` (default 20000), `contrast_threshold` (default 0.04),
+  `edge_threshold` (default 10.0), `rootsift` (default true),
+  `max_edge` (default 3000)
+* Uses OpenCV's SIFT implementation (available since OpenCV 4.4)
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an

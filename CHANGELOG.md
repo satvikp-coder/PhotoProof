@@ -75,6 +75,10 @@ All notable changes to this project are documented here. The format follows
   residual, applies signal-dependent correction, and builds a robust-z
   consistency map. Provides coverage fraction and confidence level.
 
+- `plugins/copymove/sift_keypoints/` implements SIFT keypoint extraction (#20).
+  Detects SIFT keypoints and computes descriptors on the decoded image, the first
+  stage of the copy-move detection chain.
+
 ### Changed
 
 - The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave
