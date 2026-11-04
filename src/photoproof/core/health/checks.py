@@ -25,6 +25,7 @@ from photoproof.core.database.store import LATEST_VERSION, Database
 from photoproof.core.isolation import capabilities
 from photoproof.core.pipeline.planner import validate_graph
 from photoproof.core.security.windows.acl import apply_owner_only_acl
+from photoproof.core.services.housekeeping import check_quota_health
 from photoproof.core.storage.store import BlobKind
 from photoproof.versioning.build import distribution_version
 
@@ -355,6 +356,12 @@ def check_stale_runs(app: "Application") -> CheckResult:
     )
 
 
+def check_storage_quota(app: "Application") -> CheckResult:
+    """Check storage quota against configured limits."""
+    severity, message = check_quota_health(app.storage, app.settings.quotas)
+    return CheckResult("storage.quota", severity, message)
+
+
 def check_policy_references(app: "Application") -> CheckResult:
     """Policy entries naming plugins that do not exist are almost always typos — and a
     typo in a blacklist means the intended plugin is *not* blocked."""
@@ -420,6 +427,7 @@ def default_registry(*, deep: bool = True) -> HealthRegistry:
         ("runtime.permissions", check_runtime_permissions),
         ("runtime.disk_space", check_disk_space),
         ("runtime.stale_temp", check_stale_temp),
+        ("storage.quota", check_storage_quota),
         ("database.integrity", check_database),
         ("database.stale_runs", check_stale_runs),
         ("cache.integrity", partial(check_cache_integrity, deep=deep)),
