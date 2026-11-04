@@ -45,6 +45,10 @@ All notable changes to this project are documented here. The format follows
   `synthetic` pytest fixture and `tests/fixtures/synthetic.py` provide seeded
   synthetic forgery generators with exact ground-truth masks (#72). NumPy and
   Pillow are now hash-pinned runtime dependencies.
+- `imaging/stats.py` provides shared block tiling (`tile`), block reduction
+  (`block_reduce`), robust z-scores (`robust_zscore`), `AnomalyMap` and block-map
+  upsampling (`upsample`) for regional detectors (#13). All detectors use the same
+  statistical language.
 
 ### Changed
 
