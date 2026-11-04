@@ -135,6 +135,20 @@ are never emitted. Findings include:
 
 Each finding carries a severity (`info`/`low`/`medium`) and a false-positive note.
 
+## Compression forensics
+
+The `compression.ela` plugin implements Error Level Analysis as a supporting signal.
+It recompresses the image at a controlled JPEG quality and computes the absolute
+pixel difference. Regions with different compression histories show different error
+levels.
+
+* Config: `quality` (1-100, default 95), `aggregate` (max|mean), `block` (default 16),
+  `edge_suppression` (bool, default true)
+* Outputs: `compression.ela_map` (8-bit PNG artifact), `compression.ela_anomaly`
+  (AnomalyMap of block-level robust z-scores)
+* Applicable to JPEG primary; non-JPEG inputs run with `context: no_jpeg_history`
+* Explicitly labelled supporting evidence only - never a standalone forgery verdict
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an
