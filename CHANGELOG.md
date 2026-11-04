@@ -65,6 +65,11 @@ All notable changes to this project are documented here. The format follows
   detection (#17). Estimates the dominant blocking-grid origin via Blocking
   Artifact Grid analysis and produces a per-window mismatch map.
 
+- `plugins/noise/residual/` implements noise residual extraction (#18).
+  Recompresses at controlled JPEG quality, computes per-pixel absolute error,
+  builds an `AnomalyMap` via block reduction and robust z-scores.
+  Explicitly labelled supporting evidence only.
+
 ### Changed
 
 - The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave
