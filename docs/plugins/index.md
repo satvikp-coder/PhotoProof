@@ -221,6 +221,14 @@ hierarchical clustering (Ward linkage) or DBSCAN on displacement vectors.
 * Config: `method` (default `hierarchical`), `cut_threshold` (default 0.5),
   `eps` (default 0.5), `min_matches_per_cluster` (default 4)
 
+The `copymove.mask` plugin generates pixel-level source/target masks from
+verified copy-move matches using bounded ZNCC correlation.
+
+* Outputs: `copymove.mask` (NPZ artifact with mask, source_mask, target_mask)
+  and `copymove.mask_stats` (summary statistics)
+* Config: `window_size` (default 11), `threshold` (default 0.5),
+  `min_cluster_size` (default 5)
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an
