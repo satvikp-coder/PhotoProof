@@ -51,9 +51,7 @@ class VerificationResult:
     reason: str | None  # None if verified, reason if failed
 
 
-def _estimate_affine(
-    src_pts: np.ndarray, tgt_pts: np.ndarray
-) -> tuple[np.ndarray, float] | None:
+def _estimate_affine(src_pts: np.ndarray, tgt_pts: np.ndarray) -> tuple[np.ndarray, float] | None:
     """Estimate affine transform using OpenCV estimateAffine2D.
 
     Returns (matrix, rmse) or None if estimation fails.
@@ -78,9 +76,7 @@ def _estimate_affine(
                 tgt_in = tgt_pts[inlier_mask].reshape(-1, 1, 2).astype(np.float32)
                 projected = cv2.transform(src_in, matrix)
                 rmse = float(
-                    np.sqrt(
-                        np.mean((projected.reshape(-1, 2) - tgt_in.reshape(-1, 2)) ** 2)
-                    )
+                    np.sqrt(np.mean((projected.reshape(-1, 2) - tgt_in.reshape(-1, 2)) ** 2))
                 )
             else:
                 rmse = float("inf")
@@ -118,9 +114,7 @@ def _estimate_similarity(
                 tgt_in = tgt_pts[inlier_mask].reshape(-1, 1, 2).astype(np.float32)
                 projected = cv2.transform(src_in, matrix)
                 rmse = float(
-                    np.sqrt(
-                        np.mean((projected.reshape(-1, 2) - tgt_in.reshape(-1, 2)) ** 2)
-                    )
+                    np.sqrt(np.mean((projected.reshape(-1, 2) - tgt_in.reshape(-1, 2)) ** 2))
                 )
             else:
                 rmse = float("inf")
@@ -152,9 +146,9 @@ def _check_degenerate(
         return "scale_out_of_range"
     if abs(scale) < 1e-6:
         return "degenerate_scale"
-    if abs(matrix[0, 1]) > np.tan(np.radians(max_shear_deg)) or abs(
-        matrix[1, 0]
-    ) > np.tan(np.radians(max_shear_deg)):
+    if abs(matrix[0, 1]) > np.tan(np.radians(max_shear_deg)) or abs(matrix[1, 0]) > np.tan(
+        np.radians(max_shear_deg)
+    ):
         return "excessive_shear"
     return None
 
@@ -208,17 +202,11 @@ def analyze_copy_move(
     Raises :exc:`InputRejectedError` for invalid input.
     """
     if not isinstance(keypoints, np.ndarray) or not isinstance(pairs, np.ndarray):
-        raise InputRejectedError(
-            "expected NumPy ndarrays for keypoints and pairs"
-        )
+        raise InputRejectedError("expected NumPy ndarrays for keypoints and pairs")
     if keypoints.ndim != 2 or keypoints.shape[1] != 5:
-        raise InputRejectedError(
-            f"keypoints must have shape (N, 5), got {keypoints.shape}"
-        )
+        raise InputRejectedError(f"keypoints must have shape (N, 5), got {keypoints.shape}")
     if pairs.ndim != 2 or pairs.shape[1] != 2:
-        raise InputRejectedError(
-            f"pairs must have shape (M, 2), got {pairs.shape}"
-        )
+        raise InputRejectedError(f"pairs must have shape (M, 2), got {pairs.shape}")
 
     n_pairs = pairs.shape[0]
     if n_pairs == 0:
@@ -245,9 +233,7 @@ def analyze_copy_move(
     elif model == "affine":
         result = _estimate_affine(src_pts, tgt_pts)
     else:
-        raise InputRejectedError(
-            f"unknown model: {model}, expected 'affine' or 'similarity'"
-        )
+        raise InputRejectedError(f"unknown model: {model}, expected 'affine' or 'similarity'")
 
     if result is None:
         return {
@@ -266,9 +252,7 @@ def analyze_copy_move(
     matrix, rmse = result
 
     # Count inliers
-    projected = cv2.transform(
-        src_pts.reshape(-1, 1, 2).astype(np.float32), matrix
-    ).reshape(-1, 2)
+    projected = cv2.transform(src_pts.reshape(-1, 1, 2).astype(np.float32), matrix).reshape(-1, 2)
     errors = np.sqrt(np.sum((projected - tgt_pts) ** 2, axis=1))
     inliers = int(np.sum(errors <= reproj_threshold))
     inlier_ratio = float(inliers) / n_pairs if n_pairs > 0 else 0.0
@@ -331,17 +315,11 @@ def analyze_clustering(
     Raises :exc:`InputRejectedError` for invalid input.
     """
     if not isinstance(keypoints, np.ndarray) or not isinstance(pairs, np.ndarray):
-        raise InputRejectedError(
-            "expected NumPy ndarrays for keypoints and pairs"
-        )
+        raise InputRejectedError("expected NumPy ndarrays for keypoints and pairs")
     if keypoints.ndim != 2 or keypoints.shape[1] != 5:
-        raise InputRejectedError(
-            f"keypoints must have shape (N, 5), got {keypoints.shape}"
-        )
+        raise InputRejectedError(f"keypoints must have shape (N, 5), got {keypoints.shape}")
     if pairs.ndim != 2 or pairs.shape[1] != 2:
-        raise InputRejectedError(
-            f"pairs must have shape (M, 2), got {pairs.shape}"
-        )
+        raise InputRejectedError(f"pairs must have shape (M, 2), got {pairs.shape}")
 
     n_keypoints = keypoints.shape[0]
     n_pairs = pairs.shape[0]
@@ -378,6 +356,9 @@ def analyze_clustering(
 
     clusters = []
     if result["reason"] is None:
+        # Compute source and target points from keypoints and pairs
+        src_pts = keypoints[pairs[:, 0], :2].astype(np.float32)
+        tgt_pts = keypoints[pairs[:, 1], :2].astype(np.float32)
         clusters.append(
             {
                 "cluster_id": 0,
@@ -398,7 +379,7 @@ def analyze_clustering(
                     float(np.mean(tgt_pts[:, 1] - src_pts[:, 1])),
                     float(np.mean(tgt_pts[:, 0] - src_pts[:, 0])),
                 ],
-                "size": int(len(pairs)),
+                "size": len(pairs),
             },
         )
 

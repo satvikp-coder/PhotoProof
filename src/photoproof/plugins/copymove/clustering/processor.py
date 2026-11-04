@@ -1,4 +1,4 @@
-"""Processor wiring for the copy-move verification plugin.
+"""Processor wiring for the copy-move clustering plugin.
 
 Calls the pure algorithm in
 :mod:`photoproof.plugins.copymove.clustering.algorithm` and returns typed outputs
@@ -7,11 +7,15 @@ matching ``METADATA.outputs``.
 
 from __future__ import annotations
 
+import json
+
+import numpy as np
+
 from photoproof.contracts.exceptions import InputRejectedError, NotApplicableError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.copymove.clustering.algorithm import (
     analyze_copy_move,
-    analyze_result_to_dict,
+    clustering_result_to_dict,
 )
 from photoproof.plugins.copymove.clustering.schema import Config
 
@@ -26,13 +30,11 @@ def run(ctx: PluginContext) -> dict[str, object]:
     """
     if "copymove.matches" not in ctx.inputs:
         raise NotApplicableError(
-            "copymove.verification requires copymove.matches; "
-            "not declared in inputs"
+            "copymove.verification requires copymove.matches; not declared in inputs"
         )
     if "copymove.keypoints" not in ctx.inputs:
         raise NotApplicableError(
-            "copymove.verification requires copymove.keypoints; "
-            "not declared in inputs"
+            "copymove.verification requires copymove.keypoints; not declared in inputs"
         )
 
     matches_data = ctx.inputs["copymove.matches"]
@@ -51,8 +53,7 @@ def run(ctx: PluginContext) -> dict[str, object]:
 
     if "pairs" not in matches_data or "distances" not in matches_data:
         raise InputRejectedError(
-            "copymove.verification: copymove.matches must contain "
-            "'pairs' and 'distances' keys"
+            "copymove.verification: copymove.matches must contain 'pairs' and 'distances' keys"
         )
 
     pairs = np.array(matches_data["pairs"], dtype=np.int32)
@@ -61,18 +62,12 @@ def run(ctx: PluginContext) -> dict[str, object]:
 
     config = ctx.config if isinstance(ctx.config, Config) else None
     model = getattr(config, "model", "similarity") if config else "similarity"
-    reproj_threshold = (
-        getattr(config, "reproj_threshold", 3.0) if config else 3.0
-    )
+    reproj_threshold = getattr(config, "reproj_threshold", 3.0) if config else 3.0
     min_inliers = getattr(config, "min_inliers", 6) if config else 6
-    max_iterations = (
-        getattr(config, "max_iterations", 1000) if config else 1000
-    )
+    max_iterations = getattr(config, "max_iterations", 1000) if config else 1000
     scale_min = getattr(config, "scale_min", 0.5) if config else 0.5
     scale_max = getattr(config, "scale_max", 2.0) if config else 2.0
-    max_shear_deg = (
-        getattr(config, "max_shear_deg", 45.0) if config else 45.0
-    )
+    max_shear_deg = getattr(config, "max_shear_deg", 45.0) if config else 45.0
 
     result = analyze_copy_move(
         keypoints,
@@ -87,8 +82,6 @@ def run(ctx: PluginContext) -> dict[str, object]:
     )
 
     # Write verification result as JSON artifact
-    import json
-
     result_json = json.dumps(
         {
             "cluster_id": result["cluster_id"],
@@ -105,13 +98,13 @@ def run(ctx: PluginContext) -> dict[str, object]:
         indent=2,
     )
     result_artifact_ref = ctx.write_artifact(
-        "verification.json", clusters_json.encode("utf-8"), "application/json"
+        "verification.json", result_json.encode("utf-8"), "application/json"
     )
 
     summary = clustering_result_to_dict(result)
     summary["clusters_artifact"] = result_artifact_ref
 
     return {
-        "copymove.verification": matches_artifact_ref,
+        "copymove.verification": result_artifact_ref,
         "copymove.match_stats": summary,
     }
