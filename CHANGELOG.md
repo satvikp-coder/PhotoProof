@@ -92,6 +92,11 @@ All notable changes to this project are documented here. The format follows
   Generates pixel-level source/target localization masks from verified
   copy-move matches using bounded ZNCC correlation.
 
+- `plugins/visual/sharpness/` implements local sharpness analysis (#25).
+  Maps local focus using the variance of the Laplacian, with optional
+  contrast normalization and robust-z inconsistency detection. A weak
+  visual cue for copy-move detection.
+
 ### Changed
 
 - The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave
