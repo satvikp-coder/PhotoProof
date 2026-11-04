@@ -12,6 +12,18 @@ from photoproof.core.bootstrap import Application, bootstrap
 
 
 @pytest.fixture
+def synthetic():
+    """Expose the synthetic forgery generators.
+
+    Returns :mod:`tests.fixtures.synthetic` so tests can build labelled
+    synthetic images without external dataset dependencies.
+    """
+    from tests.fixtures import synthetic
+
+    return synthetic
+
+
+@pytest.fixture
 def app_root(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     root.mkdir()

@@ -80,6 +80,28 @@ Code values are unchanged apart from orientation. A plugin that needs floats con
 because it knows which conversion its maths needs. `image.working` is always 8-bit: high-depth
 sources reach it through a documented, per-channel tone curve, recorded in `transforms`.
 
+## Array conventions
+
+Detector algorithms receive NumPy arrays through `PluginContext.image`. The shared
+convention is defined in `photoproof.imaging.arrays`:
+
+* Working arrays: `H x W x C`, C-contiguous, RGB channel order, `uint8` for 8-bit
+  or `uint16` for high bit depth; grayscale as `H x W`.
+* Algorithms convert to `float32` internally via `to_float32(arr)`, which scales
+  `uint8` to `[0, 1]` by dividing by 255 and `uint16` by dividing by 65535.
+* Arrays handed to plugins are read-only (`arr.flags.writeable = False`); mutation
+  raises `ValueError`. Use `as_read_only(arr)` or `ensure_read_only(arr)` to enforce
+  this before handing arrays to plugins.
+* `validate_image(arr)` checks shape, dtype, contiguity, NaN values and zero size,
+  returning an `ImageSpec` or raising `InputRejectedError`.
+* `to_luma(arr)` converts RGB to single-channel BT.601 luma as `H x W` `float32`.
+
+Synthetic forgery generators with exact ground-truth masks live in
+`tests/fixtures/synthetic.py` and are exposed to tests through the `synthetic`
+pytest fixture. Generators include `textured_scene`, `copy_move`, `splice`,
+`noise_splice`, `blur_patch`, `jpeg`, `double_jpeg`, `misaligned_jpeg_patch`
+and `with_exif`.
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an

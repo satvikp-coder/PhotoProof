@@ -40,6 +40,11 @@ All notable changes to this project are documented here. The format follows
   owner. `CODEOWNERS` requests review from Satvik, Varun and Garv on every pull request.
 - `AGENTS.md`, with instructions for coding agents and the code review rules used by
   automated pull request reviews.
+- `imaging/arrays.py` defines the shared NumPy image-array contract for detector
+  plugins (`validate_image`, `to_float32`, `to_luma`, read-only enforcement). The
+  `synthetic` pytest fixture and `tests/fixtures/synthetic.py` provide seeded
+  synthetic forgery generators with exact ground-truth masks (#72). NumPy and
+  Pillow are now hash-pinned runtime dependencies.
 
 ### Changed
 
