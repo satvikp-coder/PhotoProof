@@ -102,6 +102,22 @@ pytest fixture. Generators include `textured_scene`, `copy_move`, `splice`,
 `noise_splice`, `blur_patch`, `jpeg`, `double_jpeg`, `misaligned_jpeg_patch`
 and `with_exif`.
 
+## Block statistics
+
+Regional detectors share a common block-tiling and robust-statistics library in
+`photoproof.imaging.stats`:
+
+* `tile(array, block, stride, border)` splits a 2-D array into blocks with
+  per-block coordinates.
+* `block_reduce(array, block, stride, func)` applies a reduction (mean, median,
+  MAD, etc.) to each block.
+* `robust_zscore(values, mask)` computes robust z-scores using the median/MAD
+  estimator; returns `degenerate=True` when MAD = 0 instead of dividing by zero.
+* `AnomalyMap` bundles per-block values, block/stride geometry, a validity mask
+  and notes for serialization and visualization.
+* `upsample(anomaly_map, image_shape, mode)` lifts block-level maps to full
+  image resolution for display.
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an
