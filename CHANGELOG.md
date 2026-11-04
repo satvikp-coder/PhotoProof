@@ -70,6 +70,11 @@ All notable changes to this project are documented here. The format follows
   builds an `AnomalyMap` via block reduction and robust z-scores.
   Explicitly labelled supporting evidence only.
 
+- `plugins/noise/variance_map/` implements noise variance estimation and
+  consistency mapping (#19). Estimates local noise sigma per block from the
+  residual, applies signal-dependent correction, and builds a robust-z
+  consistency map. Provides coverage fraction and confidence level.
+
 ### Changed
 
 - The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave

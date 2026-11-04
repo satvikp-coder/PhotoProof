@@ -179,6 +179,17 @@ and post-processing fingerprints that spliced regions often lack.
   (`bayesshrink`|`wiener`), `channel` (`luma`|`rgb`)
 * Uses pure-Python JPEG bitstream parsing via PyWavelets
 
+The `noise.variance_map` plugin estimates local noise variance per block from the
+noise residual and builds a noise-consistency map highlighting regions whose noise
+level is inconsistent with the rest of the image.
+
+* Outputs: `noise.sigma_map` (per-block sigma map) and
+  `noise.consistency_map` (robust z-score map)
+* Config: `block` (default 32), `intensity_bins` (default 8),
+  `texture_threshold` (default 15.0), `saturation_threshold` (default 0.98),
+  `min_valid_fraction` (default 0.30)
+* Provides coverage fraction and confidence level (high/medium/low)
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an
