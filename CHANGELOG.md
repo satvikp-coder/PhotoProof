@@ -83,6 +83,11 @@ All notable changes to this project are documented here. The format follows
   Matches descriptors using KNN and generalized Lowe ratio filtering (g2NN),
   with spatial distance constraints and symmetric deduplication.
 
+- plugins/copymove/clustering/` implements copy-move clustering (#22).
+  Groups matched keypoint pairs into clusters using hierarchical clustering
+  (Ward linkage) or DBSCAN on displacement vectors. Produces per-cluster
+  bounding boxes, displacement vectors, and sizes.
+
 ### Changed
 
 - The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave

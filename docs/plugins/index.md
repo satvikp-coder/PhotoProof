@@ -213,6 +213,14 @@ constraints and symmetric deduplication.
   (default 10), `max_pairs` (default 50000)
 * Uses OpenCV FLANN or brute-force matching depending on descriptor count
 
+The `copymove.clustering` plugin groups matched keypoint pairs into clusters using
+hierarchical clustering (Ward linkage) or DBSCAN on displacement vectors.
+
+* Outputs: `copymove.clusters` (cluster list with source/target bounding boxes,
+  displacement, size) and `copymove.match_stats` (summary statistics)
+* Config: `method` (default `hierarchical`), `cut_threshold` (default 0.5),
+  `eps` (default 0.5), `min_matches_per_cluster` (default 4)
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an
