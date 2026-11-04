@@ -9,6 +9,7 @@ Requires PyWavelets for the discrete wavelet transform.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -169,7 +170,9 @@ def analyze_residual(
 
     # Perform wavelet decomposition
     try:
-        coeffs = pywt.wavedec2(padded, wavelet, level=levels, mode="periodization")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            coeffs = pywt.wavedec2(padded, wavelet, level=levels, mode="periodization")
     except ValueError as error:
         raise InputRejectedError(f"wavelet decomposition failed: {error}") from error
 

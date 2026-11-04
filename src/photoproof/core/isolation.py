@@ -40,7 +40,7 @@ from photoproof.core import plaindata
 from photoproof.core.plaindata import PlainDataError
 
 if sys.platform != "win32":
-    import resource
+    pass
 
 _MEBIBYTE = 1 << 20
 _DEFAULT_MAX_TRANSFER_BYTES = 1024 * _MEBIBYTE
@@ -160,7 +160,7 @@ def _supervise(
             job = _contain(process, limits)  # before the child receives any work
         except OSError as error:
             return Failure(FailureKind.CRASHED, f"could not apply the limits: {error}")
-        exchange = _Exchange(ours, data, limits.max_result_bytes)
+        exchange = _Exchange(ours, data, limits.max_result_bytes)  # type: ignore[arg-type]  # PipeConnection is a Connection subtype
         exchange.start()
         failure = _wait(exchange, process, limits)
         if failure is not None:
@@ -381,7 +381,7 @@ if sys.platform == "win32":
             error = ctypes.WinError(ctypes.get_last_error())
             _kernel32.CloseHandle(job)
             raise error
-        return job
+        return job  # type: ignore[no-any-return]  # CreateJobObjectW returns HANDLE (Any), treat as object
 
     def _release(job: object | None) -> None:
         if job is not None:
@@ -479,6 +479,8 @@ def _harden(limits: ProcessLimits, workdir: str) -> None:
     signal.signal(signal.SIGINT, signal.SIG_IGN)  # interruption is the parent's decision
     if sys.platform == "win32":
         return
+    import resource  # resource module is Unix-only; imported here after the Windows early return  # noqa: PLC0415
+
     os.setsid()  # own process group, so the parent can kill what this child starts
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))  # no core dumps of evidence in memory
     if limits.cpu_s is not None:

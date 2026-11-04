@@ -162,6 +162,12 @@ def analyze_sift_keypoints(
 
     n_keypoints = keypoints.shape[0]
 
+    # Cap keypoints to max_keypoints (OpenCV nfeatures is a hint, not a hard limit)
+    if n_keypoints > max_keypoints:
+        keypoints = keypoints[:max_keypoints]
+        descriptors = descriptors[:max_keypoints]
+        n_keypoints = max_keypoints
+
     # Compute density per megapixel
     mp = (orig_h * orig_w) / 1e6
     density = n_keypoints / mp if mp > 0 else 0.0

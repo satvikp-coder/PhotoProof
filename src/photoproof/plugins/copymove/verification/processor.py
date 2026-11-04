@@ -7,7 +7,7 @@ matching ``METADATA.outputs``.
 
 from __future__ import annotations
 
-import io
+import json
 
 import numpy as np
 
@@ -29,13 +29,11 @@ def run(ctx: PluginContext) -> dict[str, object]:
     """
     if "copymove.matches" not in ctx.inputs:
         raise NotApplicableError(
-            "copymove.verification requires copymove.matches; "
-            "not declared in inputs"
+            "copymove.verification requires copymove.matches; not declared in inputs"
         )
     if "copymove.keypoints" not in ctx.inputs:
         raise NotApplicableError(
-            "copymove.verification requires copymove.keypoints; "
-            "not declared in inputs"
+            "copymove.verification requires copymove.keypoints; not declared in inputs"
         )
 
     matches_data = ctx.inputs["copymove.matches"]
@@ -54,8 +52,7 @@ def run(ctx: PluginContext) -> dict[str, object]:
 
     if "pairs" not in matches_data or "distances" not in matches_data:
         raise InputRejectedError(
-            "copymove.verification: copymove.matches must contain "
-            "'pairs' and 'distances' keys"
+            "copymove.verification: copymove.matches must contain 'pairs' and 'distances' keys"
         )
 
     pairs = np.array(matches_data["pairs"], dtype=np.int32)
@@ -64,18 +61,12 @@ def run(ctx: PluginContext) -> dict[str, object]:
 
     config = ctx.config if isinstance(ctx.config, Config) else None
     model = getattr(config, "model", "similarity") if config else "similarity"
-    reproj_threshold = (
-        getattr(config, "reproj_threshold", 3.0) if config else 3.0
-    )
+    reproj_threshold = getattr(config, "reproj_threshold", 3.0) if config else 3.0
     min_inliers = getattr(config, "min_inliers", 6) if config else 6
-    max_iterations = (
-        getattr(config, "max_iterations", 1000) if config else 1000
-    )
+    max_iterations = getattr(config, "max_iterations", 1000) if config else 1000
     scale_min = getattr(config, "scale_min", 0.5) if config else 0.5
     scale_max = getattr(config, "scale_max", 2.0) if config else 2.0
-    max_shear_deg = (
-        getattr(config, "max_shear_deg", 45.0) if config else 45.0
-    )
+    max_shear_deg = getattr(config, "max_shear_deg", 45.0) if config else 45.0
 
     result = analyze_copy_move(
         keypoints,
@@ -90,8 +81,6 @@ def run(ctx: PluginContext) -> dict[str, object]:
     )
 
     # Write verification result as JSON artifact
-    import json
-
     verification_json = json.dumps(
         {
             "cluster_id": result["cluster_id"],
