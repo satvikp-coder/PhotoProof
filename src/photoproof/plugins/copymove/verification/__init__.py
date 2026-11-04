@@ -15,7 +15,7 @@ METADATA = {
     "after": (),
     "entry_point": "processor:run",
     "inputs": ("copymove.clusters", "copymove.keypoints"),
-    "outputs": ("copymove.verification", "copymove.match_stats"),
+    "outputs": ("copymove.verification",),
     "timeout_seconds": 60,
     "supported_formats": (),
     "deterministic": True,

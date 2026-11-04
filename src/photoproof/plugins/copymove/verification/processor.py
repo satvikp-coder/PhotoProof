@@ -115,5 +115,4 @@ def run(ctx: PluginContext) -> dict[str, object]:
 
     return {
         "copymove.verification": verification_artifact_ref,
-        "copymove.match_stats": summary,
     }

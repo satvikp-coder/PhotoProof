@@ -8,6 +8,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+### Fixed
+
+- `core/services/worker/` and `core/services/manager/` supervise worker processes that claim and run queued jobs (#51). `WorkerManager` starts N worker processes, monitors their health, restarts crashed workers with exponential backoff, and shuts down gracefully. `Worker` claims jobs from the queue, runs them through the analysis controller, and updates job status. Adds `jobs.max_attempts` setting.
+- `core/services/jobs/` `JobQueue.submit()` now uses `settings.max_attempts` instead of hardcoded `1` (#50).
+- `plugins/copymove/clustering/`: Fix undefined variables (`src_pts`, `tgt_pts`), missing `numpy` import, and incorrect return keys (`num_keypoints`, `num_matches`, `num_clusters`, `clusters`, `method`). Add `method` parameter and `clustering_result_to_dict` (#122).
+- `plugins/copymove/verification/`: Fix undefined `np`, remove unused `io` import, remove duplicate `match_stats` output (produced by matching plugin) (#123).
+- `core/security/windows/acl.py`: Resolve `icacls` to full path via `shutil.which` to satisfy Bandit B607 (#80).
+- `core/isolation.py`: Fix mypy type errors and `resource` module import on Unix-only code path (#9).
+- `plugins/copymove/sift_keypoints/`: Cap keypoints to `max_keypoints` (OpenCV `nfeatures` is a hint, not a hard limit).
+- `plugins/noise/residual/`: Suppress PyWavelets `UserWarning` for high wavelet levels (#18).
+- `plugins/copymove/clustering/processor.py`: Remove unused imports, fix undefined variable names.
+
+### Changed
+
 - `core/isolation.py` runs a callable in a child process with wall-clock, CPU and memory limits
   and reports typed failures. `doctor` reports which limits this platform can enforce. Decoders
   and plugins do not use it yet (#9, #52).
