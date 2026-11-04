@@ -61,6 +61,9 @@ All notable changes to this project are documented here. The format follows
   (#16). Parses quantization tables from DQT markers, estimates JPEG quality,
   and builds a per-block double-compression likelihood map via DCT coefficient
   histogram periodicity analysis. Pure-Python bitstream parsing.
+- `plugins/compression/jpeg_grid/` implements JPEG 8x8 grid misalignment
+  detection (#17). Estimates the dominant blocking-grid origin via Blocking
+  Artifact Grid analysis and produces a per-window mismatch map.
 
 ### Changed
 
