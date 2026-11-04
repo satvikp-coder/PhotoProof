@@ -31,6 +31,7 @@ from photoproof.core.config.policy import (
 from photoproof.core.controller import AnalysisController
 from photoproof.core.health.checks import CheckResult, default_registry
 from photoproof.core.health.repair import preflight, publish_findings, run_repairs
+from photoproof.core.services.housekeeping import HousekeepingService
 from photoproof.core.storage.store import sha256_file
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_CONFIG, EXIT_HEALTH, EXIT_NOT_COMPLETED = 0, 1, 2, 4, 6, 7
@@ -67,6 +68,14 @@ def _parser() -> argparse.ArgumentParser:
     manifest = sub.add_parser("manifest", help="show an execution manifest")
     manifest.add_argument("run_id")
     manifest.add_argument("--json", action="store_true")
+    housekeeping = sub.add_parser(
+        "housekeeping", help="report and apply storage retention and quotas"
+    )
+    housekeeping.add_argument(
+        "--apply",
+        action="store_true",
+        help="apply deletions (default is dry run)",
+    )
     return parser
 
 
@@ -262,6 +271,20 @@ def cmd_analyze(app: Application, args: argparse.Namespace) -> int:
     return EXIT_OK if ok else EXIT_NOT_COMPLETED
 
 
+def cmd_housekeeping(app: Application, apply: bool) -> int:
+    service = HousekeepingService(
+        app.storage,
+        app.database_or_none(),
+        app.settings.retention,
+        app.settings.quotas,
+    )
+    report = service.run(apply=apply)
+    print(json.dumps(report.to_dict(), indent=2))
+    if report.errors:
+        return EXIT_ERROR
+    return EXIT_OK
+
+
 def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
     path = app.storage.path("manifests", f"{run_id}.json")
     manifest = app.storage.read_json("manifests", f"{run_id}.json")
@@ -325,6 +348,8 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
             return cmd_status(app)
         if command == "analyze":
             return cmd_analyze(app, args)
+        if command == "housekeeping":
+            return cmd_housekeeping(app, args.apply)
         if command == "manifest":
             return cmd_manifest(app, args.run_id, args.json)
         return EXIT_USAGE
