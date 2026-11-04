@@ -166,11 +166,13 @@ class EvidenceStore:
 
 
 def _remove_temporary(temporary: Path) -> None:
-    """Remove a staged temporary file, clearing the read-only mark first.
+    """Remove a staged temporary file, retrying briefly.
 
-    ``publish_blob`` marks the staged file read-only *before* the rename, so a file whose
-    rename lost the race against another ingest stays read-only; Windows then refuses to
-    delete it. A brief retry also covers a scanner briefly holding the fresh file. Giving
+    On Windows ``publish_blob`` marks the staged file read-only *before* the rename, so a
+    file whose rename lost the race against another ingest stays read-only and Windows
+    refuses to delete it; the mark is cleared first. On POSIX the staged file may be hard
+    linked to the published blob, and the two share an inode, so nothing here may touch
+    its mode. A brief retry also covers a scanner briefly holding the fresh file. Giving
     up is safe: ``runtime.stale_temp`` housekeeping removes any leftover, and an ingest
     must never fail because its scratch file outlived it for a moment.
     """
@@ -178,8 +180,9 @@ def _remove_temporary(temporary: Path) -> None:
         if delay:
             time.sleep(delay)
         try:
-            with suppress(OSError):
-                temporary.chmod(0o600)  # best effort: no-op if it is already gone
+            if os.name == "nt":
+                with suppress(OSError):
+                    temporary.chmod(0o600)  # best effort: no-op if it is already gone
             temporary.unlink(missing_ok=True)
             return
         except OSError:
