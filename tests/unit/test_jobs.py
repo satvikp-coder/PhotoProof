@@ -6,21 +6,17 @@ import datetime
 import json
 from pathlib import Path
 
-import pytest
-
 from photoproof.contracts.analysis import AnalysisRequest, InputDescriptor
 from photoproof.core.config.validator import JobsSettings
 from photoproof.core.database.store import Database
-from photoproof.core.services.jobs import Job, JobQueue, FAILED, QUEUED, RUNNING, SUCCEEDED
+from photoproof.core.services.jobs import FAILED, RUNNING, SUCCEEDED, JobQueue
 
 SHA256_PLACEHOLDER = "a" * 64
 
 
 def _make_request() -> AnalysisRequest:
     return AnalysisRequest(
-        target=InputDescriptor(
-            role="target", sha256=SHA256_PLACEHOLDER, size=1
-        ),
+        target=InputDescriptor(role="target", sha256=SHA256_PLACEHOLDER, size=1),
         profile="default",
         use_cache=True,
     )
@@ -122,9 +118,7 @@ def test_complete_marks_job_succeeded(tmp_path: Path) -> None:
         assert job2 is None
 
         # Verify via direct DB query
-        row = db._conn.execute(
-            "SELECT state FROM jobs WHERE job_id = ?", (job_id,)
-        ).fetchone()
+        row = db._conn.execute("SELECT state FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         assert row is not None
         assert str(row[0]) == SUCCEEDED
     finally:
@@ -167,10 +161,12 @@ def test_fail_requeues_when_attempts_remain(tmp_path: Path) -> None:
 
         # Insert a job directly with max_attempts=3 so fail can re-queue
         job_id = "manual-job"
-        now = _now()
         payload = _json_dumps(
-            {"target": {"role": "target", "sha256": SHA256_PLACEHOLDER, "size": 1},
-             "profile": "default", "use_cache": True}
+            {
+                "target": {"role": "target", "sha256": SHA256_PLACEHOLDER, "size": 1},
+                "profile": "default",
+                "use_cache": True,
+            }
         )
         db._conn.execute(
             "INSERT INTO jobs (job_id, state, payload, attempts, max_attempts, "
@@ -200,8 +196,11 @@ def test_stale_lease_requeued(tmp_path: Path) -> None:
         job_id = "test-stale-job"
         now = _now()
         payload = _json_dumps(
-            {"target": {"role": "target", "sha256": SHA256_PLACEHOLDER, "size": 1},
-             "profile": "default", "use_cache": True}
+            {
+                "target": {"role": "target", "sha256": SHA256_PLACEHOLDER, "size": 1},
+                "profile": "default",
+                "use_cache": True,
+            }
         )
         db._conn.execute(
             "INSERT INTO jobs (job_id, state, payload, attempts, max_attempts, "
@@ -210,7 +209,10 @@ def test_stale_lease_requeued(tmp_path: Path) -> None:
             (
                 job_id,
                 payload,
-                _now(), "stale-key", now, now,
+                _now(),
+                "stale-key",
+                now,
+                now,
             ),
         )
         # Manually expire the lease
@@ -256,9 +258,7 @@ def test_stale_lease_failed_after_max_attempts(tmp_path: Path) -> None:
         assert job2 is None
 
         # Verify via DB
-        row = db._conn.execute(
-            "SELECT state FROM jobs WHERE job_id = ?", (job_id,)
-        ).fetchone()
+        row = db._conn.execute("SELECT state FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         assert row is not None
         assert str(row[0]) == FAILED
     finally:

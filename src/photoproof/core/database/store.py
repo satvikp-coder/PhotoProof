@@ -148,7 +148,7 @@ class Database:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.row_factory = sqlite3.Row
         except sqlite3.Error as error:
-            raise DatabaseError(f"{path}: cannot open database: {error}") from error
+            raise DatabaseError(f"{path}: unreadable database: {error}") from error
         db = cls(conn, path)
         try:
             version = db.schema_version()
