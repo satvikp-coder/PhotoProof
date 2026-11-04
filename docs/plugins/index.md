@@ -118,6 +118,23 @@ Regional detectors share a common block-tiling and robust-statistics library in
 * `upsample(anomaly_map, image_shape, mode)` lifts block-level maps to full
   image resolution for display.
 
+## Metadata forensics
+
+The `metadata.exif` plugin extracts EXIF and XMP metadata and reports provenance
+inconsistencies as typed findings. Metadata is trivially editable and often
+stripped, so findings are reported as context, never as proof. GPS coordinates
+are never emitted. Findings include:
+
+* `metadata_editor_detected` — editing software tags found (info)
+* `metadata_impossible_date` — EXIF date outside plausible range (low)
+* `metadata_dimension_mismatch` — EXIF dimensions disagree with actual (medium)
+* `metadata_thumbnail_mismatch` — embedded thumbnail differs from downscaled main (medium)
+* `metadata_absent` — no metadata container found (info, not suspicious)
+* `metadata_oversized_exif` — EXIF block exceeds size limit (low)
+* `metadata_ifd_loop` — EXIF IFD nesting exceeds limit (low)
+
+Each finding carries a severity (`info`/`low`/`medium`) and a false-positive note.
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an
