@@ -2,14 +2,18 @@
 
 SQLite EXCLUSIVE reservations exclude controller publication and lifecycle writes.
 Never deletes evidence, logs, backups, temporary files or unrecognized data.
+A durable pending journal records every deletion intent before the first unlink;
+a pending intent blocks all further housekeeping until manual reconciliation.
 """
 
 import json
+import os
 import sqlite3
 import time
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import ValidationError
@@ -25,6 +29,64 @@ from photoproof.core.storage.store import sha256_file
 
 if TYPE_CHECKING:
     from photoproof.core.bootstrap import Application
+
+
+JOURNAL_NAME = "housekeeping/pending.jsonl"
+
+
+def _journal_path(root: Path) -> Path:
+    return checked_path(root, JOURNAL_NAME)
+
+
+def _has_pending(root: Path) -> bool:
+    """Return True if any housekeeping intent is still pending reconciliation."""
+    path = _journal_path(root)
+    if not path.exists():
+        return False
+    try:
+        raw = path.read_bytes()
+        if not raw:
+            return False
+        for line in raw.splitlines():
+            record = json.loads(line)
+            if record.get("state") == "pending":
+                return True
+    except (OSError, ValueError, UnicodeDecodeError):
+        # Corrupt journal: treat as pending to fail closed
+        return True
+    return False
+
+
+def _write_intent(root: Path, payload: dict[str, object]) -> None:
+    """Durably record a deletion intent before any unlink."""
+    path = _journal_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        **payload,
+        "state": "pending",
+        "at": time.time(),
+    }
+    encoded = (json.dumps(record, sort_keys=True) + "\n").encode("utf-8")
+    with open(path, "ab") as handle:
+        handle.write(encoded)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _mark_completed(root: Path, identity_sha256: str) -> None:
+    """Mark a pending intent as completed after successful unlink and audit."""
+    path = _journal_path(root)
+    if not path.exists():
+        return
+    lines = path.read_bytes().splitlines()
+    updated = []
+    for line in lines:
+        record = json.loads(line)
+        if record.get("identity_sha256") == identity_sha256 and record.get("state") == "pending":
+            record["state"] = "completed"
+            record["completed_at"] = time.time()
+        updated.append(json.dumps(record, sort_keys=True))
+    path.write_text("\n".join(updated) + "\n")
 
 
 @dataclass(frozen=True)
@@ -92,6 +154,18 @@ class Housekeeping:
         path = self.app.database_path
         if not path.exists():
             return Plan((), ("database absent: references cannot be established",), (), observed)
+        # A pending housekeeping intent blocks all further housekeeping
+        # until manual reconciliation.
+        if _has_pending(self.app.storage.root):
+            return Plan(
+                (),
+                (
+                    "housekeeping intent pending reconciliation; "
+                    "inspect ARE/housekeeping/pending.jsonl and resolve manually",
+                ),
+                (),
+                observed,
+            )
         try:
             checked_path(self.app.storage.root, path.relative_to(self.app.storage.root).as_posix())
             identity(path)
@@ -291,6 +365,13 @@ class Housekeeping:
         """
         if not authorized:
             raise StorageError("housekeeping apply requires explicit operator authorization")
+        # A pending intent from an earlier interrupted run blocks reapplication
+        # until manual reconciliation.
+        if _has_pending(self.app.storage.root):
+            raise StorageError(
+                "housekeeping intent pending reconciliation; "
+                "inspect ARE/housekeeping/pending.jsonl and resolve manually"
+            )
         if not approved.candidates:
             if approved.blocked:
                 raise StorageError("housekeeping blocked; inspect the dry-run findings")
@@ -335,6 +416,17 @@ class Housekeeping:
                             EventType.HOUSEKEEPING_APPLIED,
                             data={**payload, "outcome": "intent", "reclaimed_bytes": 0},
                         )
+                        # Durable intent before any unlink: if the process crashes
+                        # after unlink but before audit, the pending journal preserves
+                        # the destruction record for manual reconciliation.
+                        _write_intent(
+                            self.app.storage.root,
+                            {
+                                **payload,
+                                "relative_path": item.relative_path,
+                                "file_identity": item.file_identity,
+                            },
+                        )
                         try:
                             # No chmod: a read-only derived blob that cannot be unlinked stays
                             # in place. Retained evidence permissions are never changed.
@@ -376,6 +468,9 @@ class Housekeeping:
                             EventType.HOUSEKEEPING_APPLIED,
                             data={**payload, "outcome": "deleted", "reclaimed_bytes": item.size},
                         )
+                        # Mark the durable intent as completed only after the
+                        # unlink and its audit outcome have both succeeded.
+                        _mark_completed(self.app.storage.root, item.sha256)
                         outcomes.append(item.sha256)
                     connection.execute("COMMIT")
                 except BaseException:

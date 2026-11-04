@@ -347,6 +347,45 @@ def test_outcome_audit_failure_is_not_success(make_app: Factory) -> None:
     assert any(r["data"].get("outcome") == "intent" for r in records)
 
 
+def test_pending_intent_blocks_second_plan_and_apply(make_app: Factory) -> None:
+    """An injected audit failure leaves a pending intent that blocks reapplication."""
+    app = make_app()
+    digest = app.storage.put_blob("artifacts", b"pending-intent-test")
+    retention(app, artifact_days=0)
+
+    def fail_outcome(event: Event) -> None:
+        if event.data["outcome"] == "deleted":
+            raise OSError("outcome unavailable")
+
+    app.bus.subscribe(fail_outcome, EventType.HOUSEKEEPING_APPLIED, critical=True)
+    service = Housekeeping(app)
+
+    # First apply: file is unlinked but the "deleted" audit event fails,
+    # leaving a durable pending intent.
+    with pytest.raises(EventDeliveryError):
+        service.apply(service.plan(), authorized=True)
+    assert not app.storage.blob_path("artifacts", digest).exists()
+
+    # Second plan: blocked by the pending intent.
+    plan = service.plan()
+    assert plan.blocked
+    assert "pending" in plan.blocked[0].lower()
+    assert not plan.candidates
+
+    # Second apply: refused by the pending intent.
+    with pytest.raises(StorageError, match="pending reconciliation"):
+        service.apply(plan, authorized=True)
+
+    # The journal contains a pending intent for the deleted digest.
+    journal = app.storage.path("housekeeping", "pending.jsonl")
+    assert journal.exists()
+    records = [json.loads(line) for line in journal.read_bytes().splitlines()]
+    pending = [
+        r for r in records if r.get("identity_sha256") == digest and r.get("state") == "pending"
+    ]
+    assert len(pending) == 1
+
+
 def test_swallowed_quota_exception_still_fails_plugin(make_app: Factory, tmp_path: Path) -> None:
     app = make_app()
     app.registry = registry_of(tmp_path, meta("p.a"))
