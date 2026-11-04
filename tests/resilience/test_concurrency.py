@@ -14,8 +14,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 from photoproof.core.database.store import Database
 
 SHA256_PLACEHOLDER = "a" * 64
@@ -86,6 +84,7 @@ def _run_analysis_subprocess(app_root: Path, run_id: str) -> dict:
         capture_output=True,
         text=True,
         timeout=120,
+        check=False,
     )
     if result.returncode != 0:
         return {"run_id": run_id, "error": f"exit {result.returncode}: {result.stderr}"}
@@ -110,24 +109,38 @@ def test_two_concurrent_analyses_complete(app_root: Path) -> None:
     _init_app_root(app_root)
 
     p1 = subprocess.Popen(
-        [sys.executable, "-c", ANALYSIS_SCRIPT % (
-            str(Path(__file__).parent.parent),
-            str(Path(__file__).parent.parent / "tests"),
-            str(app_root),
-            repr("run-1"),
-            repr(SHA256_PLACEHOLDER),
-        )],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        [
+            sys.executable,
+            "-c",
+            ANALYSIS_SCRIPT
+            % (
+                str(Path(__file__).parent.parent),
+                str(Path(__file__).parent.parent / "tests"),
+                str(app_root),
+                repr("run-1"),
+                repr(SHA256_PLACEHOLDER),
+            ),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
     p2 = subprocess.Popen(
-        [sys.executable, "-c", ANALYSIS_SCRIPT % (
-            str(Path(__file__).parent.parent),
-            str(Path(__file__).parent.parent / "tests"),
-            str(app_root),
-            repr("run-2"),
-            repr(SHA256_PLACEHOLDER),
-        )],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        [
+            sys.executable,
+            "-c",
+            ANALYSIS_SCRIPT
+            % (
+                str(Path(__file__).parent.parent),
+                str(Path(__file__).parent.parent / "tests"),
+                str(app_root),
+                repr("run-2"),
+                repr(SHA256_PLACEHOLDER),
+            ),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
 
     p1_stdout, p1_stderr = p1.communicate(timeout=120)
@@ -175,6 +188,7 @@ def test_repair_does_not_mark_live_run_aborted(app_root: Path) -> None:
         capture_output=True,
         text=True,
         timeout=120,
+        check=False,
     )
     assert proc.returncode == 0, f"Repair failed: {proc.stderr}"
 
@@ -195,19 +209,26 @@ def test_concurrent_analyses_no_corrupted_blobs(app_root: Path) -> None:
     procs = []
     for i in range(3):
         p = subprocess.Popen(
-            [sys.executable, "-c", ANALYSIS_SCRIPT % (
-                str(Path(__file__).parent.parent),
-                str(Path(__file__).parent.parent / "tests"),
-                str(app_root),
-                repr(f"run-{i}"),
-                repr(SHA256_PLACEHOLDER),
-            )],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            [
+                sys.executable,
+                "-c",
+                ANALYSIS_SCRIPT
+                % (
+                    str(Path(__file__).parent.parent),
+                    str(Path(__file__).parent.parent / "tests"),
+                    str(app_root),
+                    repr(f"run-{i}"),
+                    repr(SHA256_PLACEHOLDER),
+                ),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
         procs.append(p)
 
     for p in procs:
-        p_stdout, p_stderr = p.communicate(timeout=120)
+        _p_stdout, p_stderr = p.communicate(timeout=120)
         assert p.returncode == 0, f"Process failed: {p_stderr}"
 
     # Verify all blobs are intact
