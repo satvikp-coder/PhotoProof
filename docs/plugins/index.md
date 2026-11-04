@@ -167,6 +167,18 @@ which is characteristic of content pasted from another JPEG or of cropping.
 * Config: `window` (default 64), `stride` (default 32)
 * Uses luminance channel; low-confidence results for high-quality or non-JPEG inputs
 
+## Noise Forensics
+
+The `noise.residual` plugin extracts high-frequency noise residuals via wavelet-based
+denoising (BayesShrink or Wiener thresholding). The residual captures sensor noise
+and post-processing fingerprints that spliced regions often lack.
+
+* Outputs: `noise.residual` (float32 NPZ artifact) and `noise.sigma_global`
+  (global noise sigma estimate via MAD)
+* Config: `wavelet` (default `db8`), `levels` (default 4), `method`
+  (`bayesshrink`|`wiener`), `channel` (`luma`|`rgb`)
+* Uses pure-Python JPEG bitstream parsing via PyWavelets
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an
