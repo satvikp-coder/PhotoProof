@@ -102,6 +102,13 @@ All notable changes to this project are documented here. The format follows
   gradient analysis. Estimates edge width and flags boundaries inconsistent
   with the image's typical edge-width distribution. Complementary to #25.
 
+- `core/services/jobs/` implements a durable job queue (#50).
+  Provides at-least-once execution of analysis jobs with lease-based worker
+  fencing and idempotent submission. SQLite in WAL mode stores jobs durably;
+  `JobQueue.submit()`, `claim()`, `complete()`, `fail()` and `requeue_stale()`
+  are the core API. Adds `services.background_workers` and `jobs.lease_seconds`
+  settings.
+
 ### Changed
 
 - The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave

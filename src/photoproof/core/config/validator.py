@@ -182,6 +182,10 @@ class QuotaSettings(_Strict):
     max_run_artifacts_mb: int = Field(ge=1)
 
 
+class JobsSettings(_Strict):
+    lease_seconds: int = Field(ge=1, le=86_400)
+
+
 class SecuritySettings(_Strict):
     forbidden_plugins: tuple[str, ...]
     allow_blacklist_bypass: StrictBool
@@ -235,6 +239,7 @@ class Settings(_Strict):
     resources: ResourceSettings
     retention: RetentionSettings
     quotas: QuotaSettings
+    jobs: JobsSettings
     security: SecuritySettings
     formats: FormatSettings
     reporting: ReportingSettings

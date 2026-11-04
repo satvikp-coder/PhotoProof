@@ -64,6 +64,9 @@ quotas:
   warn_at_percent: 80       # warn at 80% of quota
   max_run_artifacts_mb: 500 # 500 MiB per run's artifacts
 
+jobs:
+  lease_seconds: 300        # job lease expires after 5 minutes; stale leases are re-queued
+
 security:
   forbidden_plugins: []        # non-bypassable; --ignore-blacklist does not affect these
   allow_blacklist_bypass: true # must be false when environment.mode is production

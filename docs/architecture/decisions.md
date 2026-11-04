@@ -51,3 +51,51 @@ isolated in `requirements-tools.lock` (ADR-003).
 ### ADR-009 · No empty placeholder modules
 Modules that would only contain `pass` are not created. Their absence is documented
 here and in the backlog.
+
+### ADR-011 · Durable job queue backed by SQLite
+
+PhotoProof runs analyses synchronously in the caller's process. A web request
+(WebKit, PP-039/PP-041) would block for the whole pipeline, and a crash loses the
+request. We need a durable job queue so analyses can be submitted asynchronously
+and survive restarts.
+
+**Decision:** Use the existing SQLite database as the job queue, with a new `jobs`
+table:
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `job_id` | TEXT PK | Unique job identifier |
+| `state` | TEXT | `queued` \| `running` \| `succeeded` \| `failed` \| `cancelled` |
+| `payload` | TEXT | JSON-serialised `AnalysisRequest` (descriptors only) |
+| `attempts` | INTEGER | Number of claim attempts |
+| `max_attempts` | INTEGER | Max attempts before giving up (default 1) |
+| `lease_until` | TEXT | ISO timestamp; job is free to re-claim after this |
+| `worker_id` | TEXT | ID of the worker currently holding the lease |
+| `idempotency_key` | TEXT UNIQUE | `sha256(request_json) + ":" + client_token` |
+| `created_at` | TEXT | ISO timestamp of creation |
+| `updated_at` | TEXT | ISO timestamp of last change |
+| `error_message` | TEXT | Failure reason, if any |
+
+Claims use `BEGIN IMMEDIATE` + `UPDATE ... RETURNING` so that two workers cannot
+both claim the same job. Leases expire after `jobs.lease_seconds`; `requeue_stale()`
+re-queues expired leases (up to `max_attempts`) or marks them failed.
+
+WAL mode (`PRAGMA journal_mode=WAL`) is enabled on the database connection. This
+allows concurrent readers (plugin pipeline reading job state) and a single writer
+(job queue claiming/finishing jobs) without blocking each other. WAL mode is
+persistent once set, so it survives restarts. Backup implications: the WAL file
+(`-wal`) and shared-memory file (`-shm`) must be included in backups, or the
+database must be checkpointed before backup (`PRAGMA wal_checkpoint(TRUNCATE)`).
+
+**Consequences:**
+
+- No new infrastructure (no Redis, Celery, or message broker).
+- Jobs survive application restarts.
+- Idempotent submission: same request + client token returns the same `job_id`.
+- At-least-once execution: stale leases are re-queued or failed after
+  `max_attempts`.
+- SQLite is a single file; high write contention could become a bottleneck at
+  very large scale (not expected for this project).
+- WAL files must be managed in backup procedures.
+
+**Related:** PP-050 (this issue), PP-051 (worker supervision), PP-039/PP-041 (WebKit).
