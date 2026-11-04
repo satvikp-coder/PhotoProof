@@ -203,6 +203,16 @@ keypoints → matches → clusters → verified transforms → masks.
   `max_edge` (default 3000)
 * Uses OpenCV's SIFT implementation (available since OpenCV 4.4)
 
+The `copymove.matching` plugin matches SIFT descriptors using KNN and generalized
+Lowe ratio filtering (g2NN). It performs dependency-aware matching with spatial
+constraints and symmetric deduplication.
+
+* Outputs: `copymove.matches` (NPZ artifact with index pairs and distances) and
+  `copymove.match_stats` (summary statistics)
+* Config: `k` (default 10), `ratio` (default 0.5), `min_spatial_distance`
+  (default 10), `max_pairs` (default 50000)
+* Uses OpenCV FLANN or brute-force matching depending on descriptor count
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an
