@@ -41,6 +41,7 @@ def _run(
     *,
     policy: str = "abort",
     run_inputs: Mapping[str, object] | None = None,
+    unavailable: Mapping[str, str] | None = None,
 ) -> tuple[ExecutionReport, list[Event]]:
     bus, events = EventBus(), []
     bus.subscribe(events.append)
@@ -58,6 +59,7 @@ def _run(
         run_id="r1",
         run_inputs=run_inputs or {"input.target": {"sha256": "0" * 64}},
         invoke=invoke,
+        unavailable=unavailable,
     )
     return report, events
 
@@ -153,6 +155,29 @@ def test_dependency_not_planned_is_skipped(tmp_path: Path, settings) -> None:  #
     report, _ = _run(execution_plan, {})
     assert report.executions["p.b"].state is S.SKIPPED
     assert report.executions["p.b"].dependency_status == {"p.a": "NOT_PLANNED"}
+
+
+def test_missing_run_input_skips_with_the_recorded_reason(tmp_path: Path, settings) -> None:  # type: ignore[no-untyped-def]
+    """A declared input that the run could not provide skips the plugin, never crashes."""
+    execution_plan = _setup(tmp_path, settings, meta("p.a", inputs=["image.decoded"]))
+    report, _ = _run(
+        execution_plan,
+        {},
+        unavailable={"image.decoded": "the decoded image is unavailable: boom"},
+    )
+    assert _states(report) == {"p.a": S.SKIPPED}
+    execution = report.executions["p.a"]
+    assert execution.failure_category is FailureCategory.DEPENDENCY_UNAVAILABLE
+    assert execution.message == "the decoded image is unavailable: boom"
+    assert report.status(execution_plan.required) is RunStatus.INCOMPLETE
+
+
+def test_missing_run_input_without_a_reason_still_skips(tmp_path: Path, settings) -> None:  # type: ignore[no-untyped-def]
+    execution_plan = _setup(tmp_path, settings, meta("p.a", inputs=["image.decoded"]))
+    report, _ = _run(execution_plan, {})
+    execution = report.executions["p.a"]
+    assert execution.state is S.SKIPPED
+    assert execution.message and "image.decoded" in execution.message
 
 
 def test_invalid_outputs(tmp_path: Path, settings) -> None:  # type: ignore[no-untyped-def]
