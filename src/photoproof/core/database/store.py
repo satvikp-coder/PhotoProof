@@ -5,6 +5,7 @@ each; an existing database is backed up with the SQLite backup API before any
 migration is applied to it.
 """
 
+import os
 import sqlite3
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
@@ -76,12 +77,32 @@ MIGRATIONS: Sequence[str] = (
     );
     CREATE INDEX submissions_sha256 ON submissions(sha256);
     """,
+    # 3: concurrency - record owning process and hostname; set busy_timeout
+    """
+    ALTER TABLE runs ADD COLUMN pid INTEGER;
+    ALTER TABLE runs ADD COLUMN hostname TEXT;
+    """,
 )
 LATEST_VERSION = len(MIGRATIONS)
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def is_process_alive(pid: int | None) -> bool:
+    """Return True if ``pid`` refers to a process that is still running.
+
+    On Windows, uses os.kill(pid, 0) which raises if the process doesn't exist.
+    On POSIX, the same. Returns False for None or non-existent processes.
+    """
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+    return True
 
 
 class Database:
@@ -100,8 +121,11 @@ class Database:
         """
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            conn = sqlite3.connect(path, isolation_level=None)  # explicit transactions
+            conn = sqlite3.connect(
+                path, isolation_level=None, timeout=30.0
+            )  # explicit transactions
             conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA busy_timeout = 30000")
             conn.row_factory = sqlite3.Row
         except sqlite3.Error as error:
             raise DatabaseError(f"{path}: cannot open database: {error}") from error
@@ -196,23 +220,39 @@ class Database:
         except sqlite3.Error as error:
             raise DatabaseError(f"{self.path}: write failed: {error}") from error
 
-    def create_run(self, run_id: str, *, mode: str, profile: str, cache_key: str | None) -> None:
+    def create_run(
+        self,
+        run_id: str,
+        *,
+        mode: str,
+        profile: str,
+        cache_key: str | None,
+        pid: int | None = None,
+        hostname: str | None = None,
+    ) -> None:
         self._write(
-            "INSERT INTO runs (run_id, created_at, status, mode, profile, cache_key) "
-            "VALUES (?, ?, 'CREATED', ?, ?, ?)",
-            (run_id, _now(), mode, profile, cache_key),
+            "INSERT INTO runs (run_id, created_at, status, mode, profile, "
+            "cache_key, pid, hostname) VALUES (?, ?, 'CREATED', ?, ?, ?, ?, ?)",
+            (run_id, _now(), mode, profile, cache_key, pid, hostname),
         )
 
     def set_run_status(self, run_id: str, status: str) -> None:
         self._write("UPDATE runs SET status = ? WHERE run_id = ?", (status, run_id))
 
     def unfinished_runs(self, *, older_than: str) -> list[dict[str, object]]:
-        """Runs without ``finished_at`` created before the ISO timestamp ``older_than``."""
+        """Runs without ``finished_at`` created before the ISO timestamp ``older_than``,
+        excluding runs whose owning process is still alive."""
         rows = self._conn.execute(
             "SELECT * FROM runs WHERE finished_at IS NULL AND created_at < ? ORDER BY created_at",
             (older_than,),
         ).fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            run = dict(row)
+            pid = run.get("pid")
+            if not is_process_alive(pid):
+                result.append(run)
+        return result
 
     def mark_runs_aborted(self, run_ids: Sequence[str]) -> None:
         try:
