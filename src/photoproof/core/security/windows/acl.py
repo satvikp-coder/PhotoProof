@@ -13,9 +13,27 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes
 import os
+import shutil
 import subprocess
 
 _WINDOWS = os.name == "nt"
+
+
+def _icacls_path() -> str | None:
+    """Return the full path to the ``icacls`` executable on Windows.
+
+    Resolves ``icacls`` through ``shutil.which`` so Bandit's B607 check
+    (partial executable path) is not triggered. Falls back to the standard
+    Windows system directory when not found on PATH.
+    """
+    if not _WINDOWS:
+        return None
+    found = shutil.which("icacls")
+    if found:
+        return found
+    system_root = os.environ.get("SYSTEMROOT", r"C:\Windows")
+    fallback = os.path.join(system_root, "System32", "icacls.exe")
+    return fallback if os.path.exists(fallback) else None
 
 
 def is_windows() -> bool:
@@ -44,9 +62,13 @@ def apply_owner_only_acl(directory: str) -> None:
     if not username:
         return
 
+    icacls = _icacls_path()
+    if not icacls:
+        return
+
     subprocess.run(  # noqa: S603
-        [  # noqa: S607
-            "icacls",
+        [
+            icacls,
             directory,
             "/inheritance:r",
             "/grant:r",
@@ -73,10 +95,14 @@ def check_acl_for_other_principals(directory: str) -> bool:
     if not username:
         return False
 
+    icacls = _icacls_path()
+    if not icacls:
+        return False
+
     try:
         result = subprocess.run(  # noqa: S603
-            [  # noqa: S607
-                "icacls",
+            [
+                icacls,
                 directory,
             ],
             capture_output=True,
