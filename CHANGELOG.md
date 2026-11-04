@@ -79,6 +79,10 @@ All notable changes to this project are documented here. The format follows
   Detects SIFT keypoints and computes descriptors on the decoded image, the first
   stage of the copy-move detection chain.
 
+- `plugins/copymove/matching/` implements SIFT descriptor matching (#21).
+  Matches descriptors using KNN and generalized Lowe ratio filtering (g2NN),
+  with spatial distance constraints and symmetric deduplication.
+
 ### Changed
 
 - The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave
