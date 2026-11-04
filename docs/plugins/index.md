@@ -229,6 +229,15 @@ verified copy-move matches using bounded ZNCC correlation.
 * Config: `window_size` (default 11), `threshold` (default 0.5),
   `min_cluster_size` (default 5)
 
+The `visual.sharpness` plugin maps local focus and sharpness using the
+variance of the Laplacian, with optional contrast normalization and robust-z
+inconsistency detection. It is a weak visual cue for copy-move detection.
+
+* Outputs: `visual.sharpness_map` (per-block log Laplacian variance) and
+  `visual.sharpness_anomaly` (robust-z inconsistency map)
+* Config: `block` (default 32), `contrast_normalize` (default true)
+* Uses OpenCV Laplacian on luminance; documented depth-of-field false positives
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an
