@@ -238,6 +238,18 @@ inconsistency detection. It is a weak visual cue for copy-move detection.
 * Config: `block` (default 32), `contrast_normalize` (default true)
 * Uses OpenCV Laplacian on luminance; documented depth-of-field false positives
 
+The `visual.edges` plugin characterizes object boundaries using Canny edge
+detection and Sobel gradient analysis. It estimates edge width (the blur
+profile across the edge) and flags boundaries that are abnormally sharp or
+soft relative to the image's typical edges.
+
+* Outputs: `visual.edge_width_map` (per-pixel edge width) and
+  `visual.edge_segments` (contour segment list with mean width)
+* Config: `sigma` (default 1.0), `profile_length` (default 15),
+  `min_segment_length` (default 20)
+* Complementary to #25: #25 measures blur inside blocks, this measures
+  transition profiles across boundaries
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an
