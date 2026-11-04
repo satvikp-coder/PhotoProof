@@ -158,6 +158,15 @@ histogram periodicity analysis.
 * Applicable to JPEG only; `NOT_APPLICABLE` for other formats
 * Pure-Python JPEG bitstream parsing - no native decoder bindings required
 
+The `compression.jpeg_grid` plugin estimates the dominant 8x8 blocking-grid origin
+of the image and maps regions whose blocking artifacts align to a different grid,
+which is characteristic of content pasted from another JPEG or of cropping.
+
+* Outputs: `compression.grid_origin` (`{dx, dy, confidence}`) and
+  `compression.grid_map` (AnomalyMap: higher = locally aligned to a different phase)
+* Config: `window` (default 64), `stride` (default 32)
+* Uses luminance channel; low-confidence results for high-quality or non-JPEG inputs
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an
