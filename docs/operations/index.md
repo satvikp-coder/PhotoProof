@@ -11,6 +11,8 @@ uses administrator rights and only downloads the hash-verified packages listed i
 |---|---|---|
 | `python main.py` | Full bootstrap, preflight, then `status` | 0, 3, 4, 5, 6 |
 | `python main.py <command> [args]` | Same, then forwards to the CLI (`plugins`, `config`, `analyze IMG`, `manifest RUN_ID`, …) | CLI codes |
+| `python main.py delete RUN_ID [--with-evidence]` | Explicit run deletion; originals kept by default | 0, 1, 2 |
+| `python main.py housekeeping [--apply]` | Retention plan by default; explicit apply only | 0, 1 |
 | `python main.py --version` | Print `PhotoProof <version>` from `app.toml`; nothing else | 0, 3, 4 |
 | `python main.py --doctor` | Launcher diagnostics + application `doctor`; changes nothing | 0, 6 |
 | `python main.py --repair [--dry-run]` | Controlled repair: may rebuild an incompatible `.venv`, reinstalls dependencies, runs application repairs | 0, 6 |
@@ -42,7 +44,7 @@ Exit codes: `0` ok · `2` usage · `3` unsupported interpreter/OS/architecture/h
 11. Start the requested command (`status` by default). Commands that start the
     application (`status`, `analyze`, `manifest`, `preflight`) first run preflight:
     quick health checks, SAFE auto-repair (creates `ARE/`), re-check. `doctor`,
-    `repair`, `config` and `plugins` deliberately skip preflight and its repairs.
+    `repair`, `config`, `plugins`, `delete` and `housekeeping` deliberately skip preflight and its repairs.
 
 Launcher flags must come **before** the command. Everything from the command onwards
 goes to the CLI unchanged: `python main.py repair --dry-run` is a dry run.

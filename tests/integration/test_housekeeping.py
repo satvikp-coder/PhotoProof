@@ -245,7 +245,7 @@ def test_rotation_and_crash_tail_preserved(tmp_path: Path) -> None:
     "model,values",
     [
         (RetentionSettings, {"cache_days": -1}),
-        (RetentionSettings, {"evidence_days": 1}),
+        (RetentionSettings, {"evidence_dayz": 1}),
         (RetentionSettings, {"run_days": True}),
         (QuotaSettings, {"max_total_mb": 0}),
         (QuotaSettings, {"warn_at_percent": 100}),

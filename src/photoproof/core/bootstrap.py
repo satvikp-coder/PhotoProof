@@ -19,6 +19,7 @@ from photoproof.core.config.validator import AppIdentity, Profile, Settings
 from photoproof.core.database.store import Database
 from photoproof.core.events.bus import EventBus
 from photoproof.core.ingestion import IngestionService
+from photoproof.core.logging.privacy import register_plugin_ids
 from photoproof.core.logging.setup import (
     attach_event_logging,
     configure_logging,
@@ -145,6 +146,7 @@ def bootstrap(
     registry = PluginRegistry(
         discover(plugin_package), host_api=identity.application.plugin_api_version
     )
+    register_plugin_ids(set(registry.known_ids))
     flags = FeatureFlags.build(
         settings.features.flags,
         plugin_ids=registry.known_ids,

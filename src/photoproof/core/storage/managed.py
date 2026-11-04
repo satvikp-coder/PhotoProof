@@ -2,6 +2,7 @@
 
 import os
 import stat
+import sys
 from pathlib import Path
 
 from photoproof.contracts.exceptions import StorageError
@@ -71,3 +72,44 @@ def usage(root: Path) -> int:
 
 def _raise(error: OSError) -> None:
     raise error
+
+
+def require_local_runtime(root: Path) -> None:
+    """Reject detectable remote/removable volumes; reliable local locks are required.
+
+    This is not certification of every mount driver. Operators must not place the runtime
+    on network storage; macOS ST_LOCAL and Linux mount metadata cover standard mounts.
+    """
+    if sys.platform == "win32":
+        import ctypes  # noqa: PLC0415 - Windows-only native API
+
+        api = ctypes.WinDLL("kernel32", use_last_error=True)
+        api.GetDriveTypeW.argtypes = [ctypes.c_wchar_p]
+        api.GetDriveTypeW.restype = ctypes.c_uint
+        if api.GetDriveTypeW(str(root.resolve().anchor)) != 3:  # DRIVE_FIXED
+            raise StorageError(
+                "deletion requires a fixed local Windows volume; "
+                "network/removable storage is unsupported"
+            )
+    elif sys.platform == "darwin":
+        local = getattr(os, "ST_LOCAL", None)
+        if local is not None and not os.statvfs(root).f_flag & local:
+            raise StorageError("network runtime storage is unsupported for deletion")
+    elif sys.platform.startswith("linux"):
+        mounts = Path("/proc/self/mountinfo").read_text(encoding="utf-8")
+        longest, kind = -1, ""
+        for line in mounts.splitlines():
+            fields = line.split()
+            if "-" not in fields or len(fields) < 7:
+                continue
+            mount = fields[4].replace("\\040", " ").replace("\\134", "\\")
+            base = Path(mount)
+            target = root.resolve()
+            if (base == target or base in target.parents) and len(mount) > longest:
+                longest, kind = len(mount), fields[fields.index("-") + 1]
+        if (
+            longest < 0
+            or kind in {"nfs", "nfs4", "cifs", "smb3", "afs", "ceph", "9p"}
+            or kind.startswith("fuse.")
+        ):
+            raise StorageError("network/uncertain runtime filesystem is unsupported for deletion")

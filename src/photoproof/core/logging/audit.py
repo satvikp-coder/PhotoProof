@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from photoproof.contracts.exceptions import StorageError
+from photoproof.core.logging.privacy import sanitize
 from photoproof.core.storage.managed import checked_path, identity
 from photoproof.core.storage.store import _fsync_directory
 
@@ -64,7 +65,7 @@ def append_audit(path: Path, record: object, *, max_bytes: int = 5_000_000) -> N
     Refuse incomplete/invalid existing JSONL rather than appending over crash damage.
     A single oversized record is kept intact in its own segment.
     """
-    encoded = (json.dumps(record, default=str, sort_keys=True) + "\n").encode("utf-8")
+    encoded = (json.dumps(sanitize(record), default=str, sort_keys=True) + "\n").encode("utf-8")
     with _locked(checked_path(path.parent, ".audit.lock")):
         checked_path(path.parent, path.name)
         if path.exists():

@@ -2,7 +2,7 @@ name: Docs
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/55-runtime-retention-quotas]
   push:
     branches: [main]
   workflow_dispatch:

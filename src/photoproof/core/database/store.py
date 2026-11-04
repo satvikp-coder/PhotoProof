@@ -167,9 +167,9 @@ class Database:
         return target
 
     @contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
+    def transaction(self, *, immediate: bool = False) -> Iterator[sqlite3.Connection]:
         """Run statements atomically; any exception rolls everything back."""
-        self._conn.execute("BEGIN")
+        self._conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
         try:
             yield self._conn
         except BaseException:
@@ -285,28 +285,46 @@ class Database:
         Returns ``submission_id``, ``first_seen_at`` and ``is_new`` (first time these bytes
         were seen).
         """
-        now = _now()
         try:
-            with self.transaction() as conn:
-                inserted = conn.execute(
-                    "INSERT OR IGNORE INTO evidence (sha256, size, first_seen_at) VALUES (?, ?, ?)",
-                    (sha256, size, now),
+            if self._conn.in_transaction:
+                return self._record_submission_in(
+                    self._conn, sha256=sha256, size=size, role=role, original_name=original_name
                 )
-                submission = conn.execute(
-                    "INSERT INTO submissions (sha256, role, original_name, submitted_at) "
-                    "VALUES (?, ?, ?, ?)",
-                    (sha256, role, original_name, now),
+            with self.transaction() as connection:
+                return self._record_submission_in(
+                    connection, sha256=sha256, size=size, role=role, original_name=original_name
                 )
-                first_seen = conn.execute(
-                    "SELECT first_seen_at FROM evidence WHERE sha256 = ?", (sha256,)
-                ).fetchone()
-                return {
-                    "submission_id": submission.lastrowid,
-                    "first_seen_at": first_seen[0],
-                    "is_new": inserted.rowcount == 1,
-                }
         except sqlite3.Error as error:
-            raise DatabaseError(f"{self.path}: write failed: {error}") from error
+            raise DatabaseError("evidence submission write failed; inspect the database") from error
+
+    def _record_submission_in(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        sha256: str,
+        size: int,
+        role: str,
+        original_name: str | None,
+    ) -> dict[str, object]:
+        """Record a submission in the caller-owned evidence-publication transaction."""
+        now = _now()
+        inserted = connection.execute(
+            "INSERT OR IGNORE INTO evidence (sha256, size, first_seen_at) VALUES (?, ?, ?)",
+            (sha256, size, now),
+        )
+        submission = connection.execute(
+            "INSERT INTO submissions (sha256, role, original_name, submitted_at) "
+            "VALUES (?, ?, ?, ?)",
+            (sha256, role, original_name, now),
+        )
+        first_seen = connection.execute(
+            "SELECT first_seen_at FROM evidence WHERE sha256 = ?", (sha256,)
+        ).fetchone()
+        return {
+            "submission_id": submission.lastrowid,
+            "first_seen_at": first_seen[0],
+            "is_new": inserted.rowcount == 1,
+        }
 
     def link_submissions(self, submission_ids: Sequence[int], run_id: str) -> None:
         try:

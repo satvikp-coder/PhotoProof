@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- Add explicit run deletion with optional unshared-original removal, hash-only receipts and
+  blocking journals for interrupted operations; protect shared and pending evidence.
+- Fingerprint private diagnostic text and filenames and suppress GPS/EXIF fields in configured
+  logs and audit records. Add opt-in original-evidence retention with dry-run planning.
+
+
 ### Added
 
 - Opt-in runtime retention with a dry-run housekeeping command, reference-aware derived-data

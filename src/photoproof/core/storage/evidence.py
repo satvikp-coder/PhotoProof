@@ -9,6 +9,7 @@ import hashlib
 import io
 import logging
 import os
+import sqlite3
 import tempfile
 from collections.abc import Collection
 from contextlib import suppress
@@ -16,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
-from photoproof.contracts.exceptions import InputRejectedError, StorageError
+from photoproof.contracts.exceptions import DatabaseError, InputRejectedError, StorageError
 from photoproof.core.database.store import Database
 from photoproof.core.security.inputs import open_regular_file
 from photoproof.core.storage.store import RuntimeStorage
@@ -68,12 +69,19 @@ class EvidenceStore:
             original_name = source.name if original_name is None else original_name
         name = _storable_name(original_name)  # before opening, so nothing needs closing
         reader = io.BytesIO(source) if isinstance(source, bytes) else open_regular_file(source)
-        with reader:
-            sha256, size, media_format = self._store(reader, label)
-        _note_extension_mismatch(sha256, name, media_format)
-        row = self._database.record_submission(
-            sha256=sha256, size=size, role=role, original_name=name
-        )
+        # Reserve before reading/publishing, through submission commit: deletion cannot
+        # race an identical upload between blob publication and reference creation.
+        try:
+            with reader, self._database.transaction(immediate=True):
+                sha256, size, media_format = self._store(reader, label)
+                _note_extension_mismatch(sha256, name, media_format)
+                row = self._database.record_submission(
+                    sha256=sha256, size=size, role=role, original_name=name
+                )
+        except sqlite3.Error as error:
+            raise DatabaseError(
+                "evidence publication reservation failed; retry when runtime is idle"
+            ) from error
         return EvidenceRecord(
             sha256=sha256,
             size=size,

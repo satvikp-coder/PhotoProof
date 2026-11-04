@@ -10,6 +10,7 @@ import json
 import os
 import sqlite3
 import time
+import uuid
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
@@ -23,9 +24,12 @@ from photoproof.contracts.enums import RunStatus
 from photoproof.contracts.events import EventType
 from photoproof.contracts.exceptions import StorageError
 from photoproof.core.cache.run_cache import CACHE_FORMAT, CacheEntry
+from photoproof.core.config.validator import RetentionSettings
 from photoproof.core.database.store import LATEST_VERSION
-from photoproof.core.storage.managed import checked_path, identity
-from photoproof.core.storage.store import sha256_file
+from photoproof.core.storage.deletion_journal import Journal, require_reconciled, write_journal
+from photoproof.core.storage.managed import checked_path, identity, require_local_runtime
+from photoproof.core.storage.references import evidence_references
+from photoproof.core.storage.store import canonical_json, sha256_bytes, sha256_file
 
 if TYPE_CHECKING:
     from photoproof.core.bootstrap import Application
@@ -91,7 +95,7 @@ def _mark_completed(root: Path, identity_sha256: str) -> None:
 
 @dataclass(frozen=True)
 class Candidate:
-    data_class: Literal["cache", "artifact", "run"]
+    data_class: Literal["cache", "artifact", "run", "report", "evidence"]
     relative_path: str
     sha256: str
     size: int
@@ -188,11 +192,28 @@ class Housekeeping:
                 (), (f"reference inspection blocked: {type(error).__name__}",), (), observed
             )
 
-    def _plan(self, connection: sqlite3.Connection, now: float) -> Plan:
+    def reference_plan(
+        self, connection: sqlite3.Connection, *, now: float, current: Journal | None = None
+    ) -> Plan:
+        """Validate the shared manifest/DB/cache graph with age selection disabled."""
+        result = self._plan(connection, now, policy=False, current=current)
+        if result.blocked:
+            raise StorageError("reference validation requires an idle, consistent runtime")
+        return result
+
+    def _plan(
+        self,
+        connection: sqlite3.Connection,
+        now: float,
+        *,
+        policy: bool = True,
+        current: Journal | None = None,
+    ) -> Plan:
         root = self.app.storage.root
         if connection.execute("PRAGMA user_version").fetchone()[0] != LATEST_VERSION:
             raise StorageError("housekeeping requires the current database schema; run doctor")
-        retention = self.app.settings.retention
+        require_reconciled(root, current=current)
+        retention = self.app.settings.retention if policy else RetentionSettings()
         if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
             raise StorageError("database references are inconsistent; run doctor")
         runs = connection.execute("SELECT * FROM runs ORDER BY run_id").fetchall()
@@ -352,6 +373,35 @@ class Housekeeping:
                             info,
                         )
                     )
+        if retention.evidence_days is not None:
+            require_local_runtime(root)
+            graph = evidence_references(self.app, connection)
+            report_data = False
+            for directory in checked_path(root, "reports").iterdir():
+                checked_path(root, directory.relative_to(root).as_posix())
+                if not directory.is_dir() or next(directory.iterdir(), None) is not None:
+                    report_data = True
+            for sha in sorted(graph.sizes):
+                age = (now - _timestamp(graph.first_seen[sha])) / 86400
+                if (
+                    not graph.submissions[sha]
+                    and not any(sha in refs for refs in graph.runs.values())
+                    and not report_data
+                    and age >= retention.evidence_days
+                ):
+                    path = checked_path(root, f"objects/{sha[:2]}/{sha}")
+                    info = identity(path)
+                    candidates.append(
+                        Candidate(
+                            "evidence",
+                            f"objects/{sha[:2]}/{sha}",
+                            sha,
+                            info[2],
+                            age,
+                            "retention",
+                            info,
+                        )
+                    )
         return Plan(
             tuple([*candidates, *expired_runs]), tuple(blocked), tuple(sorted(protected)), now
         )
@@ -382,6 +432,8 @@ class Housekeeping:
         )
         identity(path)
         outcomes: list[str] = []
+        operation: Journal | None = None
+        destructive = False
         try:
             with closing(
                 sqlite3.connect(
@@ -398,6 +450,20 @@ class Housekeeping:
                         or current.protected_artifacts != approved.protected_artifacts
                     ):
                         raise StorageError("runtime changed since planning; run housekeeping again")
+                    if any(item.data_class == "evidence" for item in approved.candidates):
+                        operation = Journal(
+                            operation_id=uuid.uuid4().hex,
+                            plan_sha256=sha256_bytes(
+                                canonical_json(
+                                    [
+                                        (item.data_class, item.sha256, item.file_identity)
+                                        for item in approved.candidates
+                                    ]
+                                )
+                            ),
+                            with_evidence=True,
+                        )
+                        write_journal(self.app.storage.root, operation)
                     for item in approved.candidates:
                         target = checked_path(self.app.storage.root, item.relative_path)
                         if (
@@ -412,6 +478,8 @@ class Housekeeping:
                             "reason": item.reason,
                             "size": item.size,
                         }
+                        if operation is not None:
+                            payload["operation_id"] = operation.operation_id
                         self.app.bus.emit(
                             EventType.HOUSEKEEPING_APPLIED,
                             data={**payload, "outcome": "intent", "reclaimed_bytes": 0},
@@ -439,6 +507,11 @@ class Housekeeping:
                                     "candidate changed during audit; refusing deletion"
                                 )
                             target.unlink()
+                            destructive = True
+                            if item.data_class == "evidence":
+                                connection.execute(
+                                    "DELETE FROM evidence WHERE sha256 = ?", (item.sha256,)
+                                )
                             if item.cache_key is not None:
                                 connection.execute(
                                     "DELETE FROM cache_entries WHERE cache_key = ?",
@@ -478,7 +551,24 @@ class Housekeeping:
                     # unlink. Preserve earlier completed removals if a later unlink/audit
                     # fails; rolling them back would manufacture missing-manifest records.
                     connection.execute("COMMIT")
+                    if operation is not None and not destructive:
+                        write_journal(
+                            self.app.storage.root,
+                            operation.model_copy(update={"phase": "cancelled"}),
+                        )
                     raise
+            if operation is not None:
+                self.app.bus.emit(
+                    EventType.HOUSEKEEPING_APPLIED,
+                    data={
+                        "operation_id": operation.operation_id,
+                        "outcome": "complete",
+                        "reason": "retention",
+                    },
+                )
+                write_journal(
+                    self.app.storage.root, operation.model_copy(update={"phase": "complete"})
+                )
         except (OSError, sqlite3.Error, ValueError, TypeError, KeyError, ValidationError) as error:
             raise StorageError(
                 "housekeeping incomplete; preserve audit intents and inspect runtime"
