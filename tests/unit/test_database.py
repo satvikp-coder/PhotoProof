@@ -1,3 +1,4 @@
+import socket
 import sqlite3
 from pathlib import Path
 
@@ -6,6 +7,7 @@ import pytest
 from photoproof.contracts.exceptions import DatabaseError
 from photoproof.core.database import store
 from photoproof.core.database.store import LATEST_VERSION, Database
+from photoproof.core.storage.processes import process_token
 
 
 def test_new_database_is_migrated(tmp_path: Path) -> None:
@@ -75,3 +77,45 @@ def test_failed_migration_rolls_back(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_VERSION
     assert conn.execute("SELECT name FROM sqlite_master WHERE name='ok'").fetchone() is None
     conn.close()
+
+
+def test_self_process_inspection_failure_records_unknown_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run creation must not fail when self-process inspection is unavailable.
+
+    When `process_token(os.getpid())` raises `ProcessLookupError` (e.g. restricted
+    procfs/PID visibility), `create_run` must persist NULL as the token rather than
+    propagating the exception. Stale-run recovery stays conservative: unknown owners
+    are never automatically recovered.
+    """
+    path = tmp_path / "x.db"
+    db = Database.open(path)
+
+    # Mock process_token to raise ProcessLookupError for our own PID.
+    real_pid = os.getpid()
+
+    def fake_process_token(pid: int) -> str | None:
+        if pid == real_pid:
+            raise ProcessLookupError(pid)
+        return process_token(pid)
+
+    monkeypatch.setattr(store_mod, "process_token", fake_process_token)
+
+    # Run creation must succeed despite self-inspection failure.
+    db.create_run("r1", mode="single", profile="standard", cache_key=None)
+    row = db.get_run("r1")
+    assert row["pid"] == real_pid
+    assert row["hostname"] == socket.gethostname()
+    assert row["process_token"] is None
+
+    # owner_state stays conservative: unknown token means "unknown", not "dead".
+    from photoproof.core.storage.processes import owner_state
+
+    assert owner_state(row) == "unknown"
+
+    # A dead-owner recovery must not abort this run.
+    db.mark_runs_aborted(["r1"])
+    assert db.get_run("r1")["finished_at"] is None
+
+    db.close()

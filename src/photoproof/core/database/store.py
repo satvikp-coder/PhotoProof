@@ -227,6 +227,12 @@ class Database:
             raise DatabaseError(f"{self.path}: write failed: {error}") from error
 
     def create_run(self, run_id: str, *, mode: str, profile: str, cache_key: str | None) -> None:
+        # Self-inspection must never block run creation: if we cannot inspect our own
+        # process, record an unknown token and let owner_state() stay conservative.
+        try:
+            token = process_token(os.getpid())
+        except ProcessLookupError:
+            token = None
         self._write(
             "INSERT INTO runs (run_id, created_at, status, mode, profile, cache_key, "
             "pid, hostname, process_token) VALUES (?, ?, 'CREATED', ?, ?, ?, ?, ?, ?)",
@@ -238,7 +244,7 @@ class Database:
                 cache_key,
                 os.getpid(),
                 socket.gethostname(),
-                process_token(os.getpid()),
+                token,
             ),
         )
 
