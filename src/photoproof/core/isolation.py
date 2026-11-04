@@ -160,7 +160,7 @@ def _supervise(
             job = _contain(process, limits)  # before the child receives any work
         except OSError as error:
             return Failure(FailureKind.CRASHED, f"could not apply the limits: {error}")
-        exchange = _Exchange(ours, data, limits.max_result_bytes)  # type: ignore[arg-type]
+        exchange = _Exchange(ours, data, limits.max_result_bytes)
         exchange.start()
         failure = _wait(exchange, process, limits)
         if failure is not None:

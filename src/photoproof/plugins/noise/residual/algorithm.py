@@ -96,7 +96,9 @@ def _wiener_threshold(detail: np.ndarray, sigma: float) -> float:
         return 0.0
     var_detail = np.var(detail)
     noise_var = sigma**2
-    if var_detail <= noise_var:
+    if noise_var <= 0 or var_detail <= noise_var:
+        # No usable noise estimate, or the subband explains less than the noise:
+        # nothing can be attributed to noise, so no coefficient is shrunk.
         return 0.0
     # Wiener threshold based on SNR
     snr = var_detail / noise_var

@@ -114,32 +114,38 @@ def check_acl_for_other_principals(directory: str) -> bool:
 
     output = result.stdout
     # icacls output lists ACEs like:
-    #   USERNAME:(OI)(CI)F
-    #   NT AUTHORITY\SYSTEM:(OI)(CI)F
-    #   BUILTIN\Administrators:(OI)(CI)F
-    # We flag any ACE that is not for the current user, SYSTEM, or Administrators.
+    #   C:\path\to\dir MACHINE\user:(OI)(CI)(F)
+    #                  NT AUTHORITY\SYSTEM:(OI)(CI)(F)
+    #                  BUILTIN\Administrators:(OI)(CI)(F)
+    #                  OWNER RIGHTS:(OI)(CI)(F)
+    # The first ACE line begins with the directory (whose drive letter also contains a
+    # colon), so an ACE is recognised by its ``:(permissions)`` suffix and the principal
+    # is the text before it, or its last token on the path-bearing first line.
+    # ``OWNER RIGHTS`` is the owner's own placeholder (granted by /inheritance:r), and the
+    # current user is printed qualified with the machine or domain name, so both forms
+    # are accepted; anything else is another principal and is insecure.
+    allowed = {
+        "nt authority\\system",
+        "builtin\\administrators",
+        "owner rights",
+        username.lower(),
+    }
+    for prefix in (os.environ.get("USERDOMAIN", ""), os.environ.get("COMPUTERNAME", "")):
+        if prefix:
+            allowed.add(f"{prefix.lower()}\\{username.lower()}")
     for current_line in output.splitlines():
         stripped_line = current_line.strip()
-        if ":" not in stripped_line:
-            continue
-        # Skip header lines like "Successfully processed 1 files"
-        if "successfully processed" in stripped_line.lower():
-            continue
-        # Extract the principal name before the first colon
-        principal = stripped_line.split(":")[0].strip()
-        if principal.lower() in (
-            username.lower(),
-            "nt authority\\system",
-            "builtin\\administrators",
-            "everyone",
-        ):
-            # Everyone is flagged as insecure (grants access to all users)
-            if principal.lower() == "everyone":
-                return True
-            continue
-        # Any other principal = insecure
-        return True
-
+        ace_at = stripped_line.find(":(")
+        if ace_at < 0:
+            continue  # header lines and footers carry no ACE
+        head = stripped_line[:ace_at].strip().lower()
+        candidates = {head}
+        if " " in head:  # the path-bearing first ACE line: the principal is the last token
+            candidates.add(head.rsplit(None, 1)[-1])
+        if "everyone" in candidates:
+            return True  # grants access to all users
+        if not candidates & allowed:
+            return True
     return False
 
 
@@ -152,7 +158,7 @@ def make_file_read_only(path: str) -> None:
         return
 
     try:
-        kernel32 = ctypes.windll.kernel32
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]  # Windows only
         FILE_ATTRIBUTE_READONLY = 0x01
         kernel32.SetFileAttributesW(path, FILE_ATTRIBUTE_READONLY)
     except (OSError, AttributeError):

@@ -11,7 +11,7 @@ METADATA = {
     "priority": 24,
     "required": False,
     "enabled_default": True,
-    "requires": ("copymove.matches", "copymove.keypoints"),
+    "requires": ("copymove.matching", "copymove.sift_keypoints"),
     "after": (),
     "entry_point": "processor:run",
     "inputs": ("copymove.matches", "copymove.keypoints", "image.decoded"),

@@ -10,6 +10,7 @@ import io
 import logging
 import os
 import tempfile
+import time
 from collections.abc import Collection
 from contextlib import suppress
 from dataclasses import dataclass
@@ -129,8 +130,7 @@ class EvidenceStore:
                 "check free disk space and the permissions of the runtime directory."
             ) from error
         finally:  # a hard kill skips this; runtime.stale_temp cleans up after that
-            with suppress(OSError):
-                temporary.unlink(missing_ok=True)
+            _remove_temporary(temporary)
         return sha256, size, media_format
 
     def _copy(self, reader: BinaryIO, output: BinaryIO, label: str) -> tuple[str, int, str | None]:
@@ -163,6 +163,28 @@ class EvidenceStore:
                 f"({', '.join(accepted) or 'none'}); add it there to analyse this file"
             )
         return digest.hexdigest(), size, media_format
+
+
+def _remove_temporary(temporary: Path) -> None:
+    """Remove a staged temporary file, clearing the read-only mark first.
+
+    ``publish_blob`` marks the staged file read-only *before* the rename, so a file whose
+    rename lost the race against another ingest stays read-only; Windows then refuses to
+    delete it. A brief retry also covers a scanner briefly holding the fresh file. Giving
+    up is safe: ``runtime.stale_temp`` housekeeping removes any leftover, and an ingest
+    must never fail because its scratch file outlived it for a moment.
+    """
+    for delay in (0.0, 0.05, 0.1, 0.2, 0.4):
+        if delay:
+            time.sleep(delay)
+        try:
+            with suppress(OSError):
+                temporary.chmod(0o600)  # best effort: no-op if it is already gone
+            temporary.unlink(missing_ok=True)
+            return
+        except OSError:
+            continue
+    LOGGER.warning("could not remove temporary file %s; housekeeping will", temporary)
 
 
 def _note_extension_mismatch(sha256: str, name: str | None, media_format: str | None) -> None:
