@@ -263,3 +263,34 @@ def test_stale_lease_failed_after_max_attempts(tmp_path: Path) -> None:
         assert str(row[0]) == FAILED
     finally:
         db.close()
+
+
+def test_queue_survives_restart(tmp_path: Path) -> None:
+    """Queue survives application restart - data persists in SQLite."""
+    db_path = tmp_path / "jobs.db"
+
+    # First app instance: submit a claimable job
+    db1 = Database.open(db_path)
+    try:
+        queue1 = JobQueue(db1, JobsSettings(lease_seconds=300))
+        request = _make_request()
+        job_id = queue1.submit(request, "client-1")
+        job = queue1.claim("worker-1")
+        assert job is not None
+        assert job.job_id == job_id
+        assert job.state == RUNNING
+        # Don't complete it - leave it running
+    finally:
+        db1.close()
+
+    # Second app instance: reopen same database, job should still be there
+    db2 = Database.open(db_path)
+    try:
+        queue2 = JobQueue(db2, JobsSettings(lease_seconds=300))
+        job2 = queue2.claim("worker-2")
+        assert job2 is not None
+        assert job2.job_id == job_id
+        assert job2.state == RUNNING
+        assert job2.attempts == 2  # first claim + this claim
+    finally:
+        db2.close()
