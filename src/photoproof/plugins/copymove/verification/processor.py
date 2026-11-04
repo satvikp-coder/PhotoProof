@@ -100,19 +100,6 @@ def run(ctx: PluginContext) -> dict[str, object]:
         "verification.json", verification_json.encode("utf-8"), "application/json"
     )
 
-    summary = {
-        "cluster_id": result["cluster_id"],
-        "inliers": result["inliers"],
-        "inlier_ratio": result["inlier_ratio"],
-        "rmse": result["rmse"],
-        "scale": result["scale"],
-        "rotation_deg": result["rotation_deg"],
-        "score": result["score"],
-        "model": result["model"],
-        "reason": result["reason"],
-        "verification_artifact": verification_artifact_ref,
-    }
-
     return {
         "copymove.verification": verification_artifact_ref,
     }
