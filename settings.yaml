@@ -66,6 +66,7 @@ quotas:
 
 jobs:
   lease_seconds: 300        # job lease expires after 5 minutes; stale leases are re-queued
+  max_attempts: 3           # a failed job is retried up to this many times
 
 security:
   forbidden_plugins: []        # non-bypassable; --ignore-blacklist does not affect these

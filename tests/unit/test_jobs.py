@@ -38,7 +38,7 @@ def test_job_submission_creates_queued_job(tmp_path: Path) -> None:
     """Submitting a request creates a queued job with correct fields."""
     db = _open_db(tmp_path)
     try:
-        queue = JobQueue(db, JobsSettings(lease_seconds=300))
+        queue = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=1))
         request = _make_request()
         job_id = queue.submit(request, "client-1")
 
@@ -66,7 +66,7 @@ def test_idempotent_submission_returns_same_job_id(tmp_path: Path) -> None:
     """Same request + client token returns the same job_id."""
     db = _open_db(tmp_path)
     try:
-        queue = JobQueue(db, JobsSettings(lease_seconds=300))
+        queue = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=1))
         request = _make_request()
 
         job_id_1 = queue.submit(request, "client-1")
@@ -84,7 +84,7 @@ def test_two_claims_do_not_return_same_job(tmp_path: Path) -> None:
     """Two sequential claims never return the same job while running."""
     db = _open_db(tmp_path)
     try:
-        queue = JobQueue(db, JobsSettings(lease_seconds=300))
+        queue = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=1))
         request = _make_request()
         job_id = queue.submit(request, "client-1")
 
@@ -103,7 +103,7 @@ def test_complete_marks_job_succeeded(tmp_path: Path) -> None:
     """Complete transitions a running job to succeeded."""
     db = _open_db(tmp_path)
     try:
-        queue = JobQueue(db, JobsSettings(lease_seconds=300))
+        queue = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=1))
         request = _make_request()
         job_id = queue.submit(request, "client-1")
 
@@ -129,7 +129,7 @@ def test_fail_marks_failed_after_max_attempts(tmp_path: Path) -> None:
     """Fail with default max_attempts=1 marks the job as failed."""
     db = _open_db(tmp_path)
     try:
-        queue = JobQueue(db, JobsSettings(lease_seconds=300))
+        queue = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=1))
         request = _make_request()
         job_id = queue.submit(request, "client-1")
 
@@ -157,7 +157,7 @@ def test_fail_requeues_when_attempts_remain(tmp_path: Path) -> None:
     """Fail with attempts < max_attempts re-queues the job."""
     db = _open_db(tmp_path)
     try:
-        queue = JobQueue(db, JobsSettings(lease_seconds=300))
+        queue = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=1))
 
         # Insert a job directly with max_attempts=3 so fail can re-queue
         job_id = "manual-job"
@@ -191,7 +191,7 @@ def test_stale_lease_requeued(tmp_path: Path) -> None:
     """A stale lease (expired lease_until) is re-queued."""
     db = _open_db(tmp_path)
     try:
-        queue = JobQueue(db, JobsSettings(lease_seconds=1))
+        queue = JobQueue(db, JobsSettings(lease_seconds=1, max_attempts=1))
         # Insert a job directly with max_attempts=3 so stale lease can re-queue
         job_id = "test-stale-job"
         now = _now()
@@ -236,7 +236,7 @@ def test_stale_lease_failed_after_max_attempts(tmp_path: Path) -> None:
     """A stale lease with no remaining attempts is marked failed."""
     db = _open_db(tmp_path)
     try:
-        queue = JobQueue(db, JobsSettings(lease_seconds=1))
+        queue = JobQueue(db, JobsSettings(lease_seconds=1, max_attempts=1))
         request = _make_request()
         job_id = queue.submit(request, "client-1")
 
@@ -269,28 +269,36 @@ def test_queue_survives_restart(tmp_path: Path) -> None:
     """Queue survives application restart - data persists in SQLite."""
     db_path = tmp_path / "jobs.db"
 
-    # First app instance: submit a claimable job
+    # First app instance: submit and claim a job, then expire its lease
     db1 = Database.open(db_path)
     try:
-        queue1 = JobQueue(db1, JobsSettings(lease_seconds=300))
+        queue1 = JobQueue(db1, JobsSettings(lease_seconds=300, max_attempts=3))
         request = _make_request()
         job_id = queue1.submit(request, "client-1")
         job = queue1.claim("worker-1")
         assert job is not None
         assert job.job_id == job_id
         assert job.state == RUNNING
-        # Don't complete it - leave it running
+        # Expire the lease so the job can be recovered after restart
+        db1._conn.execute(
+            "UPDATE jobs SET lease_until = ? WHERE job_id = ?",
+            ("2000-01-01T00:00:00+00:00", job_id),
+        )
+        db1._conn.commit()
     finally:
         db1.close()
 
-    # Second app instance: reopen same database, job should still be there
+    # Second app instance: reopen same database, re-queue stale lease,
+    # job should be claimable again
     db2 = Database.open(db_path)
     try:
-        queue2 = JobQueue(db2, JobsSettings(lease_seconds=300))
+        queue2 = JobQueue(db2, JobsSettings(lease_seconds=300, max_attempts=3))
+        requeued = queue2.requeue_stale()
+        assert job_id in requeued
         job2 = queue2.claim("worker-2")
         assert job2 is not None
         assert job2.job_id == job_id
         assert job2.state == RUNNING
-        assert job2.attempts == 2  # first claim + this claim
+        assert job2.attempts == 3  # submit(0) + claim(1) + requeue(2) + claim(3)
     finally:
         db2.close()

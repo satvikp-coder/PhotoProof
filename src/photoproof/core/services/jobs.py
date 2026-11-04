@@ -91,8 +91,8 @@ class JobQueue:
             "INSERT INTO jobs (job_id, state, payload, attempts, max_attempts, "
             "lease_until, worker_id, idempotency_key, created_at, "
             "updated_at, error_message) "
-            "VALUES (?, 'queued', ?, 0, 1, NULL, NULL, ?, ?, ?, NULL)",
-            (job_id, payload, idempotency_key, now, now),
+            "VALUES (?, 'queued', ?, 0, ?, NULL, NULL, ?, ?, ?, NULL)",
+            (job_id, payload, self._settings.max_attempts, idempotency_key, now, now),
         )
         return job_id
 

@@ -108,6 +108,12 @@ All notable changes to this project are documented here. The format follows
   `JobQueue.submit()`, `claim()`, `complete()`, `fail()` and `requeue_stale()`
   are the core API. Adds `services.background_workers` and `jobs.lease_seconds`
   settings.
+- `core/services/manager/` and `core/services/worker/` supervise worker processes
+  that claim and run queued jobs (#51). `WorkerManager` starts N worker processes,
+  monitors their health, restarts crashed workers with exponential backoff, and
+  shuts down gracefully on signal. `Worker` claims jobs from the queue, runs them
+  through the analysis controller, and updates job status. Adds `jobs.max_attempts`
+  setting.
 
 ### Changed
 

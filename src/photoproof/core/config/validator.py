@@ -184,6 +184,7 @@ class QuotaSettings(_Strict):
 
 class JobsSettings(_Strict):
     lease_seconds: int = Field(ge=1, le=86_400)
+    max_attempts: int = Field(ge=1, le=10)
 
 
 class SecuritySettings(_Strict):
@@ -210,7 +211,7 @@ class ReportingSettings(_Strict):
 
 
 class ServiceSettings(_Strict):
-    background_workers: int = Field(ge=0, le=0)  # ponytail: workers not implemented yet (backlog)
+    background_workers: int = Field(ge=0)  # background worker processes for jobs
 
 
 class UISettings(_Strict):
