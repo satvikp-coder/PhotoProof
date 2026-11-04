@@ -4,6 +4,7 @@ A check never changes anything. Repairs are separate callables attached to the
 result and are executed only by ``health.repair``.
 """
 
+import os
 import re
 import shutil
 from collections.abc import Callable
@@ -23,6 +24,7 @@ from photoproof.core.cache.run_cache import RunCache
 from photoproof.core.database.store import LATEST_VERSION, Database
 from photoproof.core.isolation import capabilities
 from photoproof.core.pipeline.planner import validate_graph
+from photoproof.core.security.windows.acl import apply_owner_only_acl
 from photoproof.core.storage.store import BlobKind
 from photoproof.versioning.build import distribution_version
 
@@ -120,8 +122,12 @@ def check_runtime_permissions(app: "Application") -> CheckResult:
 
     def restrict() -> str:
         for name in insecure:
-            (app.storage.root / name).chmod(0o700)
-        return "restricted to 0700: " + ", ".join(insecure)
+            directory = app.storage.root / name
+            if os.name == "posix":
+                directory.chmod(0o700)
+            elif os.name == "nt":
+                apply_owner_only_acl(str(directory))
+        return "restricted to owner-only: " + ", ".join(insecure)
 
     return CheckResult(
         "runtime.permissions",

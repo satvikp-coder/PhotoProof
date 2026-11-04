@@ -21,6 +21,11 @@ from typing import Literal
 
 from photoproof.contracts.exceptions import StorageError
 from photoproof.core.security.paths import safe_join
+from photoproof.core.security.windows.acl import (
+    apply_owner_only_acl,
+    check_acl_for_other_principals,
+    make_file_read_only,
+)
 
 RUNTIME_DIRS = (
     "uploads",
@@ -36,6 +41,7 @@ RUNTIME_DIRS = (
 )
 BlobKind = Literal["objects", "artifacts"]
 _POSIX = os.name == "posix"
+_WINDOWS = os.name == "nt"
 _NO_HARD_LINKS = {errno.EPERM, errno.ENOTSUP, errno.ENOSYS, errno.EOPNOTSUPP}
 
 
@@ -105,17 +111,26 @@ class RuntimeStorage:
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
             if _POSIX:
                 directory.chmod(0o700)
+            elif _WINDOWS:
+                apply_owner_only_acl(str(directory))
         return created
 
     def insecure_dirs(self) -> list[str]:
-        """Runtime directories that other users can read or write (POSIX only)."""
-        if not _POSIX:
-            return []
-        return [
-            name
-            for name in RUNTIME_DIRS
-            if (self.root / name).is_dir() and (self.root / name).stat().st_mode & 0o077
-        ]
+        """Runtime directories that other users can read or write."""
+        if _POSIX:
+            return [
+                name
+                for name in RUNTIME_DIRS
+                if (self.root / name).is_dir() and (self.root / name).stat().st_mode & 0o077
+            ]
+        if _WINDOWS:
+            return [
+                name
+                for name in RUNTIME_DIRS
+                if (self.root / name).is_dir()
+                and check_acl_for_other_principals(str(self.root / name))
+            ]
+        return []
 
     # ------------------------------------------------------------ JSON files
 
@@ -170,6 +185,8 @@ class RuntimeStorage:
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if _POSIX:
             source.chmod(0o400)
+        elif _WINDOWS:
+            make_file_read_only(str(source))
         try:
             if _POSIX:
                 os.link(source, target)  # unlike a rename, this fails if the target exists
