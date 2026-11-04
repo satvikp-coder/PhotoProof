@@ -88,6 +88,10 @@ All notable changes to this project are documented here. The format follows
   (Ward linkage) or DBSCAN on displacement vectors. Produces per-cluster
   bounding boxes, displacement vectors, and sizes.
 
+- `plugins/copymove/mask/` implements copy-move region masks (#24).
+  Generates pixel-level source/target localization masks from verified
+  copy-move matches using bounded ZNCC correlation.
+
 ### Changed
 
 - The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave
