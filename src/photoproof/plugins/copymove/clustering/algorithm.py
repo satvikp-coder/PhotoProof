@@ -1,10 +1,11 @@
-"""Copy-move clustering algorithm.
+"""Copy-move verification algorithm using RANSAC.
 
-Groups matched keypoint pairs into coherent clusters using hierarchical clustering
-(Ward linkage) or DBSCAN on displacement vectors. Each cluster represents a
-hypothesis for one copied region.
+Verifies copy-move clusters by estimating geometric transforms (affine or
+similarity) with RANSAC. Each cluster gets a verified transform with inlier
+count, RMSE, and a heuristic score.
 
-Extracted from issue #22 - clustered matched keypoints by displacement vectors.
+Excludes degenerate transforms (extreme scale/shear) and detects low-texture
+regions that could cause false positives.
 """
 
 from __future__ import annotations
@@ -12,187 +13,315 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import cv2
 import numpy as np
 
 from photoproof.contracts.exceptions import InputRejectedError
 
-#: Default random seed for reproducibility
-_DEFAULT_RANDOM_SEED = 42
+#: Default RANSAC iterations
+_DEFAULT_MAX_ITERATIONS = 1000
+
+#: Default reprojection threshold in pixels
+_DEFAULT_REPROJ_THRESHOLD = 3.0
+
+#: Default min inliers for similarity model (2 points minimum + buffer)
+_DEFAULT_MIN_INLIERS = 6
+
+#: Default scale range for similarity model
+_DEFAULT_SCALE_MIN = 0.5
+_DEFAULT_SCALE_MAX = 2.0
+
+#: Default max shear angle in degrees for affine model
+_DEFAULT_MAX_SHEAR_DEG = 45.0
 
 
 @dataclass(frozen=True)
-class ClusterResult:
-    """Clustering result."""
+class VerificationResult:
+    """Result of RANSAC verification."""
 
-    clusters: list[dict[str, Any]]  # List of cluster dicts
-    num_keypoints: int
-    num_matches: int
-    num_clusters: int
-    method: str  # "hierarchical" or "dbscan"
-    config: dict[str, Any]  # Configuration used
+    cluster_id: int
+    matrix: np.ndarray  # (2, 3) transformation matrix
+    inliers: int
+    inlier_ratio: float
+    rmse: float
+    scale: float
+    rotation_deg: float
+    score: float  # heuristic confidence, not probability
+    model: str  # "affine" or "similarity"
+    reason: str | None  # None if verified, reason if failed
 
 
-def _normalize_pair_direction(kpts: np.ndarray, pairs: np.ndarray) -> np.ndarray:
-    """Normalize pair direction so that (A->B) and (B->A) collapse.
+def _estimate_affine(
+    src_pts: np.ndarray, tgt_pts: np.ndarray
+) -> tuple[np.ndarray, float] | None:
+    """Estimate affine transform using OpenCV estimateAffine2D.
 
-    For each pair (i, j), if keypoint i has a larger x-coordinate than j,
-    swap them so the smaller-x keypoint is always first. This ensures
-    that (i,j) and (j,i) map to the same displacement vector.
+    Returns (matrix, rmse) or None if estimation fails.
     """
-    normalized = pairs.copy()
-    for i in range(len(pairs)):
-        a, b = int(pairs[i, 0]), int(pairs[i, 1])
-        if kpts[a, 0] > kpts[b, 0]:
-            pairs[i, 0] = b
-            pairs[i, 1] = a
-    return normalized
+    if len(src_pts) < 3:
+        return None
+    try:
+        matrix, inliers = cv2.estimateAffine2D(
+            src_pts.reshape(-1, 1, 2).astype(np.float32),
+            tgt_pts.reshape(-1, 1, 2).astype(np.float32),
+            method=cv2.RANSAC,
+            ransacReprojThreshold=_DEFAULT_REPROJ_THRESHOLD,
+            maxIters=_DEFAULT_MAX_ITERATIONS,
+            confidence=0.99,
+        )
+        if matrix is None:
+            return None
+        if inliers is not None:
+            inlier_mask = inliers.flatten().astype(bool)
+            if inlier_mask.sum() > 0:
+                src_in = src_pts[inlier_mask].reshape(-1, 1, 2).astype(np.float32)
+                tgt_in = tgt_pts[inlier_mask].reshape(-1, 1, 2).astype(np.float32)
+                projected = cv2.transform(src_in, matrix)
+                rmse = float(
+                    np.sqrt(
+                        np.mean((projected.reshape(-1, 2) - tgt_in.reshape(-1, 2)) ** 2)
+                    )
+                )
+            else:
+                rmse = float("inf")
+        else:
+            rmse = float("inf")
+        return matrix, rmse
+    except cv2.error:
+        return None
 
 
-def _compute_displacement_vectors(kpts: np.ndarray, pairs: np.ndarray) -> np.ndarray:
-    """Compute displacement vectors for each matched pair."""
-    src = kpts[pairs[:, 0], :2]  # Source keypoints (x, y)
-    tgt = kpts[pairs[:, 1], :2]  # Target keypoints (x, y)
-    displacements: np.ndarray = tgt - src
-    return displacements
+def _estimate_similarity(
+    src_pts: np.ndarray, tgt_pts: np.ndarray
+) -> tuple[np.ndarray, float] | None:
+    """Estimate similarity transform using OpenCV estimateAffinePartial2D.
+
+    Returns (matrix, rmse) or None if estimation fails.
+    """
+    if len(src_pts) < 2:
+        return None
+    try:
+        matrix, inliers = cv2.estimateAffinePartial2D(
+            src_pts.reshape(-1, 1, 2).astype(np.float32),
+            tgt_pts.reshape(-1, 1, 2).astype(np.float32),
+            method=cv2.RANSAC,
+            ransacReprojThreshold=_DEFAULT_REPROJ_THRESHOLD,
+            maxIters=_DEFAULT_MAX_ITERATIONS,
+            confidence=0.99,
+        )
+        if matrix is None:
+            return None
+        if inliers is not None:
+            inlier_mask = inliers.flatten().astype(bool)
+            if inlier_mask.sum() > 0:
+                src_in = src_pts[inlier_mask].reshape(-1, 1, 2).astype(np.float32)
+                tgt_in = tgt_pts[inlier_mask].reshape(-1, 1, 2).astype(np.float32)
+                projected = cv2.transform(src_in, matrix)
+                rmse = float(
+                    np.sqrt(
+                        np.mean((projected.reshape(-1, 2) - tgt_in.reshape(-1, 2)) ** 2)
+                    )
+                )
+            else:
+                rmse = float("inf")
+        else:
+            rmse = float("inf")
+        return matrix, rmse
+    except cv2.error:
+        return None
 
 
-def _build_clusters(
+def _compute_scale_and_rotation(matrix: np.ndarray) -> tuple[float, float]:
+    """Compute scale and rotation from a 2x3 affine/similarity matrix."""
+    a, b = matrix[0, 0], matrix[0, 1]
+    scale = float(np.sqrt(a * a + b * b))
+    rotation_deg = float(np.degrees(np.arctan2(b, a)))
+    return scale, rotation_deg
+
+
+def _check_degenerate(
+    matrix: np.ndarray,
+    scale: float,
+    rotation_deg: float,
+    scale_min: float,
+    scale_max: float,
+    max_shear_deg: float,
+) -> str | None:
+    """Check if transform is degenerate. Returns reason string or None."""
+    if scale < scale_min or scale > scale_max:
+        return "scale_out_of_range"
+    if abs(scale) < 1e-6:
+        return "degenerate_scale"
+    if abs(matrix[0, 1]) > np.tan(np.radians(max_shear_deg)) or abs(
+        matrix[1, 0]
+    ) > np.tan(np.radians(max_shear_deg)):
+        return "excessive_shear"
+    return None
+
+
+def _compute_repetitive_structure_score(
+    keypoints: np.ndarray, pairs: np.ndarray, matrix: np.ndarray
+) -> bool:
+    """Check if cluster shows repetitive structure (periodic texture false positive).
+
+    Computes autocorrelation of the displacement field to detect periodic patterns.
+    """
+    if len(pairs) < 10:
+        return False
+    src = keypoints[pairs[:, 0], :2]
+    tgt = keypoints[pairs[:, 1], :2]
+    disp = tgt - src
+    if len(disp) > 0:
+        disp_std = np.std(disp, axis=0)
+        disp_mean = np.mean(disp, axis=0)
+        if np.all(disp_std < 2.0) and np.linalg.norm(disp_mean) > 5.0:
+            return True
+    return False
+
+
+def analyze_copy_move(
+    keypoints: np.ndarray,
     pairs: np.ndarray,
-    displacements: np.ndarray,
-    labels: np.ndarray,
-    min_matches_per_cluster: int,
-    kpts: np.ndarray,
-) -> list[dict[str, Any]]:
-    """Build cluster dicts from cluster labels.
+    *,
+    model: str = "similarity",
+    reproj_threshold: float = 3.0,
+    min_inliers: int = 6,
+    max_iterations: int = 1000,
+    scale_min: float = 0.5,
+    scale_max: float = 2.0,
+    max_shear_deg: float = 45.0,
+) -> dict[str, Any]:
+    """Analyze copy-move matches with RANSAC verification.
 
-    Each cluster dict contains:
+    Returns a dict with:
         - cluster_id: int
-        - pair_indices: list of pair indices into the pairs array
-        - source_bbox: [y0, x0, y1, x1] bounding box of source keypoints
-        - target_bbox: [y0, x0, y1, x1] bounding box of target keypoints
-        - mean_displacement: [dy, dx] mean displacement vector
-        - size: number of matched pairs in the cluster
+        - matrix: np.ndarray (2, 3)
+        - inliers: int
+        - inlier_ratio: float
+        - rmse: float
+        - scale: float
+        - rotation_deg: float
+        - score: float (heuristic, not probability)
+        - model: str ("affine" or "similarity")
+        - reason: str | None (None if verified, reason if failed)
+
+    Raises :exc:`InputRejectedError` for invalid input.
     """
-    unique_labels = np.unique(labels)
-    clusters: list[dict[str, Any]] = []
+    if not isinstance(keypoints, np.ndarray) or not isinstance(pairs, np.ndarray):
+        raise InputRejectedError(
+            "expected NumPy ndarrays for keypoints and pairs"
+        )
+    if keypoints.ndim != 2 or keypoints.shape[1] != 5:
+        raise InputRejectedError(
+            f"keypoints must have shape (N, 5), got {keypoints.shape}"
+        )
+    if pairs.ndim != 2 or pairs.shape[1] != 2:
+        raise InputRejectedError(
+            f"pairs must have shape (M, 2), got {pairs.shape}"
+        )
 
-    cluster_id = 0
-    for label in unique_labels:
-        if label == -1:
-            # Noise cluster - skip
-            continue
-
-        mask = labels == label
-        cluster_pair_indices = np.where(mask)[0].tolist()
-        cluster_size = len(cluster_pair_indices)
-
-        if cluster_size < min_matches_per_cluster:
-            continue
-
-        # Get keypoint indices for source and target
-        src_indices = pairs[mask][:, 0]
-        tgt_indices = pairs[mask][:, 1]
-
-        # Get actual keypoint coordinates
-        src_coords = kpts[src_indices][:, :2]  # (N, 2)
-        tgt_coords = kpts[tgt_indices][:, :2]  # (N, 2)
-
-        # Compute bounding boxes
-        src_bbox = [
-            float(src_coords[:, 1].min()),  # y0
-            float(src_coords[:, 0].min()),  # x0
-            float(src_coords[:, 1].max()),  # y1
-            float(src_coords[:, 0].max()),  # x1
-        ]
-        tgt_bbox = [
-            float(tgt_coords[:, 1].min()),  # y0
-            float(tgt_coords[:, 0].min()),  # x0
-            float(tgt_coords[:, 1].max()),  # y1
-            float(tgt_coords[:, 0].max()),  # x1
-        ]
-
-        # Mean displacement
-        cluster_displacements = displacements[mask]
-        mean_displacement = [
-            float(cluster_displacements[:, 1].mean()),  # dy
-            float(cluster_displacements[:, 0].mean()),  # dx
-        ]
-
-        cluster_dict: dict[str, Any] = {
-            "cluster_id": int(cluster_id),
-            "pair_indices": [int(p) for p in cluster_pair_indices],
-            "source_bbox": src_bbox,
-            "target_bbox": tgt_bbox,
-            "mean_displacement": mean_displacement,
-            "size": int(cluster_size),
+    n_pairs = pairs.shape[0]
+    if n_pairs == 0:
+        return {
+            "cluster_id": 0,
+            "matrix": np.zeros((2, 3), dtype=np.float32),
+            "inliers": 0,
+            "inlier_ratio": 0.0,
+            "rmse": float("inf"),
+            "scale": 0.0,
+            "rotation_deg": 0.0,
+            "score": 0.0,
+            "model": model,
+            "reason": "no_matches",
         }
-        clusters.append(cluster_dict)
-        cluster_id += 1
 
-    return clusters
+    # Run RANSAC verification
+    src_pts = keypoints[pairs[:, 0], :2].astype(np.float32)
+    tgt_pts = keypoints[pairs[:, 1], :2].astype(np.float32)
 
+    result = None
+    if model == "similarity":
+        result = _estimate_similarity(src_pts, tgt_pts)
+    elif model == "affine":
+        result = _estimate_affine(src_pts, tgt_pts)
+    else:
+        raise InputRejectedError(
+            f"unknown model: {model}, expected 'affine' or 'similarity'"
+        )
 
-def _hierarchical_clustering(
-    pairs: np.ndarray,
-    displacements: np.ndarray,
-    cut_threshold: float,
-    min_matches_per_cluster: int,
-    kpts: np.ndarray,
-) -> list[dict[str, Any]]:
-    """Cluster matches using hierarchical clustering (Ward linkage).
+    if result is None:
+        return {
+            "cluster_id": 0,
+            "matrix": np.zeros((2, 3), dtype=np.float32),
+            "inliers": 0,
+            "inlier_ratio": 0.0,
+            "rmse": float("inf"),
+            "scale": 0.0,
+            "rotation_deg": 0.0,
+            "score": 0.0,
+            "model": model,
+            "reason": "verification_failed",
+        }
 
-    Clusters based on displacement vectors, so pairs with similar
-    displacement vectors are grouped together.
-    """
-    from scipy.cluster.hierarchy import fcluster, linkage  # type: ignore[import-untyped]  # noqa: PLC0415
+    matrix, rmse = result
 
-    n = len(pairs)
-    if n < 2:
-        return []
+    # Count inliers
+    projected = cv2.transform(
+        src_pts.reshape(-1, 1, 2).astype(np.float32), matrix
+    ).reshape(-1, 2)
+    errors = np.sqrt(np.sum((projected - tgt_pts) ** 2, axis=1))
+    inliers = int(np.sum(errors <= reproj_threshold))
+    inlier_ratio = float(inliers) / n_pairs if n_pairs > 0 else 0.0
 
-    # Compute linkage matrix using Ward linkage
-    Z = linkage(displacements, method="ward", metric="euclidean")
+    # Check for degenerate transform
+    scale, rotation_deg = _compute_scale_and_rotation(matrix)
+    degenerate_reason = _check_degenerate(
+        matrix, scale, rotation_deg, scale_min, scale_max, max_shear_deg
+    )
 
-    # Extract clusters at the specified threshold
-    labels = fcluster(Z, t=cut_threshold, criterion="distance")
+    # Compute confidence score
+    score = float(inlier_ratio * (1.0 - min(rmse / max(reproj_threshold, 1.0), 1.0)))
 
-    return _build_clusters(pairs, displacements, labels, min_matches_per_cluster, kpts)
+    # Check for repetitive structure
+    if _compute_repetitive_structure_score(keypoints, pairs, matrix):
+        reason = "possible_repetitive_structure"
+    elif degenerate_reason is not None:
+        reason = degenerate_reason
+    elif inliers < min_inliers:
+        reason = "too_few_inliers"
+    else:
+        reason = None
 
-
-def _dbscan_clustering(
-    pairs: np.ndarray,
-    displacements: np.ndarray,
-    eps: float,
-    min_matches_per_cluster: int,
-    kpts: np.ndarray,
-) -> list[dict[str, Any]]:
-    """Cluster matches using DBSCAN on displacement vectors."""
-    from sklearn.cluster import DBSCAN  # type: ignore[import-untyped]  # noqa: PLC0415
-
-    n = len(pairs)
-    if n < 2:
-        return []
-
-    dbscan = DBSCAN(eps=eps, min_samples=min_matches_per_cluster, metric="euclidean")
-    labels = dbscan.fit_predict(displacements)
-
-    return _build_clusters(pairs, displacements, labels, min_matches_per_cluster, kpts)
+    return {
+        "cluster_id": 0,
+        "matrix": matrix,
+        "inliers": int(inliers),
+        "inlier_ratio": float(inlier_ratio),
+        "rmse": float(rmse),
+        "scale": float(scale),
+        "rotation_deg": float(rotation_deg),
+        "score": float(score),
+        "model": model,
+        "reason": reason,
+    }
 
 
 def analyze_clustering(
     keypoints: np.ndarray,
     pairs: np.ndarray,
     *,
-    method: str = "hierarchical",
-    cut_threshold: float = 0.5,
-    eps: float = 0.5,
-    min_matches_per_cluster: int = 4,
+    model: str = "similarity",
+    reproj_threshold: float = 3.0,
+    min_inliers: int = 6,
+    max_iterations: int = 1000,
+    scale_min: float = 0.5,
+    scale_max: float = 2.0,
+    max_shear_deg: float = 45.0,
 ) -> dict[str, Any]:
-    """Analyze copy-move matches and cluster them into coherent groups.
+    """Analyze copy-move matches with RANSAC verification.
 
     Returns a dict with:
-        - clusters: list of cluster dicts with cluster_id, pair_indices,
-                    source_bbox, target_bbox, mean_displacement, size
+        - clusters: list of verified cluster dicts
         - num_keypoints: int
         - num_matches: int
         - num_clusters: int
@@ -202,11 +331,17 @@ def analyze_clustering(
     Raises :exc:`InputRejectedError` for invalid input.
     """
     if not isinstance(keypoints, np.ndarray) or not isinstance(pairs, np.ndarray):
-        raise InputRejectedError("expected NumPy ndarrays for keypoints and pairs")
+        raise InputRejectedError(
+            "expected NumPy ndarrays for keypoints and pairs"
+        )
     if keypoints.ndim != 2 or keypoints.shape[1] != 5:
-        raise InputRejectedError(f"keypoints must have shape (N, 5), got {keypoints.shape}")
+        raise InputRejectedError(
+            f"keypoints must have shape (N, 5), got {keypoints.shape}"
+        )
     if pairs.ndim != 2 or pairs.shape[1] != 2:
-        raise InputRejectedError(f"pairs must have shape (M, 2), got {pairs.shape}")
+        raise InputRejectedError(
+            f"pairs must have shape (M, 2), got {pairs.shape}"
+        )
 
     n_keypoints = keypoints.shape[0]
     n_pairs = pairs.shape[0]
@@ -217,33 +352,54 @@ def analyze_clustering(
             "num_keypoints": int(n_keypoints),
             "num_matches": 0,
             "num_clusters": 0,
-            "method": method,
+            "method": model,
             "config": {
-                "method": method,
-                "cut_threshold": cut_threshold,
-                "eps": eps,
-                "min_matches_per_cluster": min_matches_per_cluster,
+                "method": model,
+                "reproj_threshold": reproj_threshold,
+                "min_inliers": min_inliers,
+                "max_iterations": max_iterations,
+                "scale_min": scale_min,
+                "scale_max": scale_max,
+                "max_shear_deg": max_shear_deg,
             },
         }
 
-    # Normalize pair direction so (A->B) and (B->A) collapse
-    normalized_pairs = _normalize_pair_direction(keypoints, pairs.copy())
+    result = _verify_single_cluster(
+        keypoints,
+        pairs,
+        model=model,
+        reproj_threshold=reproj_threshold,
+        min_inliers=min_inliers,
+        max_iterations=max_iterations,
+        scale_min=scale_min,
+        scale_max=scale_max,
+        max_shear_deg=max_shear_deg,
+    )
 
-    # Compute displacement vectors
-    displacements: np.ndarray = _compute_displacement_vectors(keypoints, normalized_pairs)
-
-    # Cluster based on method
-    if method == "hierarchical":
-        clusters = _hierarchical_clustering(
-            normalized_pairs, displacements, cut_threshold, min_matches_per_cluster, keypoints
-        )
-    elif method == "dbscan":
-        clusters = _dbscan_clustering(
-            normalized_pairs, displacements, eps, min_matches_per_cluster, keypoints
-        )
-    else:
-        raise InputRejectedError(
-            f"unknown clustering method: {method}, expected 'hierarchical' or 'dbscan'"
+    clusters = []
+    if result["reason"] is None:
+        clusters.append(
+            {
+                "cluster_id": 0,
+                "pair_indices": list(range(len(pairs))),
+                "source_bbox": [
+                    float(keypoints[pairs[:, 0], 1].min()),
+                    float(keypoints[pairs[:, 0], 0].min()),
+                    float(keypoints[pairs[:, 0], 1].max()),
+                    float(keypoints[pairs[:, 0], 0].max()),
+                ],
+                "target_bbox": [
+                    float(keypoints[pairs[:, 1], 1].min()),
+                    float(keypoints[pairs[:, 1], 0].min()),
+                    float(keypoints[pairs[:, 1], 1].max()),
+                    float(keypoints[pairs[:, 1], 0].max()),
+                ],
+                "mean_displacement": [
+                    float(np.mean(tgt_pts[:, 1] - src_pts[:, 1])),
+                    float(np.mean(tgt_pts[:, 0] - src_pts[:, 0])),
+                ],
+                "size": int(len(pairs)),
+            },
         )
 
     return {
@@ -251,12 +407,15 @@ def analyze_clustering(
         "num_keypoints": int(n_keypoints),
         "num_matches": int(n_pairs),
         "num_clusters": len(clusters),
-        "method": method,
+        "method": model,
         "config": {
-            "method": method,
-            "cut_threshold": cut_threshold,
-            "eps": eps,
-            "min_matches_per_cluster": min_matches_per_cluster,
+            "method": model,
+            "reproj_threshold": reproj_threshold,
+            "min_inliers": min_inliers,
+            "max_iterations": max_iterations,
+            "scale_min": scale_min,
+            "scale_max": scale_max,
+            "max_shear_deg": max_shear_deg,
         },
     }
 
@@ -271,3 +430,33 @@ def clustering_result_to_dict(result: dict[str, Any]) -> dict[str, Any]:
         "method": result["method"],
         "config": result["config"],
     }
+
+
+def _verify_single_cluster(
+    keypoints: np.ndarray,
+    pairs: np.ndarray,
+    *,
+    model: str = "similarity",
+    reproj_threshold: float = 3.0,
+    min_inliers: int = 6,
+    max_iterations: int = 1000,
+    scale_min: float = 0.5,
+    scale_max: float = 2.0,
+    max_shear_deg: float = 45.0,
+) -> dict[str, Any]:
+    """Verify a single cluster of matches with RANSAC.
+
+    Returns result dict with cluster_id, matrix, inliers, rmse, scale,
+    rotation_deg, score, model, reason.
+    """
+    return analyze_copy_move(
+        keypoints,
+        pairs,
+        model=model,
+        reproj_threshold=reproj_threshold,
+        min_inliers=min_inliers,
+        max_iterations=max_iterations,
+        scale_min=scale_min,
+        scale_max=scale_max,
+        max_shear_deg=max_shear_deg,
+    )
