@@ -97,6 +97,11 @@ All notable changes to this project are documented here. The format follows
   contrast normalization and robust-z inconsistency detection. A weak
   visual cue for copy-move detection.
 
+- `plugins/visual/edges/` implements edge boundary analysis (#26).
+  Characterizes object boundaries using Canny edge detection and Sobel
+  gradient analysis. Estimates edge width and flags boundaries inconsistent
+  with the image's typical edge-width distribution. Complementary to #25.
+
 ### Changed
 
 - The version now changes only at release time, in a `chore(release)` PR. Ordinary PRs leave
