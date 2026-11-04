@@ -149,6 +149,15 @@ levels.
 * Applicable to JPEG primary; non-JPEG inputs run with `context: no_jpeg_history`
 * Explicitly labelled supporting evidence only - never a standalone forgery verdict
 
+The `compression.jpeg_dct` plugin reads JPEG quantization tables from DQT markers
+and performs 8x8 DCT on decoded blocks to detect double-compression patterns via
+histogram periodicity analysis.
+
+* Outputs: `compression.jpeg_tables` (tables, estimated quality, standard_table flag)
+  and `compression.dq_map` (AnomalyMap of per-block double-compression likelihood)
+* Applicable to JPEG only; `NOT_APPLICABLE` for other formats
+* Pure-Python JPEG bitstream parsing - no native decoder bindings required
+
 ## Supported formats
 
 A plugin with a non-empty `supported_formats` is `NOT_APPLICABLE`, without being called, if an

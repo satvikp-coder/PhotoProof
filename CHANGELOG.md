@@ -57,6 +57,10 @@ All notable changes to this project are documented here. The format follows
   signal (#15). Recompresses at controlled JPEG quality, computes per-pixel
   error, builds an `AnomalyMap` via block reduction and robust z-scores.
   Explicitly labelled supporting evidence only.
+- `plugins/compression/jpeg_dct/` implements JPEG DCT/quantization analysis
+  (#16). Parses quantization tables from DQT markers, estimates JPEG quality,
+  and builds a per-block double-compression likelihood map via DCT coefficient
+  histogram periodicity analysis. Pure-Python bitstream parsing.
 
 ### Changed
 
