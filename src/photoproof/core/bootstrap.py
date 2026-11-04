@@ -6,6 +6,7 @@ that need runtime directories: file logging, the audit trail, and state persiste
 """
 
 import os
+import socket
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -170,6 +171,8 @@ def attach_persistence(bus: EventBus, db: Database) -> None:
                 mode=str(data["mode"]),
                 profile=str(data["profile"]),
                 cache_key=_opt(data.get("cache_key")),
+                pid=os.getpid(),
+                hostname=socket.gethostname(),
             )
         elif event.type is EventType.RUN_STARTED and event.run_id:
             db.set_run_status(event.run_id, "RUNNING")
