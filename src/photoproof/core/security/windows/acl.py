@@ -15,6 +15,7 @@ import ctypes.wintypes
 import os
 import shutil
 import subprocess
+import time
 
 _WINDOWS = os.name == "nt"
 
@@ -46,6 +47,30 @@ def get_current_username() -> str:
     return os.environ.get("USERNAME", "")
 
 
+#: Re-try delays for icacls. On a busy machine (an indexer or scanner touching the
+#: directory right after it is created) icacls can fail transiently; a few re-tries make
+#: ACL application and inspection reliable without hiding a persistent failure.
+_RETRY_DELAYS = (0.0, 0.2, 0.5)
+
+
+def _run_icacls(icacls: str, *arguments: str) -> subprocess.CompletedProcess[str]:
+    """Run ``icacls`` with arguments, retrying a transient failure.
+
+    Raises the last ``subprocess.CalledProcessError``/``OSError`` when every attempt fails.
+    """
+    last_error: Exception = RuntimeError("icacls was never attempted")
+    for delay in _RETRY_DELAYS:
+        if delay:
+            time.sleep(delay)
+        try:
+            return subprocess.run(  # noqa: S603
+                [icacls, *arguments], check=True, capture_output=True, text=True
+            )
+        except (subprocess.CalledProcessError, OSError) as error:
+            last_error = error
+    raise last_error
+
+
 def apply_owner_only_acl(directory: str) -> None:
     """Apply owner-only ACLs to ``directory`` on Windows.
 
@@ -66,17 +91,7 @@ def apply_owner_only_acl(directory: str) -> None:
     if not icacls:
         return
 
-    subprocess.run(  # noqa: S603
-        [
-            icacls,
-            directory,
-            "/inheritance:r",
-            "/grant:r",
-            f"{username}:(OI)(CI)F",
-        ],
-        check=True,
-        capture_output=True,
-    )
+    _run_icacls(icacls, directory, "/inheritance:r", "/grant:r", f"{username}:(OI)(CI)F")
 
 
 def check_acl_for_other_principals(directory: str) -> bool:
@@ -84,7 +99,8 @@ def check_acl_for_other_principals(directory: str) -> bool:
     principals other than the owner, SYSTEM, or Administrators on Windows.
 
     On non-Windows systems this always returns False (POSIX modes are
-    handled separately).
+    handled separately). When the ACL cannot be inspected this returns True:
+    an unverifiable directory is reported, never assumed owner-only.
 
     Uses ``icacls`` output parsing; documented per issue #80.
     """
@@ -93,24 +109,16 @@ def check_acl_for_other_principals(directory: str) -> bool:
 
     username = get_current_username()
     if not username:
-        return False
+        return True  # cannot tell whose account this is: do not claim owner-only
 
     icacls = _icacls_path()
     if not icacls:
-        return False
+        return True  # cannot inspect the ACL: do not claim owner-only
 
     try:
-        result = subprocess.run(  # noqa: S603
-            [
-                icacls,
-                directory,
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        result = _run_icacls(icacls, directory)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
+        return True  # inspection failed: report it, never assume the directory is safe
 
     output = result.stdout
     # icacls output lists ACEs like:
@@ -161,5 +169,26 @@ def make_file_read_only(path: str) -> None:
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]  # Windows only
         FILE_ATTRIBUTE_READONLY = 0x01
         kernel32.SetFileAttributesW(path, FILE_ATTRIBUTE_READONLY)
+    except (OSError, AttributeError):
+        pass
+
+
+def clear_file_read_only(path: str) -> None:
+    """Remove the read-only attribute from a file on Windows.
+
+    Used when a staged file was marked read-only for publication but will not be
+    published after all: Windows refuses to delete a read-only file. On POSIX this
+    is a no-op.
+    """
+    if not _WINDOWS:
+        return
+
+    try:
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]  # Windows only
+        invalid_attributes = 0xFFFFFFFF
+        readonly = 0x01
+        attributes = kernel32.GetFileAttributesW(path)
+        if attributes != invalid_attributes and attributes & readonly:
+            kernel32.SetFileAttributesW(path, attributes & ~readonly)
     except (OSError, AttributeError):
         pass
