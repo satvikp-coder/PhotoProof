@@ -13,6 +13,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -53,21 +54,35 @@ def get_current_username() -> str:
 _RETRY_DELAYS = (0.0, 0.2, 0.5)
 
 
+#: icacls exits 0 even when it could not touch every file; its summary line says so.
+_FAILED_PROCESSING = re.compile(r"Failed processing\s+(\d+)")
+
+
 def _run_icacls(icacls: str, *arguments: str) -> subprocess.CompletedProcess[str]:
     """Run ``icacls`` with arguments, retrying a transient failure.
 
-    Raises the last ``subprocess.CalledProcessError``/``OSError`` when every attempt fails.
+    icacls reports a failure both with a nonzero exit and, misleadingly, with exit 0 and a
+    ``Failed processing N files`` summary, so the output is examined too. Raises the last
+    ``subprocess.CalledProcessError``/``OSError`` when every attempt fails.
     """
     last_error: Exception = RuntimeError("icacls was never attempted")
     for delay in _RETRY_DELAYS:
         if delay:
             time.sleep(delay)
         try:
-            return subprocess.run(  # noqa: S603
+            completed = subprocess.run(  # noqa: S603
                 [icacls, *arguments], check=True, capture_output=True, text=True
             )
         except (subprocess.CalledProcessError, OSError) as error:
             last_error = error
+            continue
+        summary = _FAILED_PROCESSING.search(completed.stdout)
+        if summary and int(summary.group(1)) > 0:
+            last_error = subprocess.CalledProcessError(
+                completed.returncode, completed.args, completed.stdout, completed.stderr
+            )
+            continue
+        return completed
     raise last_error
 
 
@@ -94,67 +109,90 @@ def apply_owner_only_acl(directory: str) -> None:
     _run_icacls(icacls, directory, "/inheritance:r", "/grant:r", f"{username}:(OI)(CI)F")
 
 
-def check_acl_for_other_principals(directory: str) -> bool:
-    """Return True if ``directory`` has ACL entries granting access to
-    principals other than the owner, SYSTEM, or Administrators on Windows.
+#: Principals that are never "another user", matched case-insensitively by name and by
+#: their language-independent SID (icacls sometimes prints the SID instead of the name).
+_SAFE_PRINCIPALS = frozenset(
+    {
+        "nt authority\\system",
+        "builtin\\administrators",
+        "owner rights",
+        "s-1-5-18",  # NT AUTHORITY\SYSTEM
+        "s-1-5-32-544",  # BUILTIN\Administrators
+        "s-1-3-4",  # OWNER RIGHTS
+    }
+)
 
-    On non-Windows systems this always returns False (POSIX modes are
-    handled separately). When the ACL cannot be inspected this returns True:
-    an unverifiable directory is reported, never assumed owner-only.
+#: "Everyone" grants access to every account and is always reported.
+_EVERYONE = frozenset({"everyone", "s-1-1-0"})
 
-    Uses ``icacls`` output parsing; documented per issue #80.
+
+def other_principals(directory: str) -> tuple[str, ...]:
+    """Principals in ``directory``'s ACL other than the current account or a system one.
+
+    The current account may appear as ``user``, ``MACHINE\\user`` or ``DOMAIN\\user``;
+    SYSTEM, Administrators and OWNER RIGHTS are recognised by name and by SID, because
+    ``icacls`` prints one or the other depending on the system.
+
+    Returns ``("<unverifiable>",)`` when the ACL cannot be inspected at all, so a directory
+    is never assumed owner-only on the strength of a failed check. On non-Windows systems
+    this is always empty (POSIX modes are handled separately).
+
+    Parses ``icacls`` output; documented per issue #80.
     """
     if not _WINDOWS:
-        return False
+        return ()
 
     username = get_current_username()
-    if not username:
-        return True  # cannot tell whose account this is: do not claim owner-only
-
     icacls = _icacls_path()
-    if not icacls:
-        return True  # cannot inspect the ACL: do not claim owner-only
+    if not username or not icacls:
+        return ("<unverifiable>",)
 
     try:
         result = _run_icacls(icacls, directory)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return True  # inspection failed: report it, never assume the directory is safe
+    except (subprocess.CalledProcessError, OSError):
+        return ("<unverifiable>",)
 
-    output = result.stdout
     # icacls output lists ACEs like:
     #   C:\path\to\dir MACHINE\user:(OI)(CI)(F)
     #                  NT AUTHORITY\SYSTEM:(OI)(CI)(F)
     #                  BUILTIN\Administrators:(OI)(CI)(F)
     #                  OWNER RIGHTS:(OI)(CI)(F)
     # The first ACE line begins with the directory (whose drive letter also contains a
-    # colon), so an ACE is recognised by its ``:(permissions)`` suffix and the principal
-    # is the text before it, or its last token on the path-bearing first line.
-    # ``OWNER RIGHTS`` is the owner's own placeholder (granted by /inheritance:r), and the
-    # current user is printed qualified with the machine or domain name, so both forms
-    # are accepted; anything else is another principal and is insecure.
-    allowed = {
-        "nt authority\\system",
-        "builtin\\administrators",
-        "owner rights",
-        username.lower(),
-    }
+    # colon), so an ACE is recognised by its ``:(permissions)`` suffix.
+    allowed = set(_SAFE_PRINCIPALS)
+    allowed.add(username.lower())
     for prefix in (os.environ.get("USERDOMAIN", ""), os.environ.get("COMPUTERNAME", "")):
         if prefix:
             allowed.add(f"{prefix.lower()}\\{username.lower()}")
-    for current_line in output.splitlines():
+    lowered_directory = directory.lower()
+    offenders: list[str] = []
+    for current_line in result.stdout.splitlines():
         stripped_line = current_line.strip()
         ace_at = stripped_line.find(":(")
         if ace_at < 0:
             continue  # header lines and footers carry no ACE
         head = stripped_line[:ace_at].strip().lower()
-        candidates = {head}
-        if " " in head:  # the path-bearing first ACE line: the principal is the last token
-            candidates.add(head.rsplit(None, 1)[-1])
-        if "everyone" in candidates:
-            return True  # grants access to all users
-        if not candidates & allowed:
-            return True
-    return False
+        principal = head
+        if head.startswith(lowered_directory):
+            principal = head[len(lowered_directory) :].strip()
+        candidates = {principal}
+        if " " in principal:  # a name that contains a space, e.g. OWNER RIGHTS
+            candidates.add(principal.rsplit(None, 1)[-1])
+        if not principal:
+            continue
+        if candidates & _EVERYONE or not candidates & allowed:
+            offenders.append(principal)
+    return tuple(offenders)
+
+
+def check_acl_for_other_principals(directory: str) -> bool:
+    """Return True if ``directory`` grants access to a principal other than the owner,
+    SYSTEM or Administrators on Windows.
+
+    On non-Windows systems this always returns False (POSIX modes are handled
+    separately). An ACL that cannot be inspected is reported, never assumed owner-only.
+    """
+    return bool(other_principals(directory))
 
 
 def make_file_read_only(path: str) -> None:

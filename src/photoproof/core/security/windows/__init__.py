@@ -9,6 +9,7 @@ from photoproof.core.security.windows.acl import (
     get_current_username,
     is_windows,
     make_file_read_only,
+    other_principals,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "get_current_username",
     "is_windows",
     "make_file_read_only",
+    "other_principals",
 ]

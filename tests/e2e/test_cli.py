@@ -37,8 +37,8 @@ def test_cli_status_doctor_analyze_manifest(app_root: Path, target_file: Path) -
     doctor = _cli(app_root, "doctor", "--json")
     assert doctor.returncode == 0, doctor.stdout
     checks = json.loads(doctor.stdout)
-    not_ok = {r["check_id"]: r["severity"] for r in checks if r["severity"] != "ok"}
-    assert not_ok == {}, not_ok  # a healthy repaired runtime has no findings at all
+    not_ok = [r for r in checks if r["severity"] != "ok"]
+    assert not_ok == [], not_ok  # a healthy repaired runtime has no findings at all
 
     analyze = _cli(app_root, "analyze", str(target_file), "--json")
     result = json.loads(analyze.stdout)

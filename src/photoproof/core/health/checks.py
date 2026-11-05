@@ -24,7 +24,7 @@ from photoproof.core.cache.run_cache import RunCache
 from photoproof.core.database.store import LATEST_VERSION, Database
 from photoproof.core.isolation import capabilities
 from photoproof.core.pipeline.planner import validate_graph
-from photoproof.core.security.windows.acl import apply_owner_only_acl
+from photoproof.core.security.windows.acl import apply_owner_only_acl, other_principals
 from photoproof.core.services.housekeeping import check_quota_health
 from photoproof.core.storage.store import BlobKind
 from photoproof.versioning.build import distribution_version
@@ -130,11 +130,18 @@ def check_runtime_permissions(app: "Application") -> CheckResult:
                 apply_owner_only_acl(str(directory))
         return "restricted to owner-only: " + ", ".join(insecure)
 
+    if os.name == "nt":  # name the principals, so a finding is actionable
+        details = tuple(
+            f"{name}: {', '.join(other_principals(str(app.storage.root / name)))}"
+            for name in insecure
+        )
+    else:
+        details = tuple(insecure)
     return CheckResult(
         "runtime.permissions",
         Severity.WARNING,
         "runtime directories accessible to other users",
-        tuple(insecure),
+        details,
         RepairAction("restrict permissions to owner-only", Repairability.SAFE, restrict),
     )
 
