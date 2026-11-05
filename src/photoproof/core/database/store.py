@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from photoproof.contracts.exceptions import DatabaseError, MigrationRequiredError
+from photoproof.core.storage.store import sha256_file
 
 MIGRATIONS: Sequence[str] = (
     # 1: initial schema
@@ -189,6 +190,53 @@ class Database:
         finally:
             destination.close()
         return target
+
+    @staticmethod
+    def verify_backup(target: Path) -> dict[str, object]:
+        """Verify a backup database file.
+
+        Opens the backup read-only, runs ``PRAGMA integrity_check`` and
+        ``PRAGMA foreign_key_check``, computes SHA-256, and counts rows in each
+        table. Returns a manifest dict with ``sha256``, ``schema_version``,
+        ``row_counts``, ``integrity_check``, ``foreign_key_issues`` and
+        ``verified``.
+        """
+        uri = f"file:{target}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True)
+        try:
+            integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            fk_issues = conn.execute("PRAGMA foreign_key_check").fetchall()
+            _TABLE_QUERIES = {
+                "runs": "SELECT COUNT(*) FROM runs",
+                "plugin_executions": "SELECT COUNT(*) FROM plugin_executions",
+                "artifacts": "SELECT COUNT(*) FROM artifacts",
+                "cache_entries": "SELECT COUNT(*) FROM cache_entries",
+                "health_checks": "SELECT COUNT(*) FROM health_checks",
+                "evidence": "SELECT COUNT(*) FROM evidence",
+                "submissions": "SELECT COUNT(*) FROM submissions",
+            }
+            row_counts: dict[str, int | None] = {}
+            for table, query in _TABLE_QUERIES.items():
+                try:
+                    row = conn.execute(query).fetchone()
+                    row_counts[table] = row[0] if row else None
+                except sqlite3.Error:
+                    row_counts[table] = None
+            schema_version = conn.execute("PRAGMA user_version").fetchone()[0]
+        finally:
+            conn.close()
+
+        sha = sha256_file(target)
+        verified = integrity == "ok" and len(fk_issues) == 0
+
+        return {
+            "sha256": sha,
+            "schema_version": schema_version,
+            "row_counts": row_counts,
+            "integrity_check": integrity,
+            "foreign_key_issues": [list(r) for r in fk_issues],
+            "verified": verified,
+        }
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:

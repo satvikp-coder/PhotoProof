@@ -4,6 +4,7 @@ A check never changes anything. Repairs are separate callables attached to the
 result and are executed only by ``health.repair``.
 """
 
+import json
 import os
 import re
 import shutil
@@ -11,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from photoproof.contracts.enums import Repairability, Severity
@@ -157,6 +159,60 @@ def check_disk_space(app: "Application") -> CheckResult:
         Severity.ERROR,
         f"only {free_mb} MB free; {minimum} MB required",
         repair=RepairAction("free disk space manually", Repairability.MANUAL),
+    )
+
+
+def check_database_backup(app: "Application") -> CheckResult:
+    """Check the newest verified backup's age.
+
+    WARNING if no verified backup exists, or the newest verified backup is older
+    than ``retention.backup_days`` days (when configured).
+    """
+    backup_dir = app.storage.path("database", "backups")
+    if not backup_dir.is_dir():
+        return _ok("database.backup", "no backups directory yet")
+
+    newest: Path | None = None
+    newest_mtime = 0.0
+    newest_manifest: dict[str, object] | None = None
+    for path in sorted(backup_dir.glob("*.db")):
+        manifest_path = path.with_suffix(".json")
+        if not manifest_path.is_file():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not manifest.get("verified"):
+            continue
+        mtime = path.stat().st_mtime
+        if mtime > newest_mtime:
+            newest = path
+            newest_mtime = mtime
+            newest_manifest = manifest
+
+    if newest is None:
+        return CheckResult(
+            "database.backup",
+            Severity.WARNING,
+            "no verified backup found",
+        )
+
+    backup_days = app.settings.retention.backup_days
+    if backup_days is not None:
+        age_days = (datetime.now(UTC).timestamp() - newest_mtime) / 86400.0
+        if age_days > backup_days:
+            return CheckResult(
+                "database.backup",
+                Severity.WARNING,
+                f"newest verified backup is {age_days:.1f} days old (limit {backup_days} days)",
+                tuple(str(p) for p in backup_dir.glob("*.db")),
+            )
+
+    manifest_sha = newest_manifest.get("sha256", "") if newest_manifest else ""
+    return _ok(
+        "database.backup",
+        f"newest verified backup: {newest.name} ({str(manifest_sha)[:12]}…)",
     )
 
 
@@ -436,6 +492,7 @@ def default_registry(*, deep: bool = True) -> HealthRegistry:
         ("runtime.stale_temp", check_stale_temp),
         ("storage.quota", check_storage_quota),
         ("database.integrity", check_database),
+        ("database.backup", check_database_backup),
         ("database.stale_runs", check_stale_runs),
         ("cache.integrity", partial(check_cache_integrity, deep=deep)),
         ("storage.integrity", partial(check_stored_blobs, deep=deep)),

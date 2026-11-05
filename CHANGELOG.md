@@ -15,6 +15,15 @@ All notable changes to this project are documented here. The format follows
   image-access contract (#12); decoder isolation is still #9. A run that cannot decode an
   image skips the declaring plugins with `dependency_unavailable`, records the reason in
   the manifest, and ends `INCOMPLETE` — missing pixels are never clean evidence.
+- `core/database/store.py`: `Database.backup()` (durable SQLite backup via the online
+  backup API) and `Database.verify_backup()` (read-only verification with `PRAGMA
+  integrity_check`/`foreign_key_check`, row counts, and SHA-256 manifest) (#62).
+- `cli.py`: New `python main.py backup` and `python main.py restore BACKUP [--dry-run]`
+  commands for creating and restoring verified SQLite database backups (#62).
+- `core/health/checks.py`: New `database.backup` health check that reports the age of the
+  newest verified backup and warns when it exceeds `retention.backup_days` (#62).
+- `core/config/validator.py`: `retention.backup_days` setting (`int | None`, default `None`)
+  controls when the `database.backup` health check warns (#62).
 
 ### Fixed
 
