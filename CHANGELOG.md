@@ -59,6 +59,13 @@ All notable changes to this project are documented here. The format follows
 - Tests: `tests.fixtures.*` imports work whether or not pytest is started with
   `python -m` (CI runs the console script), and mypy targets Linux, matching the CI
   quality job.
+- `plugins/copymove/mask/`: `_compute_zncc` now normalizes using centered patch
+  energy so ZNCC is invariant to additive brightness offsets and zero-variance patches
+  return 0.0 instead of NaN (#135). Keypoints are stored as `[x, y]` but images are
+  indexed as `image[y, x]`; patch extraction and mask drawing now use the correct row/column
+  convention (#134). `analyze_copy_move` groups valid pairs into spatial clusters and
+  enforces `min_cluster_size`, discarding clusters below the threshold and counting retained
+  clusters in `num_clusters` (#136).
 
 ### Changed
 

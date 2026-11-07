@@ -27,7 +27,13 @@ class CopyMoveMaskResult:
 
 
 def _compute_zncc(src_patch: np.ndarray, tgt_patch: np.ndarray) -> float:
-    """Compute Zero-mean Normalized Cross-Correlation between two patches."""
+    """Compute Zero-mean Normalized Cross-Correlation between two patches.
+
+    The numerator uses centered patches and the denominator is the product of
+    the centered (zero-mean) energies, so the score is invariant to additive
+    brightness offsets and correctly normalized for contrast changes.  Patches
+    with zero or near-zero variance yield 0.0 instead of NaN.
+    """
     if src_patch.size == 0 or tgt_patch.size == 0:
         return 0.0
     src_flat = src_patch.astype(np.float64).flatten()
@@ -36,10 +42,54 @@ def _compute_zncc(src_patch: np.ndarray, tgt_patch: np.ndarray) -> float:
         return 0.0
     src_centered = src_flat - np.mean(src_flat)
     tgt_centered = tgt_flat - np.mean(tgt_flat)
-    denom = np.sqrt(np.sum(src_flat**2) * np.sum(tgt_flat**2))
-    if denom == 0:
+    src_energy = float(np.sum(src_centered**2))
+    tgt_energy = float(np.sum(tgt_centered**2))
+    if src_energy <= 0.0 or tgt_energy <= 0.0:
         return 0.0
+    denom = np.sqrt(src_energy * tgt_energy)
     return float(np.sum(src_centered * tgt_centered) / denom)
+
+
+def _cluster_pairs(
+    keypoints: np.ndarray,
+    valid_pairs: np.ndarray,
+    min_cluster_size: int,
+) -> list[np.ndarray]:
+    """Group valid matched pairs into spatially coherent clusters.
+
+    Pairs are linked when their source keypoints lie within one patch radius
+    of each other.  Only clusters with at least ``min_cluster_size`` members
+    are returned.
+    """
+    if len(valid_pairs) == 0:
+        return []
+
+    n = len(valid_pairs)
+    visited = np.zeros(n, dtype=bool)
+    clusters: list[np.ndarray] = []
+
+    for i in range(n):
+        if visited[i]:
+            continue
+        # BFS to find all pairs in this cluster
+        cluster_idx: list[int] = []
+        stack = [i]
+        visited[i] = True
+        while stack:
+            cur = stack.pop()
+            cluster_idx.append(cur)
+            cur_src = keypoints[valid_pairs[cur, 0], :2]
+            for j in range(n):
+                if visited[j]:
+                    continue
+                j_src = keypoints[valid_pairs[j, 0], :2]
+                if np.linalg.norm(cur_src - j_src) <= 1.0:
+                    visited[j] = True
+                    stack.append(j)
+        if len(cluster_idx) >= min_cluster_size:
+            clusters.append(valid_pairs[cluster_idx])
+
+    return clusters
 
 
 def _compute_local_correlation(
@@ -48,7 +98,11 @@ def _compute_local_correlation(
     image: np.ndarray,
     window_size: int = 11,
 ) -> np.ndarray:
-    """Compute ZNCC around each matched keypoint pair."""
+    """Compute ZNCC around each matched keypoint pair.
+
+    Keypoints are stored as ``[x, y, scale, angle, response]``; NumPy images
+    are indexed as ``image[row, col]`` = ``image[y, x]``.
+    """
     h, w = image.shape[:2]
     half = window_size // 2
     scores = np.zeros(len(pairs), dtype=np.float32)
@@ -57,8 +111,9 @@ def _compute_local_correlation(
         if a >= keypoints.shape[0] or b >= keypoints.shape[0]:
             scores[i] = 0.0
             continue
-        sy, sx = int(keypoints[a, 0]), int(keypoints[a, 1])
-        ty, tx = int(keypoints[b, 0]), int(keypoints[b, 1])
+        # Keypoints are [x, y]; image indexing is image[y, x].
+        sx, sy = int(keypoints[a, 0]), int(keypoints[a, 1])
+        tx, ty = int(keypoints[b, 0]), int(keypoints[b, 1])
         src_patch = image[
             max(0, sy - half) : min(h, sy + half + 1),
             max(0, sx - half) : min(w, sx + half + 1),
@@ -141,25 +196,27 @@ def analyze_copy_move(
             },
         }
 
-    # Cluster valid pairs by proximity
+    # Group valid pairs into spatial clusters and enforce min_cluster_size.
+    clusters = _cluster_pairs(keypoints, valid_pairs, min_cluster_size)
+    num_clusters = len(clusters)
+
     source_mask = np.zeros((h, w), dtype=np.uint8)
     target_mask = np.zeros((h, w), dtype=np.uint8)
-    num_clusters = 0
 
-    for i in range(len(valid_pairs)):
-        a, b = int(valid_pairs[i, 0]), int(valid_pairs[i, 1])
-        sy, sx = int(keypoints[a, 0]), int(keypoints[a, 1])
-        ty, tx = int(keypoints[b, 0]), int(keypoints[b, 1])
+    for cluster in clusters:
         half = window_size // 2
-        source_mask[
-            max(0, sy - half) : min(h, sy + half + 1),
-            max(0, sx - half) : min(w, sx + half + 1),
-        ] = 1
-        target_mask[
-            max(0, ty - half) : min(h, ty + half + 1),
-            max(0, tx - half) : min(w, tx + half + 1),
-        ] = 2
-        num_clusters += 1
+        for i in range(len(cluster)):
+            a, b = int(cluster[i, 0]), int(cluster[i, 1])
+            sx, sy = int(keypoints[a, 0]), int(keypoints[a, 1])
+            tx, ty = int(keypoints[b, 0]), int(keypoints[b, 1])
+            source_mask[
+                max(0, sy - half) : min(h, sy + half + 1),
+                max(0, sx - half) : min(w, sx + half + 1),
+            ] = 1
+            target_mask[
+                max(0, ty - half) : min(h, ty + half + 1),
+                max(0, tx - half) : min(w, tx + half + 1),
+            ] = 2
 
     mask = np.zeros((h, w), dtype=np.uint8)
     mask[source_mask > 0] = 1
