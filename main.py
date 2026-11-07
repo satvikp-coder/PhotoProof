@@ -394,9 +394,9 @@ def ensure_environment(
         )
         _pip(python, "install", "--no-deps", "--no-build-isolation", "--no-index", "-e", str(root))
         # Remove packages that are installed but not pinned in any lockfile.
-        # Only do this when explicitly rebuilding (--repair or --force-setup),
-        # not on the first creation of a fresh venv.
-        if force or rebuild:
+        # Only do this when explicitly rebuilding (--repair), not on first
+        # creation or --force-setup (force=True without rebuild=True).
+        if rebuild:
             extra = unlocked_packages(root, python)
             if extra:
                 print(f"Removing untracked packages: {', '.join(sorted(extra))}", file=sys.stderr)
@@ -528,7 +528,10 @@ def unlocked_packages(root: Path, python: Path) -> list[str]:
         "import importlib.metadata as m; "
         "print('\\n'.join(d.metadata['Name'] for d in m.distributions()))"
     )
-    result = subprocess.run([str(python), "-c", code], capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run([str(python), "-c", code], capture_output=True, text=True, check=False)
+    except (FileNotFoundError, OSError):
+        return []
     installed = {norm(n) for n in result.stdout.split() if n}
     return sorted(installed - locked)
 
