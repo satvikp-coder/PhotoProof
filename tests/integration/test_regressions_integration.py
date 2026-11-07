@@ -146,7 +146,8 @@ def test_stale_runs_detected_and_repaired(make_app: Factory) -> None:
 def test_tampered_manifest_is_refused(
     app_root: Path, target_file: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert cli_main(["analyze", str(target_file), "--json"], root=app_root) == 0
+    # The fake JPEG makes the run INCOMPLETE; the manifest is written either way.
+    assert cli_main(["analyze", str(target_file), "--json"], root=app_root) in {0, 7}
     run_id = json.loads(capsys.readouterr().out)["run_id"]
     path = app_root / "ARE" / "manifests" / f"{run_id}.json"
     data = json.loads(path.read_text())

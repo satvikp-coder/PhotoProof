@@ -61,5 +61,5 @@ def run(ctx: PluginContext) -> dict[str, object]:
     return {
         "compression.ela_map": artifact_ref,
         "compression.ela_anomaly": summary["anomaly"],
-        "ela_summary": summary,
+        "compression.ela_summary": summary,
     }

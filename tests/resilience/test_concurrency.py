@@ -82,6 +82,7 @@ def _run_analysis_subprocess(app_root: Path, run_id: str) -> dict:
     result = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
+        check=False,
         text=True,
         timeout=120,
         check=False,
@@ -186,6 +187,7 @@ def test_repair_does_not_mark_live_run_aborted(app_root: Path) -> None:
     proc = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
+        check=False,
         text=True,
         timeout=120,
         check=False,

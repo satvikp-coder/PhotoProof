@@ -15,7 +15,7 @@ METADATA = {
     "after": (),
     "entry_point": "processor:run",
     "inputs": ("noise.residual", "image.decoded"),
-    "outputs": ("noise.sigma_map", "noise.consistency_map"),
+    "outputs": ("noise.sigma_map", "noise.consistency_map", "noise.variance_summary"),
     "timeout_seconds": 60,
     "supported_formats": (),
     "deterministic": True,

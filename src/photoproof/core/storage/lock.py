@@ -69,8 +69,8 @@ class RuntimeLock:
                     os.fsync(self._fd)
                     self._acquired = True
                 else:
-                    flags = fcntl.LOCK_EX if self._exclusive else fcntl.LOCK_SH  # type: ignore[attr-defined]
-                    fcntl.flock(self._fd, flags | fcntl.LOCK_NB)  # type: ignore[attr-defined]
+                    flags = fcntl.LOCK_EX if self._exclusive else fcntl.LOCK_SH
+                    fcntl.flock(self._fd, flags | fcntl.LOCK_NB)
                     self._acquired = True
                 return
             except (BlockingIOError, OSError):

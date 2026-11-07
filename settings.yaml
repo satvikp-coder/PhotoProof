@@ -58,6 +58,7 @@ retention:
   cache_days: 7        # cache entries older than this are disposable
   artifact_days: 30    # derived artifacts older than this are disposable
   run_days: null       # keep run records indefinitely unless set
+  backup_days: null    # verified backups older than this many days are stale (null = keep)
 
 quotas:
   max_total_mb: 10240       # 10 GiB total runtime data

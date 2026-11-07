@@ -38,7 +38,7 @@ METADATA = {
     "requires": ["ingest.decode"],  # must SUCCEED first; outputs usable as inputs
     "after": ["metadata.exif"],  # ordering only
     "entry_point": "processor:run",  # module-in-package:function
-    "inputs": ["image.working_rgb"],  # contracts consumed
+    "inputs": ["image.working"],  # contracts consumed
     "outputs": ["compression.ela_map"],  # contracts produced (exactly these keys)
     "timeout_seconds": 30,  # default: scheduling.default_plugin_timeout_seconds
     "supported_formats": ["jpeg"],  # empty = format-independent
@@ -54,11 +54,20 @@ empty `outputs`, outputs named `input.*`, malformed entry points, an incompatibl
 version, or a missing entry module. Duplicate IDs across packages make the whole
 registry invalid (`RegistryError`).
 
-## Decoded and working images (planned)
+## Decoded and working images
 
-`imaging/normalization.py` already turns a decoded image into a working image: sRGB, with EXIF
-orientation applied, and a log of every transform. Plugins cannot reach any of these yet. #12
-will expose them, and each plugin will choose:
+The run resolves the media contracts from stored evidence, once per run, and hands them to
+plugins that declare them in `inputs`:
+
+- **`input.original_bytes`** — the stored original bytes, immune to decoding.
+- **`image.decoded`** — the pixels as decoded, handed over as a read-only NumPy array.
+- **`image.working`** — the normalized working image (sRGB, EXIF orientation applied,
+  every transform recorded), also read-only.
+
+A run that cannot decode an image skips the plugins that declared it with
+`dependency_unavailable` and records the reason in the manifest; the run is `INCOMPLETE`,
+never clean evidence. Plugins read these through `ctx.inputs`. A `ctx.image()` accessor,
+`image.working_hdr` and full lazy resolution are planned in #12. Each plugin chooses:
 
 - **`image.working`** for detectors that compare pixels across regions or images.
 - **`image.decoded`** for compression and noise detectors. Colour conversion changes pixel
@@ -82,8 +91,9 @@ sources reach it through a documented, per-channel tone curve, recorded in `tran
 
 ## Array conventions
 
-Detector algorithms receive NumPy arrays through `PluginContext.image`. The shared
-convention is defined in `photoproof.imaging.arrays`:
+Detector algorithms receive NumPy arrays through the media inputs
+(`image.decoded`, `image.working`) in `ctx.inputs`. The shared convention is
+defined in `photoproof.imaging.arrays`:
 
 * Working arrays: `H x W x C`, C-contiguous, RGB channel order, `uint8` for 8-bit
   or `uint16` for high bit depth; grayscale as `H x W`.

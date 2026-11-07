@@ -13,28 +13,25 @@ import numpy as np
 
 from photoproof.contracts.exceptions import InputRejectedError, NotApplicableError
 from photoproof.contracts.plugins import PluginContext
-from photoproof.plugins.copymove.clustering.algorithm import (
-    analyze_copy_move,
-    clustering_result_to_dict,
-)
+from photoproof.plugins.copymove.clustering.algorithm import analyze_copy_move
 from photoproof.plugins.copymove.clustering.schema import Config
 
 
 def run(ctx: PluginContext) -> dict[str, object]:
-    """Run copy-move verification on decoded image and SIFT matches.
+    """Run copy-move clustering on decoded image and SIFT matches.
 
     Reads ``copymove.matches`` (NPZ artifact with pairs and distances) and
     ``copymove.keypoints`` (NPZ artifact with keypoints), and returns
-    ``copymove.verification`` (verification result) and
-    ``copymove.match_stats`` (summary statistics).
+    ``copymove.clustering`` (clustering result) and
+    ``copymove.cluster_stats`` (summary statistics).
     """
     if "copymove.matches" not in ctx.inputs:
         raise NotApplicableError(
-            "copymove.verification requires copymove.matches; not declared in inputs"
+            "copymove.clustering requires copymove.matches; not declared in inputs"
         )
     if "copymove.keypoints" not in ctx.inputs:
         raise NotApplicableError(
-            "copymove.verification requires copymove.keypoints; not declared in inputs"
+            "copymove.clustering requires copymove.keypoints; not declared in inputs"
         )
 
     matches_data = ctx.inputs["copymove.matches"]
@@ -42,18 +39,18 @@ def run(ctx: PluginContext) -> dict[str, object]:
 
     if not isinstance(matches_data, dict):
         raise InputRejectedError(
-            "copymove.verification: copymove.matches must be a dict, "
+            "copymove.clustering: copymove.matches must be a dict, "
             f"got {type(matches_data).__name__}"
         )
     if not isinstance(keypoints_data, dict):
         raise InputRejectedError(
-            "copymove.verification: copymove.keypoints must be a dict, "
+            "copymove.clustering: copymove.keypoints must be a dict, "
             f"got {type(keypoints_data).__name__}"
         )
 
     if "pairs" not in matches_data or "distances" not in matches_data:
         raise InputRejectedError(
-            "copymove.verification: copymove.matches must contain 'pairs' and 'distances' keys"
+            "copymove.clustering: copymove.matches must contain 'pairs' and 'distances' keys"
         )
 
     pairs = np.array(matches_data["pairs"], dtype=np.int32)
@@ -81,7 +78,7 @@ def run(ctx: PluginContext) -> dict[str, object]:
         max_shear_deg=max_shear_deg,
     )
 
-    # Write verification result as JSON artifact
+    # Write clustering result as JSON artifact
     result_json = json.dumps(
         {
             "cluster_id": result["cluster_id"],
@@ -98,13 +95,23 @@ def run(ctx: PluginContext) -> dict[str, object]:
         indent=2,
     )
     result_artifact_ref = ctx.write_artifact(
-        "verification.json", result_json.encode("utf-8"), "application/json"
+        "clustering.json", result_json.encode("utf-8"), "application/json"
     )
 
-    summary = clustering_result_to_dict(result)
-    summary["clusters_artifact"] = result_artifact_ref
+    summary = {
+        "cluster_id": result["cluster_id"],
+        "inliers": result["inliers"],
+        "inlier_ratio": result["inlier_ratio"],
+        "rmse": result["rmse"],
+        "scale": result["scale"],
+        "rotation_deg": result["rotation_deg"],
+        "score": result["score"],
+        "model": result["model"],
+        "reason": result["reason"],
+        "clusters_artifact": result_artifact_ref,
+    }
 
     return {
-        "copymove.verification": result_artifact_ref,
-        "copymove.match_stats": summary,
+        "copymove.clustering": result_artifact_ref,
+        "copymove.cluster_stats": summary,
     }

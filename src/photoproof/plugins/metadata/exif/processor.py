@@ -15,9 +15,9 @@ from photoproof.plugins.metadata.exif.schema import Config
 def run(ctx: PluginContext) -> dict[str, object]:
     """Extract EXIF/XMP metadata and report provenance inconsistencies.
 
-    Reads ``input.original_bytes`` for raw EXIF parsing and ``image.working``
-    for thumbnail comparison. Returns ``metadata.summary`` and
-    ``metadata.findings``.
+    Reads ``input.original_bytes`` for raw EXIF parsing. Returns
+    ``metadata.summary`` and ``metadata.findings``. Metadata alone is evidence
+    about provenance, never about pixel authenticity.
     """
     if "input.original_bytes" not in ctx.inputs:
         raise NotApplicableError(

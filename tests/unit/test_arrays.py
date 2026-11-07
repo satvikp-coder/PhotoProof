@@ -7,11 +7,15 @@ from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.imaging.arrays import (
     ImageSpec,
     as_read_only,
+    decoded_to_array,
     ensure_read_only,
     to_float32,
     to_luma,
     validate_image,
+    working_to_array,
 )
+from photoproof.imaging.decoder import DecodedImage
+from photoproof.imaging.normalization import WorkingImage
 
 
 def _rgb_array(h: int = 8, w: int = 8) -> np.ndarray:
@@ -153,3 +157,105 @@ def test_read_only_array_raises_on_mutation() -> None:
     arr = as_read_only(_rgb_array())
     with pytest.raises(ValueError):
         arr[0, 0, 0] = 1
+
+
+# --------------------------------------------------------------- decoded pixels
+
+
+def _decoded(
+    pixels: bytes,
+    *,
+    width: int,
+    height: int,
+    channels: int,
+    bit_depth: int = 8,
+) -> DecodedImage:
+    return DecodedImage(
+        source_sha256="a" * 64,
+        media_format="png",
+        width=width,
+        height=height,
+        channels=channels,
+        bit_depth=bit_depth,
+        pixels=pixels,
+    )
+
+
+def test_decoded_to_array_rgb8() -> None:
+    decoded = _decoded(bytes(range(12)), width=2, height=2, channels=3)
+    arr = decoded_to_array(decoded)
+    assert arr.shape == (2, 2, 3)
+    assert arr.dtype == np.dtype(np.uint8)
+    assert arr[0, 1].tolist() == [3, 4, 5]
+    assert arr.flags.writeable is False
+    assert arr.flags.c_contiguous is True
+
+
+def test_decoded_to_array_grayscale_is_two_dimensional() -> None:
+    decoded = _decoded(bytes([1, 2, 3, 4]), width=2, height=2, channels=1)
+    arr = decoded_to_array(decoded)
+    assert arr.shape == (2, 2)
+    assert arr[1, 1] == 4
+
+
+def test_decoded_to_array_high_bit_depth_uses_uint16() -> None:
+    pixels = np.array([300, 400, 500, 600], dtype=np.uint16).tobytes()
+    decoded = _decoded(pixels, width=2, height=2, channels=1, bit_depth=16)
+    arr = decoded_to_array(decoded)
+    assert arr.dtype == np.dtype(np.uint16)
+    assert arr[0, 0] == 300
+    assert arr[1, 1] == 600
+
+
+def test_decoded_to_array_mutation_raises() -> None:
+    arr = decoded_to_array(_decoded(bytes([1, 2, 3, 4]), width=2, height=2, channels=1))
+    with pytest.raises(ValueError):
+        arr[0, 0] = 9
+
+
+def test_decoded_to_array_rejects_short_buffer() -> None:
+    with pytest.raises(InputRejectedError, match="pixel buffer"):
+        decoded_to_array(_decoded(b"\x01\x02", width=2, height=2, channels=3))
+
+
+def test_decoded_to_array_rejects_invalid_dimensions() -> None:
+    with pytest.raises(InputRejectedError, match="invalid dimensions"):
+        decoded_to_array(_decoded(b"", width=0, height=2, channels=3))
+
+
+def _working(pixels: bytes, *, width: int, height: int, dtype: str = "uint8") -> WorkingImage:
+    return WorkingImage(
+        pixels=pixels,
+        mode="RGB",
+        width=width,
+        height=height,
+        colour_space="srgb",
+        orientation_applied=False,
+        dtype=dtype,  # type: ignore[arg-type]
+    )
+
+
+def test_working_to_array_infers_channels() -> None:
+    working = _working(bytes(range(12)), width=2, height=2)
+    arr = working_to_array(working)
+    assert arr.shape == (2, 2, 3)
+    assert arr.dtype == np.dtype(np.uint8)
+    assert arr[1, 1].tolist() == [9, 10, 11]
+    assert arr.flags.writeable is False
+
+
+def test_working_to_array_grayscale() -> None:
+    arr = working_to_array(_working(bytes([1, 2, 3, 4]), width=2, height=2))
+    assert arr.shape == (2, 2)
+
+
+def test_working_to_array_uint16() -> None:
+    pixels = np.array([300, 400, 500, 600], dtype=np.uint16).tobytes()
+    arr = working_to_array(_working(pixels, width=2, height=2, dtype="uint16"))
+    assert arr.dtype == np.dtype(np.uint16)
+    assert arr[0, 0] == 300
+
+
+def test_working_to_array_rejects_partial_pixels() -> None:
+    with pytest.raises(InputRejectedError, match="not a whole"):
+        working_to_array(_working(b"\x01\x02\x03", width=2, height=2))

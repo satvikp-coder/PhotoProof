@@ -112,7 +112,10 @@ def test_safe_join_rejects(tmp_path: Path, part: str) -> None:
 def test_safe_join_rejects_symlink_escape(tmp_path: Path) -> None:
     root = tmp_path / "root"
     root.mkdir()
-    (root / "link").symlink_to(tmp_path)
+    try:
+        (root / "link").symlink_to(tmp_path)
+    except OSError as error:  # a Windows account without the symlink privilege
+        pytest.skip(f"cannot create symlinks here: {error}")
     with pytest.raises(UnsafePathError):
         safe_join(root, "link", "x")
     assert safe_join(root, "a", "b") == (root / "a" / "b").resolve()

@@ -24,6 +24,7 @@ from photoproof.core.security.paths import safe_join
 from photoproof.core.security.windows.acl import (
     apply_owner_only_acl,
     check_acl_for_other_principals,
+    clear_file_read_only,
     make_file_read_only,
 )
 
@@ -193,6 +194,10 @@ class RuntimeStorage:
             else:
                 os.rename(source, target)  # on Windows this fails if the target exists
         except FileExistsError:  # another process stored the same content first
+            if _WINDOWS:
+                # This staged file will not be published; the read-only mark was set for
+                # the rename, and Windows refuses to delete a read-only file.
+                clear_file_read_only(str(source))
             return self._existing_blob_is_intact(kind, sha256, target)
         except OSError as error:
             if error.errno in _NO_HARD_LINKS:

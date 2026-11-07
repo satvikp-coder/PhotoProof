@@ -174,6 +174,7 @@ class RetentionSettings(_Strict):
     cache_days: int = Field(ge=1)
     artifact_days: int = Field(ge=1)
     run_days: int | None = Field(default=None, ge=1)
+    backup_days: int | None = Field(default=None, ge=1)
 
 
 class QuotaSettings(_Strict):

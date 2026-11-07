@@ -14,11 +14,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from photoproof.contracts.analysis import AnalysisRequest, AnalysisResult, PluginSummary
+import numpy as np
+
+from photoproof.contracts.analysis import (
+    AnalysisRequest,
+    AnalysisResult,
+    InputDescriptor,
+    PluginSummary,
+)
 from photoproof.contracts.artifacts import ArtifactRef
 from photoproof.contracts.enums import AnalysisMode, ExecutionState, RunStatus
 from photoproof.contracts.events import EventType
-from photoproof.contracts.exceptions import ConfigurationError, InputRejectedError
+from photoproof.contracts.exceptions import ConfigurationError, InputRejectedError, StorageError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.core.bootstrap import Application
 from photoproof.core.cache.run_cache import RunCache, cache_key
@@ -35,7 +42,14 @@ from photoproof.core.pipeline.manifest import build_manifest
 from photoproof.core.pipeline.planner import ExecutionPlan, plan
 from photoproof.core.pipeline.registry import RegisteredPlugin
 from photoproof.core.storage.store import sha256_bytes, sha256_file
+from photoproof.imaging.arrays import decoded_to_array, working_to_array
+from photoproof.imaging.decoder import DecodedImage
+from photoproof.imaging.formats import HEADER_BYTES, detect_format
+from photoproof.imaging.normalization import normalize
 from photoproof.versioning.build import build_info, distribution_version
+
+#: Media run inputs the host resolves from stored evidence when a plan declares them.
+_MEDIA_INPUTS = ("input.original_bytes", "image.decoded", "image.working")
 
 
 def _now() -> str:
@@ -102,6 +116,9 @@ class AnalysisController:
         run_inputs: dict[str, object] = {"input.target": request.target.model_dump(mode="json")}
         if request.reference is not None:
             run_inputs["input.reference"] = request.reference.model_dump(mode="json")
+        unavailable: dict[str, str] = {}
+        if not execution_plan.blocked:
+            self._provide_run_media(execution_plan, run_inputs, unavailable, request.target)
 
         use_cache = bool(
             app.settings.cache.enabled
@@ -128,6 +145,7 @@ class AnalysisController:
                 decisions,
                 override,
                 run_inputs,
+                unavailable,
                 key,
             )
         except BaseException as error:
@@ -144,6 +162,7 @@ class AnalysisController:
         decisions: Mapping[str, PolicyDecision],
         override: BlacklistOverride | None,
         run_inputs: Mapping[str, object],
+        unavailable: Mapping[str, str],
         key: str | None,
     ) -> AnalysisResult:
         app = self.app
@@ -174,7 +193,7 @@ class AnalysisController:
                 app.bus.emit(
                     EventType.RUN_STARTED, run_id=run_id, data={"order": list(execution_plan.order)}
                 )
-                report = self._execute(run_id, execution_plan, run_inputs, artifacts)
+                report = self._execute(run_id, execution_plan, run_inputs, unavailable, artifacts)
                 status = report.status(execution_plan.required)
                 executions = {pid: ex.to_dict() for pid, ex in report.executions.items()}
                 outputs = report.outputs
@@ -302,6 +321,7 @@ class AnalysisController:
         run_id: str,
         execution_plan: ExecutionPlan,
         run_inputs: Mapping[str, object],
+        unavailable: Mapping[str, str],
         artifacts: list[ArtifactRef],
     ) -> ExecutionReport:
         app = self.app
@@ -333,8 +353,7 @@ class AnalysisController:
             ctx = PluginContext(
                 run_id=run_id,
                 plugin_id=plugin.id,
-                # Deep copy: a plugin must not be able to mutate another plugin's outputs.
-                inputs=copy.deepcopy(dict(inputs)),
+                inputs=_plugin_inputs(inputs),
                 config=config,
                 seed=app.settings.scheduling.random_seed,
                 write_artifact=write_artifact,
@@ -343,7 +362,11 @@ class AnalysisController:
             return entry(ctx)
 
         report = executor.execute(
-            execution_plan, run_id=run_id, run_inputs=run_inputs, invoke=invoke
+            execution_plan,
+            run_id=run_id,
+            run_inputs=run_inputs,
+            invoke=invoke,
+            unavailable=unavailable,
         )
         for pid, execution in report.executions.items():
             if execution.state is not ExecutionState.SUCCESS:
@@ -357,6 +380,65 @@ class AnalysisController:
                     data=ref.model_dump(mode="json"),
                 )
         return report
+
+    def _provide_run_media(
+        self,
+        execution_plan: ExecutionPlan,
+        run_inputs: dict[str, object],
+        unavailable: dict[str, str],
+        target: InputDescriptor,
+    ) -> None:
+        """Resolve the media run inputs the plan declares, once per run (PP-012).
+
+        ``input.original_bytes`` is the stored original; ``image.decoded`` is decoded
+        once and shared read-only; ``image.working`` is the normalized working image.
+        Any failure never fails the run outright: the declaring plugins are skipped
+        with the reason recorded in the manifest, and the run is INCOMPLETE. Missing
+        pixels are never evidence of authenticity.
+        """
+        declared = {name for node in execution_plan.nodes.values() for name in node.metadata.inputs}
+        wanted = [name for name in _MEDIA_INPUTS if name in declared]
+        if not wanted:
+            return
+        app = self.app
+        try:
+            with app.evidence().open(target.sha256) as handle:
+                data = handle.read()
+        except StorageError as error:
+            reason = f"the stored original is unavailable: {error}"
+            for name in wanted:
+                unavailable[name] = reason
+            return
+        if "input.original_bytes" in wanted:
+            run_inputs["input.original_bytes"] = data
+        image_names = [name for name in wanted if name != "input.original_bytes"]
+        if not image_names:
+            return
+        try:
+            decoded = self._decode_bytes(data, target.sha256)
+        except (InputRejectedError, StorageError) as error:
+            reason = f"the decoded image is unavailable: {error}"
+            for name in image_names:
+                unavailable[name] = reason
+            return
+        if "image.decoded" in image_names:
+            run_inputs["image.decoded"] = decoded_to_array(decoded)
+        if "image.working" in image_names:
+            try:
+                run_inputs["image.working"] = working_to_array(normalize(decoded))
+            except Exception as error:  # noqa: BLE001 - any normalization failure only skips
+                # the plugins that asked for the working image; it is recorded below.
+                unavailable["image.working"] = f"the working image is unavailable: {error}"
+
+    def _decode_bytes(self, data: bytes, sha256: str) -> DecodedImage:
+        app = self.app
+        media_format = detect_format(data[:HEADER_BYTES])
+        if media_format is None:
+            raise InputRejectedError(
+                "the stored target is not a recognised image format, so no decoder can read it"
+            )
+        decoder = app.decoders.for_format(media_format)
+        return decoder.decode(data, source_sha256=sha256, limits=app.decode_limits())
 
     def _plugin_identities(self, execution_plan: ExecutionPlan) -> dict[str, dict[str, object]]:
         return {
@@ -412,3 +494,17 @@ class AnalysisController:
 
 def _file_digest(path: Path) -> str | None:
     return sha256_file(path) if path.is_file() else None
+
+
+def _plugin_inputs(inputs: Mapping[str, object]) -> dict[str, object]:
+    """Inputs for one plugin: deep copies, except read-only pixel arrays.
+
+    A plugin must not be able to mutate another plugin's outputs, so every JSON value is
+    copied. Decoded images are read-only, so they are shared rather than copied: ten
+    detectors do not hold ten copies of the pixels, and none of them can write to the
+    shared buffer.
+    """
+    return {
+        name: value if isinstance(value, np.ndarray) else copy.deepcopy(value)
+        for name, value in inputs.items()
+    }

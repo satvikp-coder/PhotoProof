@@ -60,9 +60,10 @@ def test_analyze_copy_move_invalid() -> None:
 
 def test_analyze_copy_move_invalid_shapes() -> None:
     """Invalid shapes are rejected."""
+    kpts = np.zeros((10, 3), dtype=np.float32)
     pairs = np.array([[0, 1]], dtype=np.int32)
     with pytest.raises(InputRejectedError):
-        analyze_copy_move(np.zeros((10, 3), dtype=np.float32), pairs)
+        analyze_copy_move(kpts, pairs)
 
     kpts_good = np.random.randn(10, 5).astype(np.float32) * 10 + 100
     pairs_bad = np.zeros((5, 3), dtype=np.int32)

@@ -21,21 +21,21 @@ from photoproof.plugins.copymove.sift_keypoints.schema import Config
 
 
 def run(ctx: PluginContext) -> dict[str, object]:
-    """Run SIFT keypoint extraction on the decoded image.
+    """Run SIFT keypoint extraction on the working image.
 
-    Reads ``image.decoded`` (grayscale or RGB working image) and returns
+    Reads ``image.working`` (grayscale or RGB working image) and returns
     ``copymove.keypoints`` (NPZ artifact with keypoints and descriptors)
     and ``copymove.keypoint_stats`` (summary statistics).
     """
-    if "image.decoded" not in ctx.inputs:
+    if "image.working" not in ctx.inputs:
         raise NotApplicableError(
-            "copymove.sift_keypoints requires image.decoded; not declared in inputs"
+            "copymove.sift_keypoints requires image.working; not declared in inputs"
         )
 
-    image = ctx.inputs["image.decoded"]
+    image = ctx.inputs["image.working"]
     if not isinstance(image, np.ndarray):
         raise InputRejectedError(
-            "copymove.sift_keypoints: image.decoded must be a NumPy array, "
+            "copymove.sift_keypoints: image.working must be a NumPy array, "
             f"got {type(image).__name__}"
         )
 

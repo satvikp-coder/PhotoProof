@@ -8,17 +8,71 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- A run resolves its media contracts from stored evidence, once per run, and hands them to
+  plugins that declare them in `inputs`: `input.original_bytes` (the stored original),
+  `image.decoded` (the pixels as decoded) and `image.working` (the normalized working
+  image), the last two as read-only NumPy arrays. This is the groundwork of the plugin
+  image-access contract (#12); decoder isolation is still #9. A run that cannot decode an
+  image skips the declaring plugins with `dependency_unavailable`, records the reason in
+  the manifest, and ends `INCOMPLETE` — missing pixels are never clean evidence.
+- `core/database/store.py`: `Database.backup()` (durable SQLite backup via the online
+  backup API) and `Database.verify_backup()` (read-only verification with `PRAGMA
+  integrity_check`/`foreign_key_check`, row counts, and SHA-256 manifest) (#62).
+- `cli.py`: New `python main.py backup` and `python main.py restore BACKUP [--dry-run]`
+  commands for creating and restoring verified SQLite database backups (#62).
+- `core/health/checks.py`: New `database.backup` health check that reports the age of the
+  newest verified backup and warns when it exceeds `retention.backup_days` (#62).
+- `core/config/validator.py`: `retention.backup_days` setting (`int | None`, default `None`)
+  controls when the `database.backup` health check warns (#62).
+
+### Fixed
+
+- `core/pipeline/executor.py`: an `ArtifactRef` nested inside a summary output is now
+  normalized to its JSON form, so a plugin that reports the artifact it wrote no longer
+  fails `invalid_output`. A declared input the run could not provide skips the plugin with
+  `dependency_unavailable` and the recorded reason instead of raising `KeyError`.
+- `core/security/windows/acl.py`: `icacls` is resolved to its full path (Bandit B607), and
+  the ACL reader now accepts the machine-qualified account and `OWNER RIGHTS`, and skips
+  the directory path on the first output line, so owner-only runtime directories are no
+  longer reported as open to other users (#80).
+- `core/storage/evidence.py`: a staged file that lost the publish race is read-only, which
+  Windows refuses to delete; cleanup now clears that mark first, so concurrent ingests of
+  identical content leave no temporary files behind.
+- `plugins/compression/ela/`: the processor returned an undeclared `ela_summary` output;
+  it is now declared as `compression.ela_summary` and the plugin runs (#15).
+- `plugins/noise/residual/` and `plugins/noise/variance_map/`: their summary outputs are
+  declared (`noise.residual_summary`, `noise.variance_summary`) and a zero noise estimate
+  no longer divides by zero in the Wiener threshold (#18, #19).
+- `plugins/copymove/sift_keypoints/`: the processor read `image.decoded` while its metadata
+  declared `image.working`; it now reads the declared working image, and keypoints are
+  capped at `max_keypoints` because OpenCV's `nfeatures` is a hint (#20).
+- `plugins/copymove/mask/` and `plugins/copymove/verification/`: `requires` listed input
+  contracts instead of plugin ids, and verification asked for contracts nothing produces;
+  both now name `copymove.matching`/`copymove.sift_keypoints` and the contracts their
+  processors read (#23, #24).
+- `plugins/metadata/exif/`: it declared `image.working` without reading it, which skipped
+  metadata analysis whenever pixels could not be decoded; the declaration is gone (#14).
+- `plugins/copymove/clustering/`: undefined variables, a missing NumPy import and
+  incorrect return keys are fixed; `analyze_clustering` gained `method` and
+  `min_matches_per_cluster`, and `clustering_result_to_dict` exists (#22).
+- `core/isolation.py`: fixed mypy errors and the Unix-only `resource` import (#9).
+- Tests: `tests.fixtures.*` imports work whether or not pytest is started with
+  `python -m` (CI runs the console script), and mypy targets Linux, matching the CI
+  quality job.
+
+### Changed
+
 - `core/isolation.py` runs a callable in a child process with wall-clock, CPU and memory limits
   and reports typed failures. `doctor` reports which limits this platform can enforce. Decoders
   and plugins do not use it yet (#9, #52).
 - Pull requests automatically get the milestone of the issue they reference, unless someone has
   already set one.
 - 16-bit PNGs decode without loss. High-depth images get a `uint16` view with their transfer
-  function and primaries, and an 8-bit derivative through a documented tone curve. The pipeline
-  does not use these yet (#12).
+  function and primaries, and an 8-bit derivative through a documented tone curve. Plugins
+  that declare `image.decoded` receive the 16-bit view (#12).
 - `normalize` turns a decoded image into a working image in sRGB with EXIF orientation applied,
-  and records every transform. The decoded image stays available and unchanged. The pipeline
-  does not use it yet (#12).
+  and records every transform. The decoded image stays available and unchanged. Plugins that
+  declare `image.working` now receive it (#12).
 - `IngestionService` stages each input in quarantine, enforces the size limit while reading,
   identifies its type from content, and audits every rejection as `INPUT_REJECTED`. `analyze` now
   uses it for all inputs.

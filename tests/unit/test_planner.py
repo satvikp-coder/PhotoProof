@@ -81,6 +81,12 @@ def test_unprovided_input_contract_rejected(app_root: Path, tmp_path: Path) -> N
         _plan(app_root, registry)
 
 
+def test_decoded_image_is_a_provided_run_input(app_root: Path, tmp_path: Path) -> None:
+    """image.decoded needs no producer: every run resolves it from stored evidence."""
+    registry = registry_of(tmp_path, meta("p.a", inputs=["image.decoded"]))
+    assert _plan(app_root, registry).order == ("p.a",)
+
+
 def test_duplicate_output_producers_rejected(app_root: Path, tmp_path: Path) -> None:
     registry = registry_of(tmp_path, meta("p.a", outputs=["x.y"]), meta("p.b", outputs=["x.y"]))
     with pytest.raises(PlanningError, match="produced by both"):

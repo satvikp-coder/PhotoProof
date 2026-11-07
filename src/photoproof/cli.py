@@ -7,8 +7,10 @@ INCOMPLETE).
 
 import argparse
 import json
+import shutil
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from photoproof.contracts.analysis import AnalysisRequest
@@ -29,6 +31,7 @@ from photoproof.core.config.policy import (
     decide_all,
 )
 from photoproof.core.controller import AnalysisController
+from photoproof.core.database.store import Database
 from photoproof.core.health.checks import CheckResult, default_registry
 from photoproof.core.health.repair import preflight, publish_findings, run_repairs
 from photoproof.core.services.housekeeping import HousekeepingService
@@ -75,6 +78,23 @@ def _parser() -> argparse.ArgumentParser:
         "--apply",
         action="store_true",
         help="apply deletions (default is dry run)",
+    )
+    backup_cmd = sub.add_parser("backup", help="create a verified backup of the SQLite database")
+    backup_cmd.add_argument(
+        "--target",
+        type=Path,
+        help="backup destination (default: ARE/database/backups/<timestamp>.db)",
+    )
+    restore = sub.add_parser("restore", help="restore the SQLite database from a verified backup")
+    restore.add_argument(
+        "backup",
+        type=Path,
+        help="backup file to restore from",
+    )
+    restore.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="verify the backup and report what would be restored, without changing anything",
     )
     return parser
 
@@ -285,6 +305,67 @@ def cmd_housekeeping(app: Application, apply: bool) -> int:
     return EXIT_OK
 
 
+def cmd_backup(app: Application, target: Path | None) -> int:
+    """Create a verified backup of the SQLite database."""
+    app.storage.ensure_layout()
+    backup_dir = app.storage.path("database", "backups")
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    target_path = target or backup_dir / f"{timestamp}.db"
+
+    db = app.database()
+    db.backup(target_path)
+    manifest = Database.verify_backup(target_path)
+    manifest["created_at"] = datetime.now(UTC).isoformat()
+    manifest_path = target_path.with_suffix(".json")
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+
+    print(f"backup created: {target_path}")
+    print(f"manifest: {manifest_path}")
+    print(f"verified: {manifest['verified']}")
+    return EXIT_OK if manifest["verified"] else EXIT_ERROR
+
+
+def cmd_restore(app: Application, backup: Path, dry_run: bool) -> int:
+    """Restore the SQLite database from a verified backup."""
+    manifest = Database.verify_backup(backup)
+    if not manifest["verified"]:
+        problems = []
+        if manifest["integrity_check"] != "ok":
+            problems.append(f"integrity_check={manifest['integrity_check']}")
+        fk_issues = manifest["foreign_key_issues"]
+        if isinstance(fk_issues, list):
+            problems.append(f"foreign_key_issues={len(fk_issues)}")
+        print(
+            f"error: backup {backup} is not verified: {'; '.join(problems)}",
+            file=sys.stderr,
+        )
+        return EXIT_ERROR
+
+    app.storage.ensure_layout()
+    backup_dir = app.storage.path("database", "backups")
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    current_db = app.database_path
+    pre_restore = backup_dir / f"{timestamp}.db.pre-restore"
+
+    if dry_run:
+        print(f"would restore {backup} -> {current_db}")
+        print(f"would back up current database to {pre_restore}")
+        print(f"verified backup: {manifest['sha256']} (schema {manifest['schema_version']})")
+        return EXIT_OK
+
+    # Back up the current database first (if it exists)
+    if current_db.is_file():
+        app.database().backup(pre_restore)
+        print(f"backed up current database to {pre_restore}")
+
+    # Atomically swap
+    shutil.copy2(backup, current_db)
+    print(f"restored {backup} -> {current_db}")
+    return EXIT_OK
+
+
 def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
     path = app.storage.path("manifests", f"{run_id}.json")
     manifest = app.storage.read_json("manifests", f"{run_id}.json")
@@ -311,7 +392,7 @@ def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
     print(f"  fingerprint   {manifest['computational_fingerprint']}")
     print(f"  cache         {manifest['cache']}")
     print(f"  override      {manifest['blacklist_override']}")
-    print("  order         " + (" → ".join(manifest["execution_order"]) or "(none)"))
+    print("  order         " + (" -> ".join(manifest["execution_order"]) or "(none)"))
     for pid, ex in manifest["executions"].items():
         print(f"    {ex['state']:<15} {pid} {ex.get('failure_category') or ''}")
     for reason in manifest["blocked_reasons"]:
@@ -352,6 +433,10 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
             return cmd_housekeeping(app, args.apply)
         if command == "manifest":
             return cmd_manifest(app, args.run_id, args.json)
+        if command == "backup":
+            return cmd_backup(app, args.target)
+        if command == "restore":
+            return cmd_restore(app, args.backup, args.dry_run)
         return EXIT_USAGE
     except (InputRejectedError, PolicyError, StorageError) as error:
         print(f"error: {error}", file=sys.stderr)
