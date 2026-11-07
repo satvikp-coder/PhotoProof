@@ -24,6 +24,11 @@ All notable changes to this project are documented here. The format follows
   newest verified backup and warns when it exceeds `retention.backup_days` (#62).
 - `core/config/validator.py`: `retention.backup_days` setting (`int | None`, default `None`)
   controls when the `database.backup` health check warns (#62).
+- `core/reporting/`: new `build_report(manifest) -> Report` (pydantic, `report_version: 1`),
+  `render_html(report) -> str`, and `render_json(report) -> str`. Reports separate findings
+  into suspected manipulation, confirmed differences, and unavailable evidence, with every
+  claim traceable to manifest paths and artifact hashes. CLI command `python main.py report
+  RUN_ID [--format html|json]` (#46).
 
 ### Fixed
 

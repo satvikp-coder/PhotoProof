@@ -34,6 +34,7 @@ from photoproof.core.controller import AnalysisController
 from photoproof.core.database.store import Database
 from photoproof.core.health.checks import CheckResult, default_registry
 from photoproof.core.health.repair import preflight, publish_findings, run_repairs
+from photoproof.core.reporting import build_report, render_html, render_json
 from photoproof.core.services.housekeeping import HousekeepingService
 from photoproof.core.storage.store import sha256_file
 
@@ -95,6 +96,19 @@ def _parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="verify the backup and report what would be restored, without changing anything",
+    )
+    report_cmd = sub.add_parser("report", help="generate a forensic report for a run")
+    report_cmd.add_argument("run_id", help="run ID to report on")
+    report_cmd.add_argument(
+        "--format",
+        choices=["html", "json"],
+        default="html",
+        help="output format (default: html)",
+    )
+    report_cmd.add_argument(
+        "--output",
+        type=Path,
+        help="write report to this file (default: stdout)",
     )
     return parser
 
@@ -366,6 +380,25 @@ def cmd_restore(app: Application, backup: Path, dry_run: bool) -> int:
     return EXIT_OK
 
 
+def cmd_report(app: Application, run_id: str, fmt: str, output: Path | None) -> int:
+    """Generate a forensic report for a run."""
+    app.storage.ensure_layout()
+    manifest = app.storage.read_json("manifests", f"{run_id}.json")
+    if not isinstance(manifest, dict):
+        print(f"error: manifest for run {run_id} is not a JSON object", file=sys.stderr)
+        return EXIT_ERROR
+    report = build_report(manifest)
+
+    content = render_html(report) if fmt == "html" else render_json(report)
+
+    if output is not None:
+        output.write_text(content, encoding="utf-8")
+        print(f"report written to {output}")
+    else:
+        print(content)
+    return EXIT_OK
+
+
 def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
     path = app.storage.path("manifests", f"{run_id}.json")
     manifest = app.storage.read_json("manifests", f"{run_id}.json")
@@ -437,6 +470,8 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
             return cmd_backup(app, args.target)
         if command == "restore":
             return cmd_restore(app, args.backup, args.dry_run)
+        if command == "report":
+            return cmd_report(app, args.run_id, args.format, args.output)
         return EXIT_USAGE
     except (InputRejectedError, PolicyError, StorageError) as error:
         print(f"error: {error}", file=sys.stderr)
