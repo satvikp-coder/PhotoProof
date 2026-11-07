@@ -74,8 +74,29 @@ class ExecutionReport:
 
 class Executor(Protocol):
     def execute(
-        self, plan: ExecutionPlan, *, run_id: str, run_inputs: Mapping[str, object], invoke: Invoke
+        self,
+        plan: ExecutionPlan,
+        *,
+        run_id: str,
+        run_inputs: Mapping[str, object],
+        invoke: Invoke,
+        unavailable: Mapping[str, str] | None = None,
     ) -> ExecutionReport: ...
+
+
+def _jsonable(value: object) -> object:
+    """Replace every ArtifactRef, at any depth, with its JSON form.
+
+    A summary output may embed the reference of the artifact it describes; the
+    manifest must stay JSON, so nested references are converted too.
+    """
+    if isinstance(value, ArtifactRef):
+        return {"artifact": value.model_dump(mode="json")}
+    if isinstance(value, Mapping):
+        return {key: _jsonable(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_jsonable(item) for item in value]
+    return value
 
 
 def normalize_outputs(plugin: RegisteredPlugin, raw: object) -> dict[str, object]:
@@ -89,11 +110,8 @@ def normalize_outputs(plugin: RegisteredPlugin, raw: object) -> dict[str, object
         )
     normalized: dict[str, object] = {}
     for name in sorted(raw):
-        value = raw[name]
-        if isinstance(value, ArtifactRef):
-            value = {"artifact": value.model_dump(mode="json")}
         try:
-            normalized[name] = json.loads(json.dumps(value, allow_nan=False))
+            normalized[name] = json.loads(json.dumps(_jsonable(raw[name]), allow_nan=False))
         except (TypeError, ValueError) as error:
             raise InvalidOutputError(
                 f"output {name!r} is not JSON-serializable: {error}"
@@ -159,9 +177,16 @@ class SequentialExecutor:
         self._default_timeout = default_timeout_seconds
 
     def execute(
-        self, plan: ExecutionPlan, *, run_id: str, run_inputs: Mapping[str, object], invoke: Invoke
+        self,
+        plan: ExecutionPlan,
+        *,
+        run_id: str,
+        run_inputs: Mapping[str, object],
+        invoke: Invoke,
+        unavailable: Mapping[str, str] | None = None,
     ) -> ExecutionReport:
         report = ExecutionReport({pid: PluginExecution(pid) for pid in plan.order})
+        reasons = unavailable or {}
         abort_category: FailureCategory | None = None
         for pid in plan.order:
             ex = report.executions[pid]
@@ -190,6 +215,11 @@ class SequentialExecutor:
                 self._finish(run_id, ex, S.NOT_APPLICABLE, None, "no reference image supplied")
             elif (unsupported := _unsupported_format(plugin, run_inputs)) is not None:
                 self._finish(run_id, ex, S.NOT_APPLICABLE, None, unsupported)
+            elif missing := _missing_inputs(meta.inputs, run_inputs, report.outputs):
+                detail = "; ".join(
+                    reasons.get(name, f"input contract {name!r} is unavailable") for name in missing
+                )
+                self._finish(run_id, ex, S.SKIPPED, FailureCategory.DEPENDENCY_UNAVAILABLE, detail)
             else:
                 inputs = {name: _lookup(name, run_inputs, report.outputs) for name in meta.inputs}
                 ex.transition(S.READY)
@@ -263,3 +293,10 @@ class SequentialExecutor:
 
 def _lookup(name: str, run_inputs: Mapping[str, object], outputs: Mapping[str, object]) -> object:
     return run_inputs[name] if name in run_inputs else outputs[name]
+
+
+def _missing_inputs(
+    declared: tuple[str, ...], run_inputs: Mapping[str, object], outputs: Mapping[str, object]
+) -> list[str]:
+    """Declared inputs that neither the run nor an earlier plugin provided."""
+    return [name for name in declared if name not in run_inputs and name not in outputs]

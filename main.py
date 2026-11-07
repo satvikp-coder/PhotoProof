@@ -378,7 +378,9 @@ def ensure_environment(
 
     python = venv_python(venv)
     fingerprint = environment_fingerprint(root, lock_sha, existing, version)
-    if force or rebuild or read_state(venv).get("fingerprint") != fingerprint:
+    stored_fp = read_state(venv).get("fingerprint")
+    should_install = force or rebuild or stored_fp != fingerprint
+    if should_install:
         print("Installing locked dependencies …", file=sys.stderr)
         _pip(
             python,
@@ -391,6 +393,14 @@ def ensure_environment(
             str(root / LOCKFILE),
         )
         _pip(python, "install", "--no-deps", "--no-build-isolation", "--no-index", "-e", str(root))
+        # Remove packages that are installed but not pinned in any lockfile.
+        # Only do this when explicitly rebuilding (--repair or --force-setup),
+        # not on the first creation of a fresh venv.
+        if force or rebuild:
+            extra = unlocked_packages(root, python)
+            if extra:
+                print(f"Removing untracked packages: {', '.join(sorted(extra))}", file=sys.stderr)
+                _pip(python, "uninstall", "--yes", *sorted(extra))
         (venv / STATE_FILE).write_text(json.dumps({"fingerprint": fingerprint}), encoding="utf-8")
         report.add("ok", "dependencies", "installed from lockfile")
     else:

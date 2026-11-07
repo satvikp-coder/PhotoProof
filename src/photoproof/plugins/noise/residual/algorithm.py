@@ -9,6 +9,7 @@ Requires PyWavelets for the discrete wavelet transform.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -95,7 +96,9 @@ def _wiener_threshold(detail: np.ndarray, sigma: float) -> float:
         return 0.0
     var_detail = np.var(detail)
     noise_var = sigma**2
-    if var_detail <= noise_var:
+    if noise_var <= 0 or var_detail <= noise_var:
+        # No usable noise estimate, or the subband explains less than the noise:
+        # nothing can be attributed to noise, so no coefficient is shrunk.
         return 0.0
     # Wiener threshold based on SNR
     snr = var_detail / noise_var
@@ -169,7 +172,9 @@ def analyze_residual(
 
     # Perform wavelet decomposition
     try:
-        coeffs = pywt.wavedec2(padded, wavelet, level=levels, mode="periodization")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            coeffs = pywt.wavedec2(padded, wavelet, level=levels, mode="periodization")
     except ValueError as error:
         raise InputRejectedError(f"wavelet decomposition failed: {error}") from error
 

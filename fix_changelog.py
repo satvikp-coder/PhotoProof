@@ -1,4 +1,4 @@
-with open('CHANGELOG.md', 'r') as f:
+with open("CHANGELOG.md") as f:
     content = f.read()
 
 old = "deduplication.\n\n### Changed"
@@ -13,8 +13,8 @@ new = """deduplication.
 
 if old in content:
     content = content.replace(old, new)
-    with open('CHANGELOG.md', 'w') as f:
+    with open("CHANGELOG.md", "w") as f:
         f.write(content)
-    print('REPLACED')
+    print("REPLACED")
 else:
-    print('NOT FOUND')
+    print("NOT FOUND")

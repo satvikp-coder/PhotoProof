@@ -10,8 +10,9 @@ the request when:
 - a `requires` dependency does not exist;
 - the graph contains a cycle (through `requires` or `after`);
 - a dependency has a *later* priority than its dependent (priority inversion);
-- an input contract is neither a run input (`input.target`, `input.reference`) nor
-  an output of a plugin listed in `requires`;
+- an input contract is neither a run input (`input.target`, `input.reference`, and the
+  media contracts the host resolves: `input.original_bytes`, `image.decoded`,
+  `image.working`) nor an output of a plugin listed in `requires`;
 - two plugins declare the same output contract;
 - a profile enables/disables an unknown plugin.
 
@@ -80,7 +81,11 @@ Illegal transitions raise `InvalidTransitionError`. Terminal states are final.
   `ArtifactRef` is allowed and normalized to `{"artifact": {...}}`) and total at most
   1 MiB; otherwise `FAILED` / `invalid_output`. Bulk data belongs in artifacts.
 - Plugins receive a deep copy of their inputs, so they cannot alter another plugin's
-  recorded outputs. Artifact names must be unique per plugin and run.
+  recorded outputs; read-only pixel arrays are shared instead of copied. Artifact names
+  must be unique per plugin and run.
+- A declared input the run could not provide (for example a decode failure for
+  `image.decoded`) marks the plugin `SKIPPED` / `dependency_unavailable` with the reason
+  recorded in the manifest. Missing pixels are never treated as clean evidence.
 - Timeouts (`timeout_seconds` or `scheduling.default_plugin_timeout_seconds`) mark the
   plugin `TIMEOUT`. **Limitation:** the in-process thread cannot be killed and keeps
   running in the background; its late artifacts are never attached to the run.

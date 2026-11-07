@@ -21,7 +21,7 @@ METADATA = {
     "requires": (),
     "after": (),
     "entry_point": "processor:run",
-    "inputs": ("input.original_bytes", "image.working"),
+    "inputs": ("input.original_bytes",),
     "outputs": ("metadata.summary", "metadata.findings"),
     "timeout_seconds": 30,
     "supported_formats": (),

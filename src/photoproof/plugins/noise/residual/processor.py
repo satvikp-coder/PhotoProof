@@ -55,7 +55,7 @@ def run(ctx: PluginContext) -> dict[str, object]:
     return {
         "noise.residual": artifact_ref,
         "noise.sigma_global": result["sigma_global"],
-        "noise.summary": {
+        "noise.residual_summary": {
             "sigma_global": result["sigma_global"],
             "wavelet": result["wavelet"],
             "levels": result["levels"],

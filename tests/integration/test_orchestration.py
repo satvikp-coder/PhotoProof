@@ -71,7 +71,7 @@ def test_complete_run_with_mock_plugins(make_app: Factory) -> None:
 
 
 def test_no_detectors_installed(make_app: Factory) -> None:
-    app = make_app("photoproof.plugins")
+    app = make_app("mockplugins.none")
     result = _analyze(app)
     assert result.status is RunStatus.NO_DETECTORS and result.plugins == ()  # type: ignore[attr-defined]
     assert "verdict" not in result.model_dump()  # type: ignore[attr-defined]

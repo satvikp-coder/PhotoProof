@@ -20,7 +20,15 @@ _ID = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$"  # e.g. "compression.ela"
 _CONTRACT = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$"  # e.g. "input.target", "noise.residual_map"
 _ENTRY = r"^[a-z_][a-z0-9_]*:[A-Za-z_][A-Za-z0-9_]*$"  # module-in-package:attribute
 
-RUN_INPUTS = frozenset({"input.target", "input.reference"})
+#: Contracts a run provides. ``input.target``/``input.reference`` descriptors come from
+#: the request; the media contracts (PP-012) are resolved once per run from stored
+#: evidence: ``input.original_bytes`` is the stored original, ``image.decoded`` the
+#: pixels as decoded, and ``image.working`` the normalized working image, both handed
+#: to declaring plugins as read-only NumPy arrays. A run that cannot resolve them skips
+#: the plugins that declared them; missing pixels are never clean evidence.
+RUN_INPUTS = frozenset(
+    {"input.target", "input.reference", "input.original_bytes", "image.decoded", "image.working"}
+)
 
 
 class PluginMetadata(BaseModel):

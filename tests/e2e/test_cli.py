@@ -32,16 +32,20 @@ def test_launcher_version() -> None:
 def test_cli_status_doctor_analyze_manifest(app_root: Path, target_file: Path) -> None:
     status = _cli(app_root, "status")
     assert status.returncode == 0, status.stderr
-    assert "No production forensic detectors are installed" in status.stdout
+    assert "registered" in status.stdout
 
     doctor = _cli(app_root, "doctor", "--json")
     assert doctor.returncode == 0, doctor.stdout
-    assert all(r["severity"] == "ok" for r in json.loads(doctor.stdout))
+    checks = json.loads(doctor.stdout)
+    not_ok = [r for r in checks if r["severity"] != "ok"]
+    assert not_ok == [], not_ok  # a healthy repaired runtime has no findings at all
 
     analyze = _cli(app_root, "analyze", str(target_file), "--json")
-    assert analyze.returncode == 0, analyze.stderr
     result = json.loads(analyze.stdout)
-    assert result["status"] == "NO_DETECTORS"
+    # The fixture is an undecodable JPEG: the pixel detectors skip and the run reports
+    # INCOMPLETE, which exits nonzero. It must never claim a verdict.
+    assert result["status"] == "INCOMPLETE" and analyze.returncode == 7
+    assert "verdict" not in result
 
     shown = _cli(app_root, "manifest", result["run_id"])
     assert shown.returncode == 0 and result["run_id"] in shown.stdout
@@ -63,4 +67,7 @@ def test_cli_rejects_oversized_input(app_root: Path, tmp_path: Path) -> None:
 
 def test_cli_ignore_blacklist_flag_accepted(app_root: Path, target_file: Path) -> None:
     result = _cli(app_root, "--ignore-blacklist", "analyze", str(target_file))
-    assert result.returncode == 0, result.stderr
+    # The flag is accepted (no policy error); the run itself is INCOMPLETE (exit 7)
+    # because the fixture JPEG cannot be decoded.
+    assert result.returncode in {0, 7}, result.stderr
+    assert "INCOMPLETE" in result.stdout or "COMPLETED" in result.stdout

@@ -86,5 +86,5 @@ def run(ctx: PluginContext) -> dict[str, object]:
     return {
         "noise.sigma_map": sigma_artifact_ref,
         "noise.consistency_map": consistency_artifact_ref,
-        "noise.summary": summary,
+        "noise.variance_summary": summary,
     }

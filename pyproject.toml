@@ -81,10 +81,16 @@ strict = true
 files = ["src", "main.py", ".github/scripts"]
 mypy_path = "src"
 plugins = ["pydantic.mypy"]
+# The CI quality job runs on Ubuntu, so type checking targets Linux. Without this,
+# Windows-only and Unix-only modules resolve differently on a developer machine and
+# the same code passes locally while failing CI (or the reverse).
+platform = "linux"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["tests", "tests/fixtures"]
+# "." makes ``tests.fixtures.*`` imports work whether or not pytest was started with
+# ``python -m`` (CI runs the console script, which does not add the working directory).
+pythonpath = [".", "tests", "tests/fixtures"]
 addopts = "-ra --strict-markers"
 filterwarnings = ["error"]
 faulthandler_timeout = 120  # dump every stack if a test hangs, so CI shows where

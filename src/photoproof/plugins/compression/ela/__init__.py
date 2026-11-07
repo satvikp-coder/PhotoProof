@@ -15,7 +15,7 @@ METADATA = {
     "after": (),
     "entry_point": "processor:run",
     "inputs": ("image.decoded",),
-    "outputs": ("compression.ela_map", "compression.ela_anomaly"),
+    "outputs": ("compression.ela_map", "compression.ela_anomaly", "compression.ela_summary"),
     "timeout_seconds": 60,
     "supported_formats": ("jpeg",),
     "deterministic": True,
