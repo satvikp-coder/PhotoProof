@@ -324,4 +324,4 @@ def render_html(report: Report) -> str:
 
 def render_json(report: Report) -> str:
     """Render a :class:`Report` to a JSON string."""
-    return report.model_dump_json(indent=2)
+    return str(report.model_dump_json(indent=2))
