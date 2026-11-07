@@ -85,6 +85,7 @@ def _run_analysis_subprocess(app_root: Path, run_id: str) -> dict:
         check=False,
         text=True,
         timeout=120,
+        check=False,
     )
     if result.returncode != 0:
         return {"run_id": run_id, "error": f"exit {result.returncode}: {result.stderr}"}
@@ -189,6 +190,7 @@ def test_repair_does_not_mark_live_run_aborted(app_root: Path) -> None:
         check=False,
         text=True,
         timeout=120,
+        check=False,
     )
     assert proc.returncode == 0, f"Repair failed: {proc.stderr}"
 

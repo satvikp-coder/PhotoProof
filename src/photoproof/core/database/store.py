@@ -83,6 +83,25 @@ MIGRATIONS: Sequence[str] = (
     ALTER TABLE runs ADD COLUMN pid INTEGER;
     ALTER TABLE runs ADD COLUMN hostname TEXT;
     """,
+    # 4: durable job queue for asynchronous analysis
+    """
+    CREATE TABLE jobs (
+        job_id TEXT PRIMARY KEY,
+        state TEXT NOT NULL
+            CHECK (state IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+        payload TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 1,
+        lease_until TEXT,
+        worker_id TEXT,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        error_message TEXT
+    );
+    CREATE INDEX jobs_state_lease ON jobs(state, lease_until);
+    CREATE INDEX jobs_idempotency ON jobs(idempotency_key);
+    """,
 )
 LATEST_VERSION = len(MIGRATIONS)
 
@@ -127,9 +146,10 @@ class Database:
             )  # explicit transactions
             conn.execute("PRAGMA foreign_keys = ON")
             conn.execute("PRAGMA busy_timeout = 30000")
+            conn.execute("PRAGMA journal_mode=WAL")
             conn.row_factory = sqlite3.Row
         except sqlite3.Error as error:
-            raise DatabaseError(f"{path}: cannot open database: {error}") from error
+            raise DatabaseError(f"{path}: unreadable database: {error}") from error
         db = cls(conn, path)
         try:
             version = db.schema_version()
@@ -286,6 +306,45 @@ class Database:
 
     def set_run_status(self, run_id: str, status: str) -> None:
         self._write("UPDATE runs SET status = ? WHERE run_id = ?", (status, run_id))
+
+    def claim_job(self, worker_id: str, lease_seconds: int) -> dict[str, object] | None:
+        """Atomically claim the oldest queued job.
+
+        Uses ``BEGIN IMMEDIATE`` for an immediate write lock so concurrent
+        claimers cannot both select the same job. Returns the job row as a
+        dict, or ``None`` if no queued jobs are available.
+        """
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute(
+                    """
+                    UPDATE jobs
+                    SET state = 'running',
+                        worker_id = ?,
+                        lease_until = datetime('now', ? || ' seconds'),
+                        attempts = attempts + 1,
+                        updated_at = datetime('now')
+                    WHERE job_id = (
+                        SELECT job_id FROM jobs
+                        WHERE state = 'queued'
+                        ORDER BY created_at
+                        LIMIT 1
+                    )
+                    RETURNING job_id, state, payload, attempts, max_attempts,
+                              lease_until, worker_id, idempotency_key,
+                              created_at, updated_at, error_message
+                    """,
+                    (worker_id, str(lease_seconds)),
+                ).fetchone()
+                self._conn.execute("COMMIT")
+                return dict(row) if row else None
+            except BaseException:
+                with suppress(sqlite3.Error):
+                    self._conn.execute("ROLLBACK")
+                raise
+        except sqlite3.Error as error:
+            raise DatabaseError(f"{self.path}: job claim failed: {error}") from error
 
     def unfinished_runs(self, *, older_than: str) -> list[dict[str, object]]:
         """Runs without ``finished_at`` created before the ISO timestamp ``older_than``,

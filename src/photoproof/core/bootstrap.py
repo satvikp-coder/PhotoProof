@@ -27,6 +27,7 @@ from photoproof.core.logging.setup import (
 )
 from photoproof.core.pipeline.discovery import BUILTIN_PLUGIN_PACKAGE, discover
 from photoproof.core.pipeline.registry import PluginRegistry
+from photoproof.core.services.jobs import JobQueue
 from photoproof.core.storage.evidence import EvidenceStore
 from photoproof.core.storage.store import RuntimeStorage
 from photoproof.imaging.decoder import DecodeLimits
@@ -48,6 +49,7 @@ class Application:
     bus: EventBus
     decoders: DecoderRegistry = field(default_factory=default_decoders)
     _db: Database | None = field(default=None, repr=False)
+    _job_queue: JobQueue | None = field(default=None, repr=False)
     started: bool = False
 
     @property
@@ -65,6 +67,12 @@ class Application:
             return self.database() if self.database_path.parent.is_dir() else None
         except DatabaseError:
             return None
+
+    def job_queue(self) -> JobQueue:
+        """The durable job queue for asynchronous analysis execution."""
+        if self._job_queue is None:
+            self._job_queue = JobQueue(self.database(), self.settings.jobs)
+        return self._job_queue
 
     def evidence(self) -> EvidenceStore:
         """The verifying store for original evidence. Raises ``DatabaseError``."""
