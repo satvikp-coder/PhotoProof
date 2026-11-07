@@ -529,7 +529,12 @@ def unlocked_packages(root: Path, python: Path) -> list[str]:
         "print('\\n'.join(d.metadata['Name'] for d in m.distributions()))"
     )
     try:
-        result = subprocess.run([str(python), "-c", code], capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            [str(python), "-c", code],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
     except (FileNotFoundError, OSError):
         return []
     installed = {norm(n) for n in result.stdout.split() if n}
