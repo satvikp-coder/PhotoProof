@@ -28,7 +28,7 @@ dependencies = [
   "Pillow>=13,<14",  # decoder for JPEG, PNG and WebP (MIT-CMU); 13.0 fixes known CVEs
   "numpy>=1.26,<3",  # image-array contract and detector algorithms (BSD-3); added by #72
   "PyWavelets>=1.3,<2",  # wavelet transforms for noise residual analysis (MIT); added by #18
-  "opencv-python-headless>=4.8,<5",  # SIFT keypoint detection (Apache-2.0); added by #20
+  "opencv-python-headless>=4.8,<6",  # SIFT keypoint detection (Apache-2.0); added by #20
   "pydantic>=2.9,<3",
   "ruamel.yaml>=0.18,<0.20",  # pure-Python wheel: installs on every supported version
 ]
