@@ -57,11 +57,13 @@ def _child_entry(
     """Run in the child process: set limits, decode, send result back.
 
     The worker is started once and reused for multiple decode calls. Each request
-    arrives on ``conn`` as ``(data_bytes,)``; each response is ``("ok",
-    decoded_image)`` or ``("error", exception)``. A ``None`` request shuts down
-    the worker.
+    arrives on ``conn`` as ``(data_bytes, limits_dict)``; each response is
+    ``("ok", decoded_image)`` or ``("error", exception)``. A ``None`` request
+    shuts down the worker.
     """
     try:
+        _apply_limits(limits_dict)
+
         # Import the adapter lazily inside the child.
         module_name, class_name = adapter_name.rsplit(".", 1)
         module = __import__(module_name, fromlist=[class_name])
@@ -131,12 +133,9 @@ class _IsolatedWorker:
 
     def _start_child(self) -> None:
         """Start the isolated child process and wait for it to be ready."""
-        # Use fork context when available (faster than spawn, no re-import),
-        # fall back to spawn on platforms without fork (Windows).
-        try:
-            ctx: Any = mp.get_context("fork")
-        except (ValueError, AttributeError):
-            ctx = mp.get_context("spawn")
+        # Use spawn context (fork causes deprecation warnings on macOS py3.15+
+        # when called from a multi-threaded process).
+        ctx: Any = mp.get_context("spawn")
 
         parent_conn, child_conn = ctx.Pipe()
 
