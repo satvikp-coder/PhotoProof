@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import contextlib
 import multiprocessing as mp
-import threading
 from typing import Any, cast
 
 from photoproof.contracts.exceptions import (
@@ -194,29 +193,19 @@ class _IsolatedWorker:
         }
         self._conn.send((data, limits_dict))
 
-        result: list[Any] = []
-
-        def _recv() -> None:
-            try:
-                result.append(self._conn.recv())
-            except Exception as exc:  # noqa: BLE001 - capture any recv error
-                result.append(exc)
-
-        recv_thread = threading.Thread(target=_recv, daemon=True)
-        recv_thread.start()
-        recv_thread.join(timeout=timeout_seconds + 1)
-
-        if recv_thread.is_alive():
+        # Wait for the child to respond or timeout.
+        if not self._conn.poll(timeout_seconds + 1):
             # Child hasn't responded within timeout - kill it.
             self._proc.kill()
             self._proc.join(timeout=5)
             raise DecoderTimeout(f"decoder exceeded {timeout_seconds}s wall-clock limit") from None
 
-        result_item = result[0]
-        if isinstance(result_item, Exception):
-            raise result_item
-
-        kind, payload = result_item
+        try:
+            kind, payload = self._conn.recv()
+        except (EOFError, OSError):
+            # Child process died during decode.
+            self._proc.join(timeout=5)
+            raise DecoderCrashed("decoder child died during decode") from None
 
         if kind == "ok":
             return cast(DecodedImage, payload)
