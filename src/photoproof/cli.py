@@ -134,6 +134,14 @@ def _parser() -> argparse.ArgumentParser:
         "--description",
         help="short description of the plugin",
     )
+    diagnose = sub.add_parser(
+        "diagnose", help="show diagnostics for failed or skipped plugins in a run"
+    )
+    diagnose.add_argument("run_id", help="run ID to diagnose")
+    diagnose.add_argument(
+        "--plugin",
+        help="show detail for one plugin (default: list all non-success plugins)",
+    )
     return parser
 
 
@@ -447,6 +455,102 @@ def cmd_new_plugin(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _failure_hint(ex: dict[str, object]) -> str:
+    """Return an actionable hint for a failed/skipped plugin execution."""
+    category = ex.get("failure_category")
+    message = ex.get("message") or ""
+    if category == "timeout":
+        return f"execution exceeded the effective timeout; {message}"
+    if category == "dependency_unavailable":
+        deps = ex.get("dependency_status") or {}
+        if not isinstance(deps, dict):
+            deps = {}
+        chain = ", ".join(f"{k}={v}" for k, v in deps.items()) or "no dependencies recorded"
+        return f"dependency unavailable: {chain}"
+    if category == "config_error":
+        return f"configuration error: {message}"
+    if category == "invalid_output":
+        return f"output did not match declared contract: {message}"
+    if category == "load_error":
+        return f"plugin could not be loaded: {message}"
+    if category == "interrupted":
+        return "run was interrupted before this plugin finished"
+    if category == "aborted_by_policy":
+        return "plugin was aborted by policy"
+    if category == "exception":
+        return f"unhandled exception: {message}"
+    return str(message or "no further detail")
+
+
+def cmd_diagnose(app: Application, run_id: str, plugin_id: str | None) -> int:
+    """Show diagnostics for failed or skipped plugins in a run."""
+    app.storage.ensure_layout()
+    manifest = app.storage.read_json("manifests", f"{run_id}.json")
+    if not isinstance(manifest, dict):
+        print(f"error: manifest for run {run_id} is not a JSON object", file=sys.stderr)
+        return EXIT_ERROR
+
+    executions = manifest.get("executions", {}) or {}
+    if not executions:
+        print(f"no plugin executions recorded for run {run_id}")
+        return EXIT_OK
+
+    non_success = {
+        pid: ex
+        for pid, ex in executions.items()
+        if ex.get("state") not in {"completed", "not_applicable"}
+    }
+
+    if not non_success:
+        print(f"run {run_id}: all plugins completed successfully")
+        return EXIT_OK
+
+    if plugin_id is not None:
+        ex = non_success.get(plugin_id)
+        if ex is None:
+            print(
+                f"plugin {plugin_id!r} not found among non-success plugins for run {run_id}",
+                file=sys.stderr,
+            )
+            return EXIT_USAGE
+        state = ex.get("state", "unknown")
+        category = ex.get("failure_category") or "none"
+        message = ex.get("message") or "none"
+        started = ex.get("started_at") or "not started"
+        finished = ex.get("finished_at") or "not finished"
+        deps = ex.get("dependency_status") or {}
+        dep_str = ", ".join(f"{k}={v}" for k, v in deps.items()) or "none"
+        print(f"=== Plugin: {plugin_id} ===")
+        print(f"state: {state}")
+        print(f"failure category: {category}")
+        print(f"hint: {_failure_hint(ex)}")
+        print(f"message: {message}")
+        print(f"started: {started}")
+        print(f"finished: {finished}")
+        print(f"dependency status: {dep_str}")
+        if ex.get("exception_type"):
+            print(f"exception type: {ex['exception_type']}")
+        if ex.get("traceback"):
+            print("\n--- traceback ---")
+            print(ex["traceback"])
+        # Re-execution hint
+        profile = manifest.get("profile", "default")
+        print(f"\nRe-run: python main.py analyze <target> --no-cache --profile {profile}")
+        return EXIT_OK
+
+    # List all non-success plugins
+    print(f"Run {run_id}: {len(non_success)} non-success plugin(s)")
+    print()
+    for pid in sorted(non_success):
+        ex = non_success[pid]
+        state = ex.get("state", "unknown")
+        category = ex.get("failure_category") or "none"
+        print(f"  {state:<15} {pid:<40} {category}")
+    print()
+    print("Use `photoproof diagnose <run-id> --plugin <id>` for detail and traceback.")
+    return EXIT_OK
+
+
 def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
     path = app.storage.path("manifests", f"{run_id}.json")
     manifest = app.storage.read_json("manifests", f"{run_id}.json")
@@ -522,6 +626,8 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
             return cmd_report(app, args.run_id, args.format, args.output)
         if command == "new-plugin":
             return cmd_new_plugin(args)
+        if command == "diagnose":
+            return cmd_diagnose(app, args.run_id, args.plugin)
         return EXIT_USAGE
     except (InputRejectedError, PolicyError, StorageError) as error:
         print(f"error: {error}", file=sys.stderr)
