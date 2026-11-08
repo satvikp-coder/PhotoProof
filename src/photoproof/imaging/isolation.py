@@ -74,7 +74,7 @@ def _child_entry(
             msg = conn.recv()
             if msg is None:  # shutdown signal
                 return
-            if msg[0] == b"__ping__":
+            if msg in (b"__ping__", (b"__ping__",)):
                 conn.send(("ok", None))
                 continue
             data, request_limits_dict = msg
