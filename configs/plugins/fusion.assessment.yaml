@@ -1,0 +1,5 @@
+# fusion.assessment configuration.
+# Coverage rules for determining evidence sufficiency.
+
+minimum_families_for_sufficient_coverage: 2
+manipulation_confidence_threshold: 0.5
