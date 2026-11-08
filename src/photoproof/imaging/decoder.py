@@ -53,7 +53,8 @@ class ImageDecoder(Protocol):
     write to disk; and report codec library versions for manifests.
     """
 
-    formats: frozenset[str]
+    @property
+    def formats(self) -> frozenset[str]: ...
 
     def library_versions(self) -> dict[str, str]: ...
 
