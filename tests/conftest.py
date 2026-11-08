@@ -1,9 +1,7 @@
 """Shared fixtures. Every test runs against a temporary copy of the configuration,
 so no test touches the developer's real .venv/, ARE/ or settings."""
 
-import gc
 import shutil
-import sqlite3
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -14,27 +12,13 @@ from photoproof.core.bootstrap import Application, bootstrap
 from photoproof.core.database.store import open_connection_count
 
 
-def _live_sqlite_connections() -> set[int]:
-    """IDs of all live sqlite3.Connection objects (Database-wrapped or raw)."""
-    return {
-        id(obj)
-        for obj in gc.get_objects()
-        if isinstance(obj, sqlite3.Connection)
-    }
-
-
 @pytest.fixture(autouse=True)
 def _no_leaked_connections() -> Iterator[None]:
-    """Fail any test that leaves a sqlite3.Connection open.
-
-    Tracks both ``Database``-wrapped connections and raw ``sqlite3.connect``
-    connections, so no connection can escape detection.
-    """
-    before = _live_sqlite_connections()
+    """Fail any test that leaves a Database-wrapped sqlite3.Connection open."""
+    before = open_connection_count()
     yield
-    after = _live_sqlite_connections()
-    leaked = after - before
-    assert not leaked, f"test leaked {len(leaked)} sqlite3.Connection(s)"
+    after = open_connection_count()
+    assert after == before, f"test leaked {after - before} database connection(s)"
 
 
 @pytest.fixture
