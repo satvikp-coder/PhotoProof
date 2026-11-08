@@ -33,16 +33,13 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify pinned uv binary
-        run: |
-          curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz" \
-            -o /tmp/uv.tar.gz
-          echo "${{ secrets.UV_SHA256 }}  /tmp/uv.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/uv.tar.gz -C /tmp
-          echo "/tmp/uv-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
+      - name: Install uv
+        run: |
+          python -m pip install uv==${UV_VERSION}
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Check for existing open dependency PR
         id: existing_pr
         run: |
@@ -70,10 +67,10 @@ jobs:
             uv pip compile pyproject.toml --group build --universal --python-version 3.11 --generate-hashes --upgrade -o requirements.lock
             uv pip compile pyproject.toml --group build --group dev --universal --python-version 3.11 --generate-hashes --upgrade -o requirements-dev.lock
           else
-            uv lock
+            uv lock --locked --upgrade-package uv
           fi
           # Check whether anything changed
-          if git diff --quiet requirements.lock requirements-dev.lock; then
+          if git diff --quiet requirements.lock requirements-dev.lock requirements-tools.lock; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -89,13 +86,13 @@ jobs:
         run: |
           git config user.name "PhotoProof dependency automation"
           git config user.email "deps@photoproof.local"
-          git checkout -b deps/auto-$(date +%Y%m%d)
+          git checkout -b deps/auto-$(date +%Y%m%d)-$(date +%s)
       - name: Bump PATCH version and add changelog entry
         run: |
           python .github/scripts/governance.py deps-pr \
             --changelog CHANGELOG.md \
             --app-toml app.toml \
-            --changed-packages "$(git diff --name-only requirements.lock requirements-dev.lock | tr '\n' ', ')"
+            --changed-packages "$(git diff --name-only requirements.lock requirements-dev.lock requirements-tools.lock | tr '\n' ', ')"
       - name: Install dev dependencies from regenerated lockfiles
         run: |
           python -m pip install --require-hashes --only-binary :all: -r requirements-dev.lock
@@ -118,11 +115,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Commit changes
         run: |
-          git add requirements.lock requirements-dev.lock app.toml CHANGELOG.md
+          git add requirements.lock requirements-dev.lock requirements-tools.lock app.toml CHANGELOG.md
           git commit -m "build(deps): regenerate lockfiles and bump PATCH version"
       - name: Push branch and open PR
         run: |
-          git push origin deps/auto-$(date +%Y%m%d)
+          git push origin deps/auto-$(date +%Y%m%d)-$(date +%s)
           gh pr create --repo "$GITHUB_REPOSITORY" \
             --title "build(deps): regenerate lockfiles and bump PATCH version" \
             --body "Regenerates hash-pinned lockfiles with uv, bumps the PATCH version and updates CHANGELOG.md.

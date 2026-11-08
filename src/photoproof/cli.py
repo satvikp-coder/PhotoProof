@@ -693,6 +693,21 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
             return cmd_config(app, args.json)
         if command == "plugins":
             return cmd_plugins(app, args.profile, _override(args), args.json)
+        # Manifest hash verification runs before preflight so a tampered manifest
+        # is reported with EXIT_ERROR even when the audit trail also flags it.
+        if command == "manifest":
+            path = app.storage.path("manifests", f"{args.run_id}.json")
+            manifest = app.storage.read_json("manifests", f"{args.run_id}.json")
+            if isinstance(manifest, dict):
+                run = app.database().get_run(args.run_id)
+                recorded = run.get("manifest_sha256") if run else None
+                if recorded is not None and sha256_file(path) != recorded:
+                    print(
+                        f"error: {path} does not match the SHA-256 recorded for run "
+                        f"{args.run_id}; the manifest was modified after the run",
+                        file=sys.stderr,
+                    )
+                    return EXIT_ERROR
         if (code := _start(app)) is not None:
             return code
         if command == "preflight":

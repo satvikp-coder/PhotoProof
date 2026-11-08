@@ -179,6 +179,10 @@ class Database:
     def close(self) -> None:
         self._conn.close()
 
+    def __del__(self) -> None:
+        with suppress(Exception):  # nosec B110 - best-effort cleanup during garbage collection
+            self._conn.close()
+
     def schema_version(self) -> int:
         return int(self._conn.execute("PRAGMA user_version").fetchone()[0])
 
