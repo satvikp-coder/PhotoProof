@@ -3,7 +3,7 @@ id: PP-051
 title: "feat(core): supervise worker processes that execute queued jobs"
 milestone: M6
 labels: [type:feature, priority:P2, area:core, effort:large, status:ready]
-depends_on: [PP-050]
+depends_on: []
 ---
 ## Summary
 
