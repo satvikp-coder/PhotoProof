@@ -279,6 +279,8 @@ ISSUE → BRANCH → IMPLEMENTATION → TESTS → DOCUMENTATION → CHANGELOG �
    lands (detectors: `algorithm.py` PR first, `processor.py` wiring PR second).
 2. **Discuss scope** in the issue when the acceptance criteria are ambiguous.
 3. **Assign yourself** (or ask a maintainer) and set `status:in-progress`.
+   Team ownership and area splits are recorded in `docs/planning/team.md`;
+   the contributor work-allocation guide is in `docs/development/workflow.md`.
 4. **Branch** using the naming rules above.
 5. **Implement** exactly the acceptance criteria. Out-of-scope ideas become new issues.
 6. **Test**: add tests that would fail without your change.
