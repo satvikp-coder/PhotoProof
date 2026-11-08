@@ -29,6 +29,25 @@ All notable changes to this project are documented here. The format follows
   into suspected manipulation, confirmed differences, and unavailable evidence, with every
   claim traceable to manifest paths and artifact hashes. CLI command `python main.py report
   RUN_ID [--format html|json]` (#46).
+- `imaging/isolation.py`: `IsolatedDecoder` now spawns a short-lived child per decode over a
+  single bound `Pipe` (no `multiprocessing.Queue` feeder thread), enforces a real
+  wall-clock deadline, applies `RLIMIT_AS`/`RLIMIT_CPU` where the platform supports them,
+  validates every child reply (dimensions, pixel count, buffer size, source SHA-256), never
+  trusts arbitrary child exception objects, and cleans up the child on every exit path
+  (#9).
+- `core/database/store.py`: `Database` is now a context manager, `close()` is idempotent,
+  and `open_connection_count()` tracks live connections so tests can assert nothing is left
+  open after success, startup failure, run failure and shutdown (#12).
+- `contracts/plugins.py`: new `optional_inputs` field on `PluginMetadata` (plugin API
+  1.1.0 → 1.2.0). Plugins may declare inputs they read if present without requiring them;
+  the executor never skips a plugin solely for a missing optional input (#9, #32).
+- `contracts/evidence.py`: new `EvidenceLayer` contract — a normalized, comparable
+  representation of one detector's output with a score in ``[0, 1]``, strength class, and
+  explicit ``calibration: uncalibrated`` until #37 provides calibration data (#32).
+- `plugins/fusion/normalize/`: new `fusion.normalize` plugin reads every detector output
+  that is present (declared as optional inputs), maps each to an `EvidenceLayer` via robust
+  z-scoring and logistic squashing, and marks absent detectors as `unavailable` — never as
+  zero-score layers. Priority 90, runs after all detectors (#32).
 
 ### Fixed
 
