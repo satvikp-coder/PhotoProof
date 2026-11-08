@@ -553,14 +553,24 @@ def check_audit_integrity(app: "Application") -> CheckResult:
 
 
 def check_isolation(app: "Application") -> CheckResult:
-    """Which child-process limits this platform can enforce. A limit it cannot enforce is
-    information for the operator, not a fault: the wall-clock limit always applies."""
+    """Which child-process limits this platform can enforce, and the configured mode.
+
+    The configured isolation mode (``imaging.isolation``) determines whether decoding
+    actually runs in an isolated child. ``process`` enforces isolation; ``in_process``
+    is a development-only escape hatch and is not effective isolation.
+    """
     found = capabilities()
     limits = ", ".join(
         f"{name}: {mechanism or 'not enforceable on this platform'}"
         for name, mechanism in (("memory", found.memory), ("cpu", found.cpu))
     )
-    return _ok("isolation.capabilities", f"{limits}, wall clock: enforced")
+    mode = app.settings.imaging.isolation
+    effective = mode == "process"
+    detail = (
+        "effective isolation: yes" if effective else "effective isolation: no (development only)"
+    )
+    message = f"{limits}, wall clock: enforced; imaging.isolation={mode}; {detail}"
+    return _ok("isolation.capabilities", message)
 
 
 def check_imaging_codecs(app: "Application") -> CheckResult:

@@ -9,6 +9,16 @@ import pytest
 from helpers import REPO
 
 from photoproof.core.bootstrap import Application, bootstrap
+from photoproof.core.database.store import open_connection_count
+
+
+@pytest.fixture(autouse=True)
+def _no_leaked_connections() -> Iterator[None]:
+    """Fail any test that leaves a Database-wrapped sqlite3.Connection open."""
+    before = open_connection_count()
+    yield
+    after = open_connection_count()
+    assert after == before, f"test leaked {after - before} database connection(s)"
 
 
 @pytest.fixture

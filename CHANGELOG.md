@@ -61,6 +61,15 @@ All notable changes to this project are documented here. The format follows
   incorrect return keys are fixed; `analyze_clustering` gained `method` and
   `min_matches_per_cluster`, and `clustering_result_to_dict` exists (#22).
 - `core/isolation.py`: fixed mypy errors and the Unix-only `resource` import (#9).
+- `imaging/isolation.py`: `IsolatedDecoder` now spawns a short-lived child per decode over a
+  single bound `Pipe` (no `multiprocessing.Queue` feeder thread), enforces a real
+  wall-clock deadline, applies `RLIMIT_AS`/`RLIMIT_CPU` where the platform supports them,
+  validates every child reply (dimensions, pixel count, buffer size, source SHA-256), never
+  trusts arbitrary child exception objects, and cleans up the child on every exit path
+  (#9).
+- `core/database/store.py`: `Database` is now a context manager, `close()` is idempotent,
+  and `open_connection_count()` tracks live connections so tests can assert nothing is left
+  open after success, startup failure, run failure and shutdown (#12).
 - Tests: `tests.fixtures.*` imports work whether or not pytest is started with
   `python -m` (CI runs the console script), and mypy targets Linux, matching the CI
   quality job.

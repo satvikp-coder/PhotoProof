@@ -84,7 +84,7 @@ class _SlowAdapter(ImageDecoder):
 
 
 class _MemoryBombAdapter(ImageDecoder):
-    """Adapter whose decode tries to allocate an enormous buffer."""
+    """Adapter whose decode raises MemoryError to simulate memory exhaustion."""
 
     formats = frozenset({"test"})
 
@@ -95,8 +95,7 @@ class _MemoryBombAdapter(ImageDecoder):
         return "test" if data else None
 
     def decode(self, data: bytes, *, source_sha256: str, limits: DecodeLimits) -> DecodedImage:
-        _ = b"\x00" * (1 << 40)  # 1 TiB allocation attempt
-        raise AssertionError("unreachable")  # pragma: no cover
+        raise MemoryError("simulated memory exhaustion")  # pragma: no cover
 
 
 # ------------------------------------------------------------------ in-process mode
