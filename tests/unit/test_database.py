@@ -43,8 +43,10 @@ def test_write_failure_is_a_database_error(tmp_path: Path) -> None:
 def test_newer_schema_requires_manual_action(tmp_path: Path) -> None:
     path = tmp_path / "x.db"
     conn = sqlite3.connect(path)
-    conn.execute(f"PRAGMA user_version = {LATEST_VERSION + 5}")
-    conn.close()
+    try:
+        conn.execute(f"PRAGMA user_version = {LATEST_VERSION + 5}")
+    finally:
+        conn.close()
     with pytest.raises(DatabaseError, match="newer than this release"):
         Database.open(path)
 
@@ -72,9 +74,11 @@ def test_failed_migration_rolls_back(tmp_path: Path, monkeypatch: pytest.MonkeyP
     with pytest.raises(DatabaseError, match="rolled back"):
         Database.open(path, allow_migration=True)
     conn = sqlite3.connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_VERSION
-    assert conn.execute("SELECT name FROM sqlite_master WHERE name='ok'").fetchone() is None
-    conn.close()
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_VERSION
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name='ok'").fetchone() is None
+    finally:
+        conn.close()
 
 
 # ------------------------------------------------------------------ connection lifecycle
