@@ -116,10 +116,8 @@ _open_connections: set[sqlite3.Connection] = set()
 def _close_all_connections() -> None:
     """Close all open database connections at interpreter shutdown."""
     for conn in list(_open_connections):
-        try:
+        with suppress(Exception):  # nosec B110 - best-effort cleanup at shutdown
             conn.close()
-        except Exception:  # nosec B110 - best-effort cleanup at shutdown
-            pass
     _open_connections.clear()
 
 
@@ -150,6 +148,10 @@ class Database:
         self._conn = connection
         self.path = path
         _open_connections.add(connection)
+
+    def __del__(self) -> None:
+        with suppress(Exception):  # nosec B110 - best-effort cleanup during garbage collection
+            self.close()
 
     # --------------------------------------------------------------- lifecycle
 

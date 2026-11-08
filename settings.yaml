@@ -82,6 +82,9 @@ reporting:
 services:
   background_workers: 0        # reserved: background job workers are planned; must be 0
 
+imaging:
+  isolation: process           # process | in_process (in_process only in development)
+
 ui:
   host: 127.0.0.1              # reserved for WebKit (planned)
   port: 8501

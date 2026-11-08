@@ -224,6 +224,10 @@ class DevelopmentSettings(_Strict):
     debug: StrictBool
 
 
+class ImagingSettings(_Strict):
+    isolation: Literal["process", "in_process"] = "process"
+
+
 class Settings(_Strict):
     schema_version: int = Field(ge=1)
     environment: EnvironmentSettings
@@ -247,6 +251,7 @@ class Settings(_Strict):
     reporting: ReportingSettings
     services: ServiceSettings
     ui: UISettings
+    imaging: ImagingSettings
     development: DevelopmentSettings
 
     @model_validator(mode="after")
@@ -259,6 +264,8 @@ class Settings(_Strict):
             problems.append("security.allow_blacklist_bypass must be false in production")
         if production and self.ui.host not in {"127.0.0.1", "localhost", "::1"}:
             problems.append("ui.host must be a loopback address until WebKit authentication exists")
+        if production and self.imaging.isolation != "process":
+            problems.append("imaging.isolation must be process in production")
         overlap = set(self.plugins.blacklist) & set(self.security.forbidden_plugins)
         if overlap:
             problems.append(
