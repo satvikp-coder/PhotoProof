@@ -335,3 +335,31 @@ dependency semantics, the state machine and failure policies. In short:
   keys, so any change to what the plugin ships invalidates cached results.
 - A plugin is compatible with host API `X.Z.*` if it was built for `X.Y.*` with
   `Y <= Z`. During `0.x` the minor version must match exactly.
+
+## Scaffolding new plugins
+
+Use the `new-plugin` CLI command to generate a consistent plugin skeleton:
+
+```
+python main.py new-plugin <family>.<name>
+```
+
+This creates:
+
+- `src/photoproof/plugins/<family>/<name>/__init__.py` — complete `METADATA`
+- `src/photoproof/plugins/<family>/<name>/algorithm.py` — pure NumPy stub (raises `NotImplementedError`)
+- `src/photoproof/plugins/<family>/<name>/processor.py` — context → algorithm → outputs wiring
+- `src/photoproof/plugins/<family>/<name>/schema.py` — pydantic config model
+- `tests/unit/plugins/test_<family>_<name>.py` — metadata validity + algorithm tests (one `xfail`)
+- `docs/plugins/<family>-<name>.md` — detector page template
+
+Options:
+
+| Option | Meaning |
+|---|---|
+| `--priority N` | Plugin scheduling priority (default depends on family) |
+| `--required` | Mark the plugin as required at the pipeline level |
+| `--no-enabled-default` | Disable the plugin by default |
+| `--description TEXT` | Short description for METADATA |
+
+After generating, add the docs page to the `mkdocs.yml` nav, write the algorithm, run ruff and mypy, bump the version and update the changelog.

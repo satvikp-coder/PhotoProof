@@ -1,0 +1,28 @@
+# $name_display
+
+## Mathematical basis
+
+Describe the mathematical basis of $name_display here.
+
+## Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `window_size` | 11 | Example window size in pixels |
+| `threshold` | 0.5 | Example threshold value |
+
+## Limitations
+
+Describe known limitations here.
+
+## False positives
+
+Describe conditions that may cause false positives.
+
+## Applicable formats
+
+List the image formats this detector applies to.
+
+## References
+
+List any academic or technical references.

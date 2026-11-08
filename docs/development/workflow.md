@@ -7,8 +7,8 @@ issues. It is the short form of the full handbook in
 ## Choosing an issue
 
 Start with [`status:ready` issues](https://github.com/satvikp-coder/PhotoProof/issues?q=is%3Aopen+label%3Astatus%3Aready)
-that match your area on the [team page](planning/team.md). Prefer issues on the
-[critical path](planning/index.md#critical-path) — they unblock other people's work.
+that match your area on the [team page](../planning/team.md). Prefer issues on the
+[critical path](../planning/index.md#critical-path) — they unblock other people's work.
 
 Do not start an issue whose label is `status:blocked` — its hard dependencies are not yet
 merged. An issue labelled `status:needs-design` cannot be started until the approach is
@@ -55,7 +55,7 @@ issues (`effort:small`, up to ~2 days) should stay as one PR.
 
 ## Weekly sync checklist
 
-- [ ] Review the [backlog page](planning/backlog.md) for newly `status:ready` issues.
+- [ ] Review the [backlog page](../planning/backlog.md) for newly `status:ready` issues.
 - [ ] Rebase any long-lived branches onto `main`.
 - [ ] Confirm each person still has at most two `status:in-progress` issues.
 - [ ] Check that no `status:blocked` issue can be unblocked by a recently merged PR.

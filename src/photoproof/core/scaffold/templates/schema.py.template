@@ -1,0 +1,17 @@
+"""Configuration schema for the $name_display plugin."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class Config(BaseModel):
+    """$name_display plugin configuration with validation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: Example parameter with a documented default.
+    window_size: int = Field(default=11, ge=3, le=51)
+
+    #: Example threshold parameter.
+    threshold: float = Field(default=0.5, ge=0.0, le=1.0)

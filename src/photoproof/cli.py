@@ -35,6 +35,7 @@ from photoproof.core.database.store import Database
 from photoproof.core.health.checks import CheckResult, default_registry
 from photoproof.core.health.repair import preflight, publish_findings, run_repairs
 from photoproof.core.reporting import build_report, render_html, render_json
+from photoproof.core.scaffold import ScaffoldError, generate
 from photoproof.core.services.housekeeping import HousekeepingService
 from photoproof.core.storage.store import sha256_file
 
@@ -109,6 +110,29 @@ def _parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         help="write report to this file (default: stdout)",
+    )
+    new_plugin = sub.add_parser(
+        "new-plugin", help="generate a plugin skeleton from a family and name"
+    )
+    new_plugin.add_argument("plugin_id", help="plugin id, e.g. copymove.ela")
+    new_plugin.add_argument(
+        "--priority",
+        type=int,
+        help="plugin priority (default depends on family)",
+    )
+    new_plugin.add_argument(
+        "--required",
+        action="store_true",
+        help="mark the plugin as required",
+    )
+    new_plugin.add_argument(
+        "--no-enabled-default",
+        action="store_true",
+        help="disable the plugin by default",
+    )
+    new_plugin.add_argument(
+        "--description",
+        help="short description of the plugin",
     )
     return parser
 
@@ -399,6 +423,30 @@ def cmd_report(app: Application, run_id: str, fmt: str, output: Path | None) -> 
     return EXIT_OK
 
 
+def cmd_new_plugin(args: argparse.Namespace) -> int:
+    """Generate a plugin skeleton from a family and name."""
+    try:
+        target = generate(
+            args.plugin_id,
+            base=Path.cwd(),
+            priority=args.priority,
+            required=args.required,
+            enabled_default=not args.no_enabled_default,
+            description=args.description,
+        )
+    except ScaffoldError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return EXIT_USAGE
+
+    print(f"plugin scaffold created at {target}")
+    print("Next steps:")
+    print("  1. Add the docs page to the mkdocs.yml nav")
+    print("  2. Write the algorithm in algorithm.py")
+    print("  3. Run ruff and mypy on the generated files")
+    print("  4. Bump the version and update the changelog")
+    return EXIT_OK
+
+
 def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
     path = app.storage.path("manifests", f"{run_id}.json")
     manifest = app.storage.read_json("manifests", f"{run_id}.json")
@@ -472,6 +520,8 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
             return cmd_restore(app, args.backup, args.dry_run)
         if command == "report":
             return cmd_report(app, args.run_id, args.format, args.output)
+        if command == "new-plugin":
+            return cmd_new_plugin(args)
         return EXIT_USAGE
     except (InputRejectedError, PolicyError, StorageError) as error:
         print(f"error: {error}", file=sys.stderr)
