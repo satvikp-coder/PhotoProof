@@ -54,6 +54,12 @@ All notable changes to this project are documented here. The format follows
   suspicious alone; medium evidence needs family support or a high score; weak evidence only
   raises confidence where medium/strong support exists. Detector families count once.
   Priority 90, requires `fusion.normalize` (#33).
+- `plugins/fusion/assessment/`: new `fusion.assessment` plugin produces the run's overall
+  assessment category based on coverage (which detectors were available and applicable).
+  Missing evidence leads to `inconclusive` rather than an implied clean result. Categories:
+  `manipulation_indicated`, `differences_found` (comparison mode),
+  `no_indicators_found_with_sufficient_coverage`, `inconclusive`. Priority 95, requires
+  `fusion.rules` (#34).
 
 ### Fixed
 
