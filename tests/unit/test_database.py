@@ -5,7 +5,7 @@ import pytest
 
 from photoproof.contracts.exceptions import DatabaseError
 from photoproof.core.database import store
-from photoproof.core.database.store import LATEST_VERSION, Database
+from photoproof.core.database.store import LATEST_VERSION, Database, open_connection_count
 
 
 def test_new_database_is_migrated(tmp_path: Path) -> None:
@@ -75,3 +75,51 @@ def test_failed_migration_rolls_back(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_VERSION
     assert conn.execute("SELECT name FROM sqlite_master WHERE name='ok'").fetchone() is None
     conn.close()
+
+
+# ------------------------------------------------------------------ connection lifecycle
+
+
+def test_no_connection_left_open_after_normal_use(tmp_path: Path) -> None:
+    """Opening and closing a database leaves no connection open."""
+    assert open_connection_count() == 0
+    path = tmp_path / "normal.db"
+    db = Database.open(path)
+    assert open_connection_count() == 1
+    db.create_run("r1", mode="single", profile="standard", cache_key=None)
+    db.close()
+    assert open_connection_count() == 0
+
+
+def test_no_connection_left_open_after_startup_failure(tmp_path: Path) -> None:
+    """A failed open leaves no connection open (every error path closes)."""
+    assert open_connection_count() == 0
+    path = tmp_path / "fail.db"
+    # Newer schema than this release: open must fail and close the connection.
+    conn = sqlite3.connect(path)
+    conn.execute(f"PRAGMA user_version = {LATEST_VERSION + 5}")
+    conn.close()
+    with pytest.raises(DatabaseError, match="newer than this release"):
+        Database.open(path)
+    assert open_connection_count() == 0
+
+
+def test_context_manager_closes_connection(tmp_path: Path) -> None:
+    """Using Database as a context manager closes the connection on exit."""
+    assert open_connection_count() == 0
+    path = tmp_path / "ctx.db"
+    with Database.open(path) as db:
+        assert open_connection_count() == 1
+        db.create_run("r1", mode="single", profile="standard", cache_key=None)
+    assert open_connection_count() == 0
+    assert db._closed
+
+
+def test_no_connection_left_open_after_app_shutdown(make_app) -> None:
+    """stop() closes the application's database connection."""
+    assert open_connection_count() == 0
+    app = make_app()
+    app.database().create_run("r1", mode="single", profile="standard", cache_key=None)
+    assert open_connection_count() == 1
+    app.stop()
+    assert open_connection_count() == 0
