@@ -175,6 +175,7 @@ class Database:
         requires ``allow_migration`` (the CONTROLLED ``--repair`` path).
         """
         path.parent.mkdir(parents=True, exist_ok=True)
+        conn = None
         try:
             conn = sqlite3.connect(
                 path, isolation_level=None, timeout=30.0
@@ -184,6 +185,8 @@ class Database:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.row_factory = sqlite3.Row
         except sqlite3.Error as error:
+            if conn is not None:
+                conn.close()
             raise DatabaseError(f"{path}: unreadable database: {error}") from error
         db = cls(conn, path)
         try:
@@ -220,8 +223,15 @@ class Database:
             return
         if self._conn in _open_connections:
             _open_connections.discard(self._conn)
-        with suppress(Exception):  # already-closed connections must not raise
+        try:
             self._conn.close()
+        except Exception:
+            # sqlite3_close() can fail (e.g., SQLITE_BUSY); retry once so the
+            # close flag is set and __del__ does not emit a ResourceWarning.
+            try:
+                self._conn.close()
+            except Exception:
+                pass
         self._closed = True
 
     def schema_version(self) -> int:

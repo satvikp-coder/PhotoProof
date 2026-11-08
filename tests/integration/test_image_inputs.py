@@ -35,9 +35,9 @@ class _CrashingDecoder(ImageDecoder):
         return "png" if data.startswith(b"\x89PNG\r\n\x1a\n") else None
 
     def decode(self, data: bytes, *, source_sha256: str, limits: DecodeLimits) -> DecodedImage:
-        import ctypes
+        import os
 
-        ctypes.string_at(0)  # segfault the child
+        os._exit(1)  # terminate the child process immediately (simulates a crash)
         raise AssertionError("unreachable")  # pragma: no cover
 
 
