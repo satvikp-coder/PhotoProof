@@ -4,6 +4,7 @@ A check never changes anything. Repairs are separate callables attached to the
 result and are executed only by ``health.repair``.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -28,13 +29,20 @@ from photoproof.core.isolation import capabilities
 from photoproof.core.pipeline.planner import validate_graph
 from photoproof.core.security.windows.acl import apply_owner_only_acl, other_principals
 from photoproof.core.services.housekeeping import check_quota_health
-from photoproof.core.storage.store import BlobKind
+from photoproof.core.storage.store import BlobKind, sha256_file
 from photoproof.versioning.build import distribution_version
 
 if TYPE_CHECKING:
     from photoproof.core.bootstrap import Application
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _record_sha256(record: dict[str, object]) -> str:
+    """SHA-256 of a record without its own ``sha256`` field."""
+    copy = {k: v for k, v in record.items() if k != "sha256"}
+    encoded = json.dumps(copy, default=str, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -453,6 +461,97 @@ def check_policy_references(app: "Application") -> CheckResult:
     )
 
 
+def check_audit_integrity(app: "Application") -> CheckResult:
+    """Verify the hash-chained audit trail end to end.
+
+    Every record's ``sha256`` must match its content, each ``prev_sha256`` must link
+    to the previous record's ``sha256``, and every ``manifest_sha256`` recorded in a
+    ``RUN_COMPLETED``/``RUN_ABORTED`` entry must match both the database row and the
+    manifest file.  A modification, deletion or reordering anywhere in the chain is
+    detected.
+
+    Returns CRITICAL with a MANUAL repair on any break — the trail cannot be repaired
+    automatically.
+    """
+    audit_path = app.storage.path("logs", "audit.jsonl")
+    if not audit_path.is_file():
+        return _ok("audit.integrity", "no audit trail yet")
+
+    prev_sha = ""
+    expected_seq = 0
+    problems: list[str] = []
+    with audit_path.open("r", encoding="utf-8") as handle:
+        for line_no, raw_line in enumerate(handle, 1):
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+            try:
+                record = json.loads(stripped)
+            except json.JSONDecodeError:
+                problems.append(f"line {line_no}: not valid JSON (partial write)")
+                break
+            seq = record.get("seq")
+            if seq != expected_seq + 1:
+                problems.append(f"line {line_no}: expected seq {expected_seq + 1}, got {seq}")
+            expected_sha = _record_sha256({k: v for k, v in record.items() if k != "sha256"})
+            if record.get("sha256") != expected_sha:
+                problems.append(f"line {line_no}: sha256 does not match content")
+            if record.get("prev_sha256") != prev_sha:
+                problems.append(f"line {line_no}: prev_sha256 chain broken")
+            prev_sha = record.get("sha256", "")
+            expected_seq = seq if isinstance(seq, int) else expected_seq
+
+            # Anchor manifest hashes for finished runs.
+            manifest_sha = record.get("data", {}).get("manifest_sha256")
+            if manifest_sha:
+                run_id = record.get("run_id")
+                if run_id:
+                    db = app.database_or_none()
+                    if db is None:
+                        problems.append(
+                            f"line {line_no}: run {run_id} manifest hash recorded but "
+                            "database unavailable"
+                        )
+                    else:
+                        try:
+                            run = db.get_run(run_id)
+                            if run is None:
+                                problems.append(f"line {line_no}: run {run_id} not in database")
+                            elif run.get("manifest_sha256") != manifest_sha:
+                                problems.append(
+                                    f"line {line_no}: run {run_id} database manifest hash "
+                                    f"{run.get('manifest_sha256')} != audit {manifest_sha}"
+                                )
+                        except DatabaseError:
+                            problems.append(f"line {line_no}: run {run_id} database read failed")
+                        manifest_path = app.storage.path("manifests", f"{run_id}.json")
+                        if manifest_path.is_file():
+                            if sha256_file(manifest_path) != manifest_sha:
+                                problems.append(
+                                    f"line {line_no}: run {run_id} manifest file hash "
+                                    "does not match audit record"
+                                )
+                        else:
+                            problems.append(f"line {line_no}: run {run_id} manifest file missing")
+
+    if problems:
+        return CheckResult(
+            "audit.integrity",
+            Severity.CRITICAL,
+            f"{len(problems)} audit trail integrity problem(s)",
+            tuple(problems),
+            RepairAction(
+                "investigate and restore the audit trail from a verified copy; "
+                "do not edit or truncate audit.jsonl",
+                Repairability.MANUAL,
+            ),
+        )
+    return _ok(
+        "audit.integrity",
+        f"audit trail verified: {expected_seq} records, hash chain intact",
+    )
+
+
 def check_isolation(app: "Application") -> CheckResult:
     """Which child-process limits this platform can enforce. A limit it cannot enforce is
     information for the operator, not a fault: the wall-clock limit always applies."""
@@ -499,6 +598,7 @@ def default_registry(*, deep: bool = True) -> HealthRegistry:
         ("application.version", check_version_consistency),
         ("plugins.graph", check_plugins),
         ("plugins.policy", check_policy_references),
+        ("audit.integrity", check_audit_integrity),
     ):
         registry.register(check_id, check)
     return registry
