@@ -48,6 +48,12 @@ All notable changes to this project are documented here. The format follows
   that is present (declared as optional inputs), maps each to an `EvidenceLayer` via robust
   z-scoring and logistic squashing, and marks absent detectors as `unavailable` — never as
   zero-score layers. Priority 90, runs after all detectors (#32).
+- `plugins/fusion/rules/`: new `fusion.rules` plugin fuses normalized evidence layers into a
+  heuristic suspicion map (`fusion.map`) and per-region evidence summaries (`fusion.evidence`)
+  using transparent, documented rules. Strong evidence (copy-move) can mark a region
+  suspicious alone; medium evidence needs family support or a high score; weak evidence only
+  raises confidence where medium/strong support exists. Detector families count once.
+  Priority 90, requires `fusion.normalize` (#33).
 
 ### Fixed
 
