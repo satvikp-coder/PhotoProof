@@ -94,3 +94,4 @@ nav:
       - Roadmap: planning/index.md
       - Backlog: planning/backlog.md
       - Team: planning/team.md
+      - ADR-003 Optional Plugin Inputs: planning/adr-003-optional-inputs.md

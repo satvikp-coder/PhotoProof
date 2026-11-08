@@ -221,7 +221,11 @@ class SequentialExecutor:
                 )
                 self._finish(run_id, ex, S.SKIPPED, FailureCategory.DEPENDENCY_UNAVAILABLE, detail)
             else:
-                inputs = {name: _lookup(name, run_inputs, report.outputs) for name in meta.inputs}
+                input_names = list(meta.inputs)
+                for name in meta.optional_inputs:
+                    if name in run_inputs or name in report.outputs:
+                        input_names.append(name)
+                inputs = {name: _lookup(name, run_inputs, report.outputs) for name in input_names}
                 ex.transition(S.READY)
                 interrupted = self._run_one(run_id, plugin, ex, inputs, invoke, report)
                 if interrupted:

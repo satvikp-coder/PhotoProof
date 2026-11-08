@@ -1,0 +1,3 @@
+# fusion.normalize configuration.
+# No install-time fields are required; normalization parameters are documented in
+# METADATA.DETECTOR_NORMALIZATION and versioned with the plugin.
