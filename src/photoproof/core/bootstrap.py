@@ -31,7 +31,6 @@ from photoproof.core.services.jobs import JobQueue
 from photoproof.core.storage.evidence import EvidenceStore
 from photoproof.core.storage.store import RuntimeStorage
 from photoproof.imaging.decoder import DecodeLimits
-from photoproof.imaging.isolation import IsolatedDecoder
 from photoproof.imaging.registry import DecoderRegistry, default_decoders
 
 # Default repository root for a source checkout: src/photoproof/core/bootstrap.py -> repo
@@ -166,27 +165,7 @@ def bootstrap(
             plugin_id=plugin.id,
             data={"version": plugin.metadata.version, "package": plugin.package},
         )
-
-    # Create decoders, wrapping with isolation if configured
-    decoder_registry = default_decoders()
-    if settings.imaging.isolation == "process":
-        wrapped_registry = DecoderRegistry()
-        for fmt in decoder_registry.available():
-            decoder = decoder_registry.for_format(fmt)
-            wrapped_registry.register(IsolatedDecoder(decoder, isolation="process"))
-        decoder_registry = wrapped_registry
-
-    return Application(
-        root,
-        identity,
-        settings,
-        profiles,
-        registry,
-        flags,
-        storage,
-        decoders=decoder_registry,
-        bus=bus,
-    )
+    return Application(root, identity, settings, profiles, registry, flags, storage, bus)
 
 
 def attach_persistence(bus: EventBus, db: Database) -> None:
