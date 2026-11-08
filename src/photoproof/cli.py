@@ -34,6 +34,12 @@ from photoproof.core.controller import AnalysisController
 from photoproof.core.database.store import Database
 from photoproof.core.health.checks import CheckResult, default_registry
 from photoproof.core.health.repair import preflight, publish_findings, run_repairs
+from photoproof.core.pipeline.manifest_tools import (
+    diff_manifests,
+    fingerprint_matches,
+    manifest_graph,
+    manifest_timeline,
+)
 from photoproof.core.reporting import build_report, render_html, render_json
 from photoproof.core.scaffold import ScaffoldError, generate
 from photoproof.core.services.housekeeping import HousekeepingService
@@ -73,6 +79,20 @@ def _parser() -> argparse.ArgumentParser:
     manifest = sub.add_parser("manifest", help="show an execution manifest")
     manifest.add_argument("run_id")
     manifest.add_argument("--json", action="store_true")
+    manifest.add_argument(
+        "--graph",
+        choices=["mermaid", "dot"],
+        help="print the dependency graph as Mermaid or DOT",
+    )
+    manifest.add_argument(
+        "--timeline",
+        action="store_true",
+        help="print a per-plugin start and duration table",
+    )
+    manifest_diff = sub.add_parser("manifest-diff", help="compare two execution manifests")
+    manifest_diff.add_argument("run_a")
+    manifest_diff.add_argument("run_b")
+    manifest_diff.add_argument("--json", action="store_true", help="output JSON instead of text")
     housekeeping = sub.add_parser(
         "housekeeping", help="report and apply storage retention and quotas"
     )
@@ -551,14 +571,17 @@ def cmd_diagnose(app: Application, run_id: str, plugin_id: str | None) -> int:
     return EXIT_OK
 
 
-def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
+def cmd_manifest(
+    app: Application, run_id: str, as_json: bool, graph: str | None, timeline: bool
+) -> int:
     path = app.storage.path("manifests", f"{run_id}.json")
     manifest = app.storage.read_json("manifests", f"{run_id}.json")
     run = app.database().get_run(run_id)
     recorded = run.get("manifest_sha256") if run else None
     if recorded is None:
         print(
-            "warning: no database record of this manifest's hash; cannot verify it", file=sys.stderr
+            "warning: no database record of this manifest's hash; cannot verify it",
+            file=sys.stderr,
         )
     elif sha256_file(path) != recorded:
         print(
@@ -567,7 +590,27 @@ def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
             file=sys.stderr,
         )
         return EXIT_ERROR
-    if as_json or not isinstance(manifest, dict):
+    if not isinstance(manifest, dict):
+        print(f"error: manifest for run {run_id} is not a JSON object", file=sys.stderr)
+        return EXIT_ERROR
+
+    if graph:
+        print(manifest_graph(manifest, format=graph))
+        return EXIT_OK
+    if timeline:
+        rows = manifest_timeline(manifest)
+        if not rows:
+            print("no plugin executions recorded")
+            return EXIT_OK
+        print(f"{'plugin':<40} {'state':<15} {'started':<28} {'duration':<10}")
+        print("-" * 95)
+        for row in rows:
+            started = row["started_at"] or "-"
+            dur = f"{row['duration_seconds']:.3f}s" if row["duration_seconds"] is not None else "-"
+            print(f"{row['plugin_id']:<40} {row['state']:<15} {started:<28} {dur:<10}")
+        return EXIT_OK
+
+    if as_json:
         print(json.dumps(manifest, indent=2, sort_keys=True))
         return EXIT_OK
     print(f"run {manifest['run_id']}  status {manifest['status']}  profile {manifest['profile']}")
@@ -582,6 +625,51 @@ def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
         print(f"    {ex['state']:<15} {pid} {ex.get('failure_category') or ''}")
     for reason in manifest["blocked_reasons"]:
         print(f"  blocked: {reason}")
+    return EXIT_OK
+
+
+def cmd_manifest_diff(app: Application, run_a: str, run_b: str, as_json: bool) -> int:
+    """Compare two execution manifests and report the differences."""
+    app.storage.ensure_layout()
+    ma = app.storage.read_json("manifests", f"{run_a}.json")
+    mb = app.storage.read_json("manifests", f"{run_b}.json")
+    if not isinstance(ma, dict) or not isinstance(mb, dict):
+        print("error: one or both manifests are not JSON objects", file=sys.stderr)
+        return EXIT_ERROR
+
+    if fingerprint_matches(ma, mb):
+        print(f"{run_a} and {run_b}: computationally identical (same fingerprint)")
+        return EXIT_OK
+
+    diffs = diff_manifests(ma, mb)
+    if not diffs:
+        print(f"{run_a} and {run_b}: no differences found")
+        return EXIT_OK
+
+    if as_json:
+        print(json.dumps(diffs, indent=2, sort_keys=True, default=str))
+        return EXIT_OK
+
+    print(f"Manifest diff: {run_a} vs {run_b}")
+    print()
+    for category in (
+        "identity",
+        "inputs",
+        "configuration",
+        "plugins",
+        "graph",
+        "states",
+        "outputs",
+    ):
+        entries = diffs.get(category)
+        if not entries:
+            continue
+        print(f"## {category}")
+        for field, (va, vb) in entries.items():
+            print(f"  {field}:")
+            print(f"    {run_a}: {va}")
+            print(f"    {run_b}: {vb}")
+        print()
     return EXIT_OK
 
 
@@ -617,7 +705,9 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
         if command == "housekeeping":
             return cmd_housekeeping(app, args.apply)
         if command == "manifest":
-            return cmd_manifest(app, args.run_id, args.json)
+            return cmd_manifest(app, args.run_id, args.json, args.graph, args.timeline)
+        if command == "manifest-diff":
+            return cmd_manifest_diff(app, args.run_a, args.run_b, args.json)
         if command == "backup":
             return cmd_backup(app, args.target)
         if command == "restore":
