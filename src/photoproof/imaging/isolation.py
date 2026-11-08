@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import multiprocessing as mp
-import queue
+import queue as queue_module
 import signal
 from multiprocessing.context import SpawnContext
 from typing import Any, cast
@@ -46,12 +46,10 @@ def _apply_limits(limits_dict: dict[str, Any]) -> None:
         with contextlib.suppress(ValueError, OSError):
             resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
 
-        timeout_seconds = limits_dict.get("timeout_seconds", 30)
-        if timeout_seconds > 0:
-            with contextlib.suppress(ValueError, OSError):
-                resource.setrlimit(
-                    resource.RLIMIT_CPU, (int(timeout_seconds), int(timeout_seconds))
-                )
+    timeout_seconds = limits_dict.get("timeout_seconds", 30)
+    if timeout_seconds > 0:
+        with contextlib.suppress(ValueError, OSError):
+            resource.setrlimit(resource.RLIMIT_CPU, (int(timeout_seconds), int(timeout_seconds)))
 
 
 def _child_entry(
@@ -59,7 +57,6 @@ def _child_entry(
     data: bytes,
     limits_dict: dict[str, Any],
     result_queue: mp.Queue[Any],
-    error_queue: mp.Queue[Any],
 ) -> None:
     """Run in the child process: set limits, decode, send result back."""
     try:
@@ -75,7 +72,7 @@ def _child_entry(
         result = adapter.decode(data, source_sha256="", limits=limits)
         result_queue.put(("ok", result))
     except Exception as exc:  # noqa: BLE001 - child must report any failure
-        error_queue.put(("error", exc))
+        result_queue.put(("error", exc))
 
 
 def _decode_in_process(
@@ -98,7 +95,6 @@ def _decode_in_child(
     """Decode in a spawn-isolated child process with resource limits."""
     ctx: SpawnContext = mp.get_context("spawn")
     result_queue: mp.Queue[Any] = ctx.Queue()
-    error_queue: mp.Queue[Any] = ctx.Queue()
 
     limits_dict = {
         "max_input_bytes": limits.max_input_bytes,
@@ -112,14 +108,14 @@ def _decode_in_child(
 
     proc = ctx.Process(
         target=_child_entry,
-        args=(adapter_name, data, limits_dict, result_queue, error_queue),
+        args=(adapter_name, data, limits_dict, result_queue),
         daemon=True,
     )
     proc.start()
 
     try:
-        kind, payload = result_queue.get(timeout=timeout_seconds + 5)
-    except queue.Empty:
+        kind, payload = result_queue.get(timeout=timeout_seconds + 10)
+    except queue_module.Empty:
         proc.terminate()
         proc.join(timeout=5)
         if proc.is_alive():
