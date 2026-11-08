@@ -223,15 +223,8 @@ class Database:
             return
         if self._conn in _open_connections:
             _open_connections.discard(self._conn)
-        try:
+        with suppress(Exception):  # already-closed connections must not raise
             self._conn.close()
-        except Exception:
-            # sqlite3_close() can fail (e.g., SQLITE_BUSY); retry once so the
-            # close flag is set and __del__ does not emit a ResourceWarning.
-            try:
-                self._conn.close()
-            except Exception:
-                pass
         self._closed = True
 
     def schema_version(self) -> int:
