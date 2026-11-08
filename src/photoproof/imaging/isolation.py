@@ -74,10 +74,12 @@ def _child_entry(
             msg = conn.recv()
             if msg is None:  # shutdown signal
                 return
-            if msg in (b"__ping__", (b"__ping__",)):
+            try:
+                data, request_limits_dict = msg
+            except (ValueError, TypeError):
+                # Ping message or other non-(data, limits) message
                 conn.send(("ok", None))
                 continue
-            data, request_limits_dict = msg
             try:
                 limits = limits_dict_to_limits(request_limits_dict)
                 result = adapter.decode(data, source_sha256="", limits=limits)
