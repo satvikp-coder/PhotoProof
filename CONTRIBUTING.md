@@ -116,7 +116,9 @@ mkdocs build --strict  # what CI runs; warnings are errors
 
 ### 1.8 Regenerating lockfiles
 
-Only do this in a pull request whose purpose is dependency changes.
+Only do this in a pull request whose purpose is dependency changes. The weekly
+`.github/workflows/deps.yml` job regenerates all three lockfiles automatically and opens
+a PR; run the same commands locally to test or to prepare a manual dependency PR.
 
 ```bash
 uv pip compile pyproject.toml --group build --universal --python-version 3.11 \
@@ -128,7 +130,9 @@ uv pip compile pyproject.toml --group build --group dev --group docs --group sec
 ```
 
 All three files are universal (one file for every supported OS and Python version) and
-every requirement carries `--hash` values. Never hand-edit them.
+every requirement carries `--hash` values. Never hand-edit them. The deps.yml workflow
+pins and verifies the `uv` binary, never auto-merges, and leaves the PR in draft with the
+`ci:blocked` label if the test suite fails.
 
 ---
 

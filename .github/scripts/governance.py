@@ -4,6 +4,8 @@
     python .github/scripts/governance.py release-notes --tag vX.Y.Z
     python .github/scripts/governance.py pr --base REF --title T --body-file F [--labels L,..]
     python .github/scripts/governance.py summary --junit DIR [--coverage FILE] [--title T]
+    python .github/scripts/governance.py deps-pr --changelog FILE \
+    --app-toml FILE --changed-packages PKGS
 
 Every check prints actionable Markdown (also appended to $GITHUB_STEP_SUMMARY).
 """
@@ -199,6 +201,73 @@ def cmd_pr(base: str, title: str, body_file: Path, labels: set[str]) -> int:
     return 1 if failures else 0
 
 
+def cmd_deps_pr(changelog: Path, app_toml: Path, changed_packages: str) -> int:
+    """Bump PATCH version in app.toml and add a changelog entry for a deps PR."""
+    failures: list[str] = []
+
+    # Parse current version from app.toml (standard library only)
+    text = app_toml.read_text("utf-8")
+    version_match = re.search(r'^version = "(\d+)\.(\d+)\.(\d+)"$', text, re.M)
+    if not version_match:
+        failures.append("app.toml version is not semver MAJOR.MINOR.PATCH")
+        summary("### Dependency PR — version/changelog\n\n| | Result |\n|---|---|\n" +
+                "\n".join(f"| ❌ | {f} |" for f in failures) + "\n")
+        return 1
+
+    major, minor, patch = int(version_match[1]), int(version_match[2]), int(version_match[3])
+    old_version = version_match.group(0)
+    new_version = f"{major}.{minor}.{patch + 1}"
+
+    # Bump version in app.toml (string replacement, no TOML writer needed)
+    new_text = re.sub(
+        r'^version = "\d+\.\d+\.\d+"$',
+        f'version = "{new_version}"',
+        text,
+        flags=re.M,
+    )
+    app_toml.write_text(new_text, encoding="utf-8")
+
+    # Build the changelog entry
+    pkgs = [p.strip() for p in changed_packages.split(",") if p.strip()]
+    package_list = "\n".join(f"- {p}" for p in pkgs) or "- dependencies (see lockfile diff)"
+
+    entry = f"""### Security
+
+- Regenerated hash-pinned lockfiles with `uv` and bumped to `{new_version}`.
+  Updated packages:
+
+{package_list}
+
+This is an automated dependency update from the weekly dependency workflow (#78).
+Review the lockfile diff before merging.
+
+"""
+
+    # Insert entry under ## [Unreleased]
+    changelog_text = changelog.read_text("utf-8")
+    unreleased_marker = "## [Unreleased]"
+    if unreleased_marker not in changelog_text:
+        failures.append("CHANGELOG.md has no `## [Unreleased]` section")
+        summary("### Dependency PR — version/changelog\n\n| | Result |\n|---|---|\n" +
+                "\n".join(f"| ❌ | {f} |" for f in failures) + "\n")
+        return 1
+
+    # Find the position right after the ## [Unreleased] header line
+    idx = changelog_text.index(unreleased_marker) + len(unreleased_marker)
+    end_of_line = changelog_text.index("\n", idx)
+    new_changelog = (
+        changelog_text[: end_of_line + 1] + "\n" + entry + changelog_text[end_of_line + 1 :]
+    )
+    changelog.write_text(new_changelog, encoding="utf-8")
+
+    summary(
+        "### Dependency PR — version/changelog\n\n"
+        f"| ✅ | Bumped `app.toml` version `{old_version}` → `{new_version}` and "
+        "added a changelog entry under `## [Unreleased]` |\n"
+    )
+    return 0
+
+
 def linked_issues(body: str) -> list[int]:
     """Issue numbers the PR refers to, in order, without repeats."""
     return list(dict.fromkeys(int(match["issue"]) for match in ISSUE_REF.finditer(body)))
@@ -311,6 +380,10 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--title", required=True)
     pr.add_argument("--body-file", type=Path, required=True)
     pr.add_argument("--labels", default="")
+    deps = sub.add_parser("deps-pr")
+    deps.add_argument("--changelog", type=Path, required=True)
+    deps.add_argument("--app-toml", type=Path, required=True)
+    deps.add_argument("--changed-packages", default="")
     milestone = sub.add_parser("milestone")
     milestone.add_argument("--repo", required=True)
     milestone.add_argument("--pull-request", type=int, required=True)
@@ -328,6 +401,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_pr(
             args.base, args.title, args.body_file, set(filter(None, args.labels.split(",")))
         )
+    if args.command == "deps-pr":
+        return cmd_deps_pr(args.changelog, args.app_toml, args.changed_packages)
     if args.command == "milestone":
         return cmd_milestone(args.repo, args.pull_request, args.body_file)
     return cmd_summary(args.junit, args.coverage, args.title)
