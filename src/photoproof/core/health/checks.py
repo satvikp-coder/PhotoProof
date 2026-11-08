@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING
 from photoproof.contracts.enums import Repairability, Severity
 from photoproof.contracts.exceptions import (
     DatabaseError,
+    DecoderError,
+    InputRejectedError,
     MigrationRequiredError,
     PlanningError,
     StorageError,
@@ -30,6 +32,9 @@ from photoproof.core.pipeline.planner import validate_graph
 from photoproof.core.security.windows.acl import apply_owner_only_acl, other_principals
 from photoproof.core.services.housekeeping import check_quota_health
 from photoproof.core.storage.store import BlobKind, sha256_file
+from photoproof.imaging.adapters.pillow import PillowDecoder
+from photoproof.imaging.decoder import DecodeLimits
+from photoproof.imaging.isolation import IsolatedDecoder
 from photoproof.versioning.build import distribution_version
 
 if TYPE_CHECKING:
@@ -579,6 +584,70 @@ def check_imaging_codecs(app: "Application") -> CheckResult:
     )
 
 
+def check_imaging_isolation(app: "Application") -> CheckResult:
+    """Verify that the isolated decoder can decode a trivial test image.
+
+    Runs a decode through the configured isolation mode. If isolation is
+    unavailable or the decode fails, reports CRITICAL with a MANUAL repair.
+    """
+    adapter = PillowDecoder()
+    decoder = IsolatedDecoder(adapter, isolation=app.settings.imaging.isolation)
+
+    # A minimal valid PNG: 1x1 white pixel
+    tiny_png = (
+        b"\x89PNG\r\n\x1a\n"
+        b"\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
+        b"\x90wV\xde"
+        b"\x00\x00\x00\x0cIDAT\x08\xd7c\xf8\xcf\xc0\x00\x00\x02\x02\x01\x01\x00"
+        b"\x00~\xa2\xf2\x12"
+        b"\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+    try:
+        decoded = decoder.decode(
+            tiny_png,
+            source_sha256="0" * 64,
+            limits=DecodeLimits(
+                max_input_bytes=len(tiny_png),
+                max_pixels=1,
+                timeout_seconds=5,
+                max_decoded_bytes=1024,
+            ),
+        )
+        if decoded.width != 1 or decoded.height != 1:
+            return CheckResult(
+                "imaging.isolation",
+                Severity.CRITICAL,
+                f"decoder returned unexpected dimensions {decoded.width}x{decoded.height}",
+                repair=RepairAction("investigate decoder output", Repairability.MANUAL),
+            )
+        return _ok(
+            "imaging.isolation",
+            f"decoder isolation ({app.settings.imaging.isolation}) verified",
+        )
+    except InputRejectedError as error:
+        return CheckResult(
+            "imaging.isolation",
+            Severity.CRITICAL,
+            f"decoder rejected valid test image: {error}",
+            repair=RepairAction("investigate decoder configuration", Repairability.MANUAL),
+        )
+    except DecoderError as error:
+        return CheckResult(
+            "imaging.isolation",
+            Severity.CRITICAL,
+            f"decoder isolation failed: {error}",
+            repair=RepairAction("investigate decoder isolation", Repairability.MANUAL),
+        )
+    except Exception as error:  # noqa: BLE001 - report any decoder failure as CRITICAL
+        return CheckResult(
+            "imaging.isolation",
+            Severity.CRITICAL,
+            f"decoder isolation failed: {type(error).__name__}: {error}",
+            repair=RepairAction("investigate decoder isolation", Repairability.MANUAL),
+        )
+
+
 def default_registry(*, deep: bool = True) -> HealthRegistry:
     """``deep=False`` (preflight) skips re-hashing stored data; ``doctor`` runs deep."""
     registry = HealthRegistry()
@@ -586,6 +655,7 @@ def default_registry(*, deep: bool = True) -> HealthRegistry:
         ("runtime.directories", check_runtime_directories),
         ("isolation.capabilities", check_isolation),
         ("imaging.codecs", check_imaging_codecs),
+        ("imaging.isolation", check_imaging_isolation),
         ("runtime.permissions", check_runtime_permissions),
         ("runtime.disk_space", check_disk_space),
         ("runtime.stale_temp", check_stale_temp),
