@@ -210,8 +210,11 @@ def cmd_deps_pr(changelog: Path, app_toml: Path, changed_packages: str) -> int:
     version_match = re.search(r'^version = "(\d+)\.(\d+)\.(\d+)"$', text, re.M)
     if not version_match:
         failures.append("app.toml version is not semver MAJOR.MINOR.PATCH")
-        summary("### Dependency PR — version/changelog\n\n| | Result |\n|---|---|\n" +
-                "\n".join(f"| ❌ | {f} |" for f in failures) + "\n")
+        summary(
+            "### Dependency PR — version/changelog\n\n| | Result |\n|---|---|\n"
+            + "\n".join(f"| ❌ | {f} |" for f in failures)
+            + "\n"
+        )
         return 1
 
     major, minor, patch = int(version_match[1]), int(version_match[2]), int(version_match[3])
@@ -248,8 +251,11 @@ Review the lockfile diff before merging.
     unreleased_marker = "## [Unreleased]"
     if unreleased_marker not in changelog_text:
         failures.append("CHANGELOG.md has no `## [Unreleased]` section")
-        summary("### Dependency PR — version/changelog\n\n| | Result |\n|---|---|\n" +
-                "\n".join(f"| ❌ | {f} |" for f in failures) + "\n")
+        summary(
+            "### Dependency PR — version/changelog\n\n| | Result |\n|---|---|\n"
+            + "\n".join(f"| ❌ | {f} |" for f in failures)
+            + "\n"
+        )
         return 1
 
     # Find the position right after the ## [Unreleased] header line
