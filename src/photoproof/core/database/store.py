@@ -220,7 +220,8 @@ class Database:
             return
         if self._conn in _open_connections:
             _open_connections.discard(self._conn)
-        self._conn.close()
+        with suppress(Exception):  # already-closed connections must not raise
+            self._conn.close()
         self._closed = True
 
     def schema_version(self) -> int:
