@@ -2,7 +2,7 @@
 id: PP-050
 title: "feat(core): add a durable SQLite-backed background job queue"
 milestone: M6
-labels: [type:feature, priority:P2, area:core, area:database, effort:large, status:needs-design]
+labels: [type:feature, priority:P2, area:core, area:database, effort:large, status:closed]
 depends_on: []
 ---
 ## Summary

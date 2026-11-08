@@ -5,6 +5,7 @@ each; an existing database is backed up with the SQLite backup API before any
 migration is applied to it.
 """
 
+import atexit
 import os
 import sqlite3
 from collections.abc import Iterator, Sequence
@@ -105,6 +106,25 @@ MIGRATIONS: Sequence[str] = (
 )
 LATEST_VERSION = len(MIGRATIONS)
 
+#: Track open database connections so they can be closed at interpreter shutdown.
+#: This prevents ``sqlite3.Connection.__del__`` warnings during garbage collection
+#: on platforms where ``__del__`` is not reliably called before the sqlite3 library
+#: is torn down.
+_open_connections: set[sqlite3.Connection] = set()
+
+
+def _close_all_connections() -> None:
+    """Close all open database connections at interpreter shutdown."""
+    for conn in list(_open_connections):
+        try:
+            conn.close()
+        except Exception:  # nosec B110 - best-effort cleanup at shutdown
+            pass
+    _open_connections.clear()
+
+
+atexit.register(_close_all_connections)
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
@@ -129,6 +149,7 @@ class Database:
     def __init__(self, connection: sqlite3.Connection, path: Path) -> None:
         self._conn = connection
         self.path = path
+        _open_connections.add(connection)
 
     # --------------------------------------------------------------- lifecycle
 
@@ -155,15 +176,18 @@ class Database:
             version = db.schema_version()
         except sqlite3.DatabaseError as error:  # e.g. the file is not a SQLite database
             conn.close()
+            _open_connections.discard(conn)
             raise DatabaseError(f"{path}: unreadable database: {error}") from error
         if version > LATEST_VERSION:
             conn.close()
+            _open_connections.discard(conn)
             raise DatabaseError(
                 f"{path}: schema version {version} is newer than this release supports "
                 f"({LATEST_VERSION}). Manual action required: upgrade PhotoProof."
             )
         if 0 < version < LATEST_VERSION and not allow_migration:
             conn.close()
+            _open_connections.discard(conn)
             raise MigrationRequiredError(
                 f"{path}: schema version {version} needs migration to {LATEST_VERSION}. "
                 "Run `python main.py --repair` (a backup is taken first)."
@@ -173,15 +197,14 @@ class Database:
                 db._migrate(version)
             except DatabaseError:
                 conn.close()
+                _open_connections.discard(conn)
                 raise
         return db
 
     def close(self) -> None:
+        if self._conn in _open_connections:
+            _open_connections.discard(self._conn)
         self._conn.close()
-
-    def __del__(self) -> None:
-        with suppress(Exception):  # nosec B110 - best-effort cleanup during garbage collection
-            self._conn.close()
 
     def schema_version(self) -> int:
         return int(self._conn.execute("PRAGMA user_version").fetchone()[0])
