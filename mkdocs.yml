@@ -85,6 +85,7 @@ nav:
       - security/index.md
   - Development:
       - development/index.md
+      - Contributor work-allocation: development/workflow.md
       - Versioning and releases: development/releases.md
       - CI/CD and repository settings: development/ci.md
   - Testing:
