@@ -11,9 +11,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from photoproof.contracts.artifacts import ArtifactRef
+from photoproof.contracts.exceptions import PolicyError
 
 _SEMVER = r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$"
 _ID = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$"  # e.g. "compression.ela"
@@ -87,7 +89,12 @@ ArtifactWriter = Callable[[str, bytes, str], ArtifactRef]
 @dataclass(frozen=True)
 class PluginContext:
     """Everything a plugin may use. Plugins get no direct filesystem access: they
-    persist binary output only through ``write_artifact``."""
+    persist binary output only through ``write_artifact``.
+
+    Plugin context provides access to the run's declared inputs through
+    :attr:`inputs`. In addition, :meth:`image` and :meth:`original_bytes` provide
+    convenient access to image data and original bytes respectively.
+    """
 
     run_id: str
     plugin_id: str
@@ -96,6 +103,40 @@ class PluginContext:
     seed: int
     write_artifact: ArtifactWriter  # (name, data, media_type) -> ArtifactRef
     logger: logging.Logger
+
+    def image(self, name: str) -> np.ndarray:
+        """Return the decoded image array for the given input contract.
+
+        The contract must be one declared in the plugin's ``inputs`` metadata,
+        typically ``image.decoded`` or ``image.working``. The returned array is
+        read-only; any attempt to mutate it raises ``ValueError``.
+        """
+        if name not in self.inputs:
+            raise PolicyError(f"plugin {self.plugin_id} did not declare input {name!r}")
+        value = self.inputs[name]
+        if not isinstance(value, np.ndarray):
+            raise PolicyError(f"input {name!r} is not a NumPy array (got {type(value).__name__})")
+        if value.flags.writeable:
+            value = value.copy()
+            value.flags.writeable = False
+        return value
+
+    def original_bytes(self) -> bytes:
+        """Return the original input bytes.
+
+        The ``input.original_bytes`` contract must be declared in the plugin's
+        ``inputs`` metadata.
+        """
+        if "input.original_bytes" not in self.inputs:
+            raise PolicyError(
+                f"plugin {self.plugin_id} did not declare input 'input.original_bytes'"
+            )
+        value = self.inputs["input.original_bytes"]
+        if not isinstance(value, (bytes, bytearray)):
+            raise PolicyError(
+                f"input 'input.original_bytes' is not bytes (got {type(value).__name__})"
+            )
+        return bytes(value)
 
 
 class PluginEntryPoint(Protocol):
