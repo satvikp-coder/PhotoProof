@@ -53,7 +53,7 @@ class RuntimeLock:
                 self._fd = os.open(
                     str(self._lock_file),
                     os.O_RDWR | os.O_CREAT,
-                    0o644,
+                    0o600,
                 )
             except OSError:
                 if time.time() >= deadline:
