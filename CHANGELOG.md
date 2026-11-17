@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Restore parsing and bounded execution of dependency-update automation, regenerate all
+  lockfiles together, and preserve release-only versioning (Refs #78).
+
 - Keep live background-job leases active, fence stale-worker transitions, count retries
   once per actual claim, and make concurrent duplicate submissions idempotent (#50).
 

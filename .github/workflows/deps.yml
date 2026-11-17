@@ -2,133 +2,176 @@ name: Dependency updates
 
 on:
   schedule:
-    - cron: "17 2 * * 1"  # weekly, Monday 02:17 UTC
+    - cron: "17 2 * * 1"
   workflow_dispatch:
     inputs:
       upgrade_package:
-        description: "Single package to upgrade (optional, e.g. Pillow)"
+        description: "Single package name to upgrade (optional)"
         required: false
+        type: string
       upgrade_all:
         description: "Upgrade all packages to latest allowed versions"
         required: false
         type: boolean
-        default: "false"
+        default: false
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+
+concurrency:
+  group: dependency-update
+  cancel-in-progress: false
 
 env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PYTHONUTF8: "1"
-  FORCE_COLOR: "1"
   UV_VERSION: "0.12.19"
+  UV_SHA256: "23bf5552d220e0842b65c862097b2ebaeba0064b74eda5e565e77fd25969d8c8"
 
 jobs:
   deps:
-    name: Regenerate lockfiles and open PR
+    name: Regenerate lockfiles and open draft PR
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      UPGRADE_PACKAGE: ${{ inputs.upgrade_package }}
+      UPGRADE_ALL: ${{ inputs.upgrade_all }}
+      EVENT_NAME: ${{ github.event_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - name: Install uv
+      - name: Check for an existing automation PR
+        id: existing
         run: |
-          python -m pip install uv==${UV_VERSION}
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Check for existing open dependency PR
-        id: existing_pr
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --base main --state open \
+            --json number,headRefName | python -c 'import json,sys; print(next((p["number"] for p in json.load(sys.stdin) if p["headRefName"].startswith("deps/auto")), ""))')
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+      - name: Verify pinned uv archive
+        if: steps.existing.outputs.number == ''
         run: |
-          existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --base main --search "deps" --json number,title,state --jq '.[].number' 2>/dev/null || true)
-          if [ -n "$existing" ]; then
-            echo "found=$existing" >> "$GITHUB_OUTPUT"
-          else
-            echo "found=" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Skip if a dependency PR is already open
-        if: steps.existing_pr.outputs.found != ''
-        run: |
-          echo "A dependency PR (#${{ steps.existing_pr.outputs.found }}) is already open. Skipping."
-          exit 0
-      - name: Regenerate lockfiles
+          curl --fail --silent --show-error --location \
+            "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz" \
+            --output "$RUNNER_TEMP/uv.tar.gz"
+          printf '%s  %s\n' "$UV_SHA256" "$RUNNER_TEMP/uv.tar.gz" | sha256sum --check --strict -
+          tar -xzf "$RUNNER_TEMP/uv.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/uv-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
+      - name: Regenerate all universal lockfiles
         id: regenerate
+        if: steps.existing.outputs.number == ''
+        shell: bash
         run: |
-          set -e
-          if [ "${{ github.event.inputs.upgrade_package }}" != "" ]; then
-            uv pip compile pyproject.toml --group build --universal --python-version 3.11 --generate-hashes --upgrade-package "${{ github.event.inputs.upgrade_package }}" -o requirements.lock
-            uv pip compile pyproject.toml --group build --group dev --universal --python-version 3.11 --generate-hashes --upgrade-package "${{ github.event.inputs.upgrade_package }}" -o requirements-dev.lock
-          elif [ "${{ github.event.inputs.upgrade_all }}" = "true" ]; then
-            uv pip compile pyproject.toml --group build --universal --python-version 3.11 --generate-hashes --upgrade -o requirements.lock
-            uv pip compile pyproject.toml --group build --group dev --universal --python-version 3.11 --generate-hashes --upgrade -o requirements-dev.lock
-          else
-            uv lock --locked --upgrade-package uv
+          set -euo pipefail
+          upgrade=()
+          if [[ -n "$UPGRADE_PACKAGE" ]]; then
+            if [[ ! "$UPGRADE_PACKAGE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+              echo 'upgrade_package must be a package name' >&2
+              exit 1
+            fi
+            upgrade=(--upgrade-package "$UPGRADE_PACKAGE")
+          elif [[ "$UPGRADE_ALL" == true || "$EVENT_NAME" == schedule ]]; then
+            upgrade=(--upgrade)
           fi
-          # Check whether anything changed
-          if git diff --quiet requirements.lock requirements-dev.lock requirements-tools.lock; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+          common=(pyproject.toml --group build --universal --python-version 3.11 --generate-hashes)
+          uv pip compile "${common[@]}" "${upgrade[@]}" -o requirements.lock
+          uv pip compile "${common[@]}" --group dev "${upgrade[@]}" -o requirements-dev.lock
+          uv pip compile "${common[@]}" --group dev --group docs --group security \
+            "${upgrade[@]}" -o requirements-tools.lock
+          if git diff --quiet -- requirements.lock requirements-dev.lock requirements-tools.lock; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
           else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
-        env:
-          UV_NO_CACHE: "1"
-      - name: Skip when nothing changed
-        if: steps.regenerate.outputs.changed == 'false'
+      - name: Install generated locked dependencies
+        if: steps.regenerate.outputs.changed == 'true'
         run: |
-          echo "No lockfile changes; nothing to do."
-          exit 0
-      - name: Create branch
-        run: |
-          git config user.name "PhotoProof dependency automation"
-          git config user.email "deps@photoproof.local"
-          git checkout -b deps/auto-$(date +%Y%m%d)-$(date +%s)
-      - name: Bump PATCH version and add changelog entry
-        run: |
-          python .github/scripts/governance.py deps-pr \
-            --changelog CHANGELOG.md \
-            --app-toml app.toml \
-            --changed-packages "$(git diff --name-only requirements.lock requirements-dev.lock requirements-tools.lock | tr '\n' ', ')"
-      - name: Install dev dependencies from regenerated lockfiles
-        run: |
-          python -m pip install --require-hashes --only-binary :all: -r requirements-dev.lock
+          python -m pip install --require-hashes --only-binary :all: -r requirements-tools.lock
           python -m pip install --no-deps --no-build-isolation -e .
-      - name: Run test suite
-        id: tests
+      - name: Validate generated dependencies
+        id: checks
+        if: steps.regenerate.outputs.changed == 'true'
+        continue-on-error: true
         run: |
-          set +e
-          pytest tests/unit -q > /tmp/test-output.txt 2>&1
-          code=$?
-          cat /tmp/test-output.txt
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-          exit $code
-      - name: Label PR as draft on test failure
-        if: steps.tests.outputs.code != '0'
-        run: |
-          pr_number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" --base main --json number --jq '.[0].number')
-          gh pr edit --repo "$GITHUB_REPOSITORY" "$pr_number" --draft --add-label "ci:blocked"
+          ruff check .
+          ruff format --check .
+          mypy
+          pytest
+          mkdocs build --strict
+          bandit -c pyproject.toml -r src main.py
+          python -m build --no-isolation
+      - name: Publish a draft for human review
+        if: steps.regenerate.outputs.changed == 'true' && !cancelled()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Commit changes
+          CHECK_OUTCOME: ${{ steps.checks.outcome }}
         run: |
-          git add requirements.lock requirements-dev.lock requirements-tools.lock app.toml CHANGELOG.md
-          git commit -m "build(deps): regenerate lockfiles and bump PATCH version"
-      - name: Push branch and open PR
-        run: |
-          git push origin deps/auto-$(date +%Y%m%d)-$(date +%s)
-          gh pr create --repo "$GITHUB_REPOSITORY" \
-            --title "build(deps): regenerate lockfiles and bump PATCH version" \
-            --body "Regenerates hash-pinned lockfiles with uv, bumps the PATCH version and updates CHANGELOG.md.
-
-This PR is opened by the weekly dependency update workflow (#78). It is **not** auto-merged; a maintainer reviews and merges it after CI passes.
-
-If tests fail, the PR is left in draft with the \`ci:blocked\` label.
-
-Closes #78" \
-            --base main
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          git config user.name 'PhotoProof dependency automation'
+          git config user.email 'deps@photoproof.local'
+          branch="deps/auto-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git switch -c "$branch"
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('CHANGELOG.md')
+          text = p.read_text(encoding='utf-8')
+          text = text.replace('## [Unreleased]', '## [Unreleased]\n\n### Changed\n\n'
+                              '- Refresh hash-pinned dependency lockfiles (Refs #78).', 1)
+          p.write_text(text, encoding='utf-8')
+          PY
+          git add requirements.lock requirements-dev.lock requirements-tools.lock CHANGELOG.md
+          git commit -m 'build(deps): refresh hash-pinned dependency lockfiles'
+          git push origin "HEAD:refs/heads/$branch"
+          cat > "$RUNNER_TEMP/deps-pr.md" <<'BODY'
+          ## Summary
+          Refresh all three universal hash-pinned dependency lockfiles.
+          ## Motivation
+          Keep supported dependencies current through a reviewable draft.
+          ## Related issue
+          Refs #78
+          ## Scope of changes
+          Lockfiles and their changelog entry only.
+          ## Implementation details
+          Regenerated with the checksum-verified pinned uv archive and documented groups.
+          ## Test evidence
+          BODY
+          printf 'Generated-environment checks: **%s**. See this workflow run for logs.\n' \
+            "$CHECK_OUTCOME" >> "$RUNNER_TEMP/deps-pr.md"
+          cat >> "$RUNNER_TEMP/deps-pr.md" <<'BODY'
+          ## Documentation changes
+          None; dependency policy remains unchanged.
+          ## Version impact
+          PATCH; app.toml is unchanged.
+          ## Changelog entry
+          Refresh hash-pinned dependency lockfiles (Refs #78).
+          ## Compatibility considerations
+          Full PR matrix validation is still required before merging.
+          ## Security considerations
+          Hash-pinned, wheels-only installation; no automatic merge.
+          ## Screenshots or execution examples
+          Not applicable to dependency updates.
+          ## Checklist
+          - [x] Dedicated dependency branch
+          - [x] All three lockfiles regenerated together
+          - [x] No application version change or user data
+          BODY
+          labels=()
+          if [[ "$CHECK_OUTCOME" != success ]]; then labels=(--label ci:blocked); fi
+          if ! gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" --draft \
+            --title 'build(deps): refresh hash-pinned dependency lockfiles' \
+            --body-file "$RUNNER_TEMP/deps-pr.md" "${labels[@]}"; then
+            echo '::warning::Draft PR publication failed; generated changes are preserved on the branch below.'
+            {
+              echo '## Manual draft publication required'
+              echo 'The repository may restrict PR creation by GitHub Actions. No settings were changed.'
+              echo "Validated check outcome: $CHECK_OUTCOME"
+              echo "Preserved branch: $branch"
+              echo "Compare: https://github.com/$GITHUB_REPOSITORY/compare/main...$branch"
+              echo 'Open a draft manually, then run the complete required CI and review gates.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Report validation failure
+        if: steps.checks.outcome == 'failure'
+        run: exit 1
