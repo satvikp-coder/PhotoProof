@@ -1,3 +1,146 @@
-# fusion.normalize configuration.
-# No install-time fields are required; normalization parameters are documented in
-# METADATA.DETECTOR_NORMALIZATION and versioned with the plugin.
+# Provisional uncalibrated normalization rules; see plugin documentation.
+mappings:
+  # ELA error levels highlight recompression boundaries but are sensitive to save settings; weak alone, supportive with other detectors.
+  compression.ela_map:
+    method: robust_z
+    z0: 3.0
+    k: 1.5
+    strength_class: weak
+  # Block-level ELA anomaly; same rationale as ela_map.
+  compression.ela_anomaly:
+    method: robust_z
+    z0: 3.0
+    k: 1.5
+    strength_class: weak
+  # Scalar ELA anomaly summary; same rationale as ela_map.
+  compression.ela_summary:
+    method: robust_z
+    z0: 3.0
+    k: 1.5
+    strength_class: weak
+  # JPEG quantization table deviations indicate re-saving or re-compression; medium-strength forensic signal.
+  compression.jpeg_tables:
+    method: robust_z
+    z0: 2.5
+    k: 1.0
+    strength_class: medium
+  # DQ map deviations indicate double compression; a well-understood forensic signal with low false-positive rate.
+  compression.dq_map:
+    method: robust_z
+    z0: 2.5
+    k: 1.0
+    strength_class: medium
+  # Grid origin offset suggests re-cropping but can occur naturally; weak alone.
+  compression.grid_origin:
+    method: robust_z
+    z0: 3.0
+    k: 1.5
+    strength_class: weak
+  # 8x8 grid misalignment suggests resampling but can arise from legitimate cropping; weak alone.
+  compression.grid_map:
+    method: robust_z
+    z0: 3.0
+    k: 1.5
+    strength_class: weak
+  # Wavelet noise residual reveals local noise inconsistency, a reliable splicing indicator.
+  noise.residual:
+    method: robust_z
+    z0: 2.5
+    k: 1.0
+    strength_class: medium
+  # Global noise sigma deviation from expected camera model; medium-strength evidence.
+  noise.sigma_global:
+    method: robust_z
+    z0: 2.5
+    k: 1.0
+    strength_class: medium
+  # Scalar noise residual summary; same rationale as noise.residual.
+  noise.residual_summary:
+    method: robust_z
+    z0: 2.5
+    k: 1.0
+    strength_class: medium
+  # Local noise variance deviations indicate smoothing or copying; medium-strength evidence.
+  noise.sigma_map:
+    method: robust_z
+    z0: 2.5
+    k: 1.0
+    strength_class: medium
+  # Noise consistency map directly compares local noise; medium.
+  noise.consistency_map:
+    method: robust_z
+    z0: 2.5
+    k: 1.0
+    strength_class: medium
+  # Scalar variance summary; same rationale as noise.sigma_map.
+  noise.variance_summary:
+    method: robust_z
+    z0: 2.5
+    k: 1.0
+    strength_class: medium
+  # Sharpness inconsistencies can indicate copying but also natural focus variation; weak alone.
+  visual.sharpness_map:
+    method: robust_z
+    z0: 3.0
+    k: 1.5
+    strength_class: weak
+  # Block-level sharpness anomaly; same rationale as sharpness_map.
+  visual.sharpness_anomaly:
+    method: robust_z
+    z0: 3.0
+    k: 1.5
+    strength_class: weak
+  # Edge boundary characteristics vary with image content; weak.
+  visual.edge_width_map:
+    method: robust_z
+    z0: 3.0
+    k: 1.5
+    strength_class: weak
+  # Edge segment anomalies; same rationale as edge_width_map.
+  visual.edge_segments:
+    method: robust_z
+    z0: 3.0
+    k: 1.5
+    strength_class: weak
+  # Unverified features, counts or summary statistics are context only; they do not establish geometrically verified copy-move localization.
+  copymove.keypoints:
+    method: robust_z
+    z0: 2.0
+    k: 0.8
+    strength_class: weak
+  # Unverified features, counts or summary statistics are context only; they do not establish geometrically verified copy-move localization.
+  copymove.keypoint_stats:
+    method: robust_z
+    z0: 2.0
+    k: 0.8
+    strength_class: weak
+  # Unverified features, counts or summary statistics are context only; they do not establish geometrically verified copy-move localization.
+  copymove.matches:
+    method: robust_z
+    z0: 2.0
+    k: 0.8
+    strength_class: weak
+  # Unverified features, counts or summary statistics are context only; they do not establish geometrically verified copy-move localization.
+  copymove.match_stats:
+    method: robust_z
+    z0: 2.0
+    k: 0.8
+    strength_class: weak
+  # RANSAC-verified affine transforms are high-confidence copy-move evidence; strongest single detector.
+  copymove.verification:
+    method: robust_z
+    z0: 1.5
+    k: 0.5
+    strength_class: strong
+  # Copy-move region masks localize tampered areas precisely.
+  copymove.mask:
+    method: identity
+    z0: 1.5
+    k: 0.5
+    strength_class: strong
+  # Unverified features, counts or summary statistics are context only; they do not establish geometrically verified copy-move localization.
+  copymove.mask_stats:
+    method: robust_z
+    z0: 1.5
+    k: 0.5
+    strength_class: weak

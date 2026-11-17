@@ -363,3 +363,28 @@ Options:
 | `--description TEXT` | Short description for METADATA |
 
 After generating, add the docs page to the `mkdocs.yml` nav, write the algorithm, run ruff and mypy, bump the version and update the changelog.
+
+## Normalized evidence availability
+
+`fusion.normalize` version 2.0.0 produces layers only from usable numeric scalar or
+nonempty two-dimensional array inputs (including serialized numeric grids). Null,
+unsupported structured values, unread artifact references and empty outputs are
+listed in `fusion.unavailable`; they never become zero-score layers. Artifact references
+are not pixel data: downstream availability remains incomplete until the detector
+integration supplies a readable numerical contract. No filesystem capability is added.
+Nonfinite scores/maps fail visibly. Original detector outputs remain unchanged.
+
+Per-detector `method`, `z0`, positive `k` and `strength_class` are configured in
+`configs/plugins/fusion.normalize.yaml`, with a rationale beside every default.
+Unknown detector names and invalid parameters fail validation. `robust_z` maps via
+median/MAD and logistic squashing. Constant maps have no relative anomaly and yield
+zero; this does not establish a clean image. `identity` preserves already normalized
+unit-interval maps; verified copy-move masks use this method so sparse binary masks
+are not erased by zero MAD. Unverified keypoints, match counts and statistics are
+weak context; they are not verified localization. All outputs explicitly retain
+`calibration: uncalibrated`. These defaults are provisional until #37.
+
+Migration: version 1.0.0 could emit invalid zero layers for unsupported outputs and
+ignored mapping configuration. Historical manifests remain unchanged; re-analyze to
+obtain corrected evidence. Cache fingerprints include the changed plugin version and
+implementation. Consumers must use the unavailable list rather than substitute zeros.

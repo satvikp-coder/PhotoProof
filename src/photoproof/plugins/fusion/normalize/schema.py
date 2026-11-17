@@ -1,16 +1,32 @@
-"""Configuration schema for fusion.normalize.
+"""Validated per-detector normalization overrides; no executable configuration."""
 
-No install-time configuration fields are required: normalization parameters live in
-``METADATA.DETECTOR_NORMALIZATION``. This schema exists to satisfy the plugin
-``config_schema`` contract and accept an empty config object.
-"""
+from typing import Literal
 
-from __future__ import annotations
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from pydantic import BaseModel
+from photoproof.plugins.fusion.normalize import DETECTOR_NORMALIZATION
+
+
+class Mapping(BaseModel):
+    """Optional numeric/strength overrides for a known detector's defaults."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    method: Literal["robust_z", "identity"] | None = None
+    z0: float | None = None
+    k: float | None = Field(default=None, gt=0)
+    strength_class: Literal["weak", "medium", "strong"] | None = None
 
 
 class Config(BaseModel):
-    """Empty config; all normalization parameters are documented in METADATA."""
+    """Explicit mappings only; absent keys use the versioned documented defaults."""
 
-    model_config = {"extra": "forbid"}
+    model_config = ConfigDict(extra="forbid")
+    mappings: dict[str, Mapping] = Field(default_factory=dict)
+
+    @field_validator("mappings")
+    @classmethod
+    def _known(cls, value: dict[str, Mapping]) -> dict[str, Mapping]:
+        unknown = set(value) - DETECTOR_NORMALIZATION.keys()
+        if unknown:
+            raise ValueError(f"unknown detector mappings: {sorted(unknown)}")
+        return value

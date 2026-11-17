@@ -12,7 +12,7 @@ METADATA = {
     "name": "Detector Output Normalization",
     "description": "Maps each detector's native output scale onto a common [0, 1] "
     "documented scale, producing EvidenceLayer objects for available detectors.",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "api_version": "1.2.0",
     "priority": 90,
     "required": False,
@@ -194,27 +194,30 @@ DETECTOR_NORMALIZATION = {
     "copymove.keypoints": {
         "z0": 2.0,
         "k": 0.8,
-        "strength_class": "strong",
-        "rationale": "SIFT keypoint matches with geometric verification indicate "
-        "copy-move tampering; strong evidence when verified.",
+        "strength_class": "weak",
+        "rationale": "Unverified features, counts or summary statistics are context only; "
+        "they do not establish geometrically verified copy-move localization.",
     },
     "copymove.keypoint_stats": {
         "z0": 2.0,
         "k": 0.8,
-        "strength_class": "strong",
-        "rationale": "Keypoint statistics summary; same rationale as keypoints.",
+        "strength_class": "weak",
+        "rationale": "Unverified features, counts or summary statistics are context only; "
+        "they do not establish geometrically verified copy-move localization.",
     },
     "copymove.matches": {
         "z0": 2.0,
         "k": 0.8,
-        "strength_class": "strong",
-        "rationale": "Descriptor match clusters are strong copy-move evidence.",
+        "strength_class": "weak",
+        "rationale": "Unverified features, counts or summary statistics are context only; "
+        "they do not establish geometrically verified copy-move localization.",
     },
     "copymove.match_stats": {
         "z0": 2.0,
         "k": 0.8,
-        "strength_class": "strong",
-        "rationale": "Match statistics summary; same rationale as matches.",
+        "strength_class": "weak",
+        "rationale": "Unverified features, counts or summary statistics are context only; "
+        "they do not establish geometrically verified copy-move localization.",
     },
     "copymove.verification": {
         "z0": 1.5,
@@ -224,6 +227,7 @@ DETECTOR_NORMALIZATION = {
         "evidence; strongest single detector.",
     },
     "copymove.mask": {
+        "method": "identity",
         "z0": 1.5,
         "k": 0.5,
         "strength_class": "strong",
@@ -232,8 +236,9 @@ DETECTOR_NORMALIZATION = {
     "copymove.mask_stats": {
         "z0": 1.5,
         "k": 0.5,
-        "strength_class": "strong",
-        "rationale": "Mask statistics summary; same rationale as mask.",
+        "strength_class": "weak",
+        "rationale": "Unverified features, counts or summary statistics are context only; "
+        "they do not establish geometrically verified copy-move localization.",
     },
 }
 

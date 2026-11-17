@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** normalization version 2.0.0 reports unusable outputs as unavailable,
+  accepts serialized numeric maps, applies validated per-detector configuration and
+  preserves verified unit-interval masks. Unverified feature/count cues are weak context;
+  historical manifests retain old semantics and require re-analysis (#32).
+
 ### Fixed
 
 - Restore parsing and bounded execution of dependency-update automation, regenerate all
