@@ -363,3 +363,32 @@ Options:
 | `--description TEXT` | Short description for METADATA |
 
 After generating, add the docs page to the `mkdocs.yml` nav, write the algorithm, run ruff and mypy, bump the version and update the changelog.
+
+## Fused region segmentation
+
+`fusion.regions` runs after `fusion.rules` and segments its heuristic map using
+8-connected hysteresis, elliptical opening and closing, hole filling, and a
+minimum component area. Thresholds are **provisional and uncalibrated** until #37;
+a score is not a probability. This step supplies localization, not a verdict.
+
+Configuration in `configs/plugins/fusion.regions.yaml`: `high` (0.70), `low` (0.30),
+`kernel_size` (3, odd, 1?21), `min_area_fraction` (0.001),
+`polygon_tolerance` (1 pixel), and `max_regions` (50, at most 100).
+
+- `fusion.mask`: immutable content-addressed grayscale PNG artifact, background 0,
+  foreground 255. Convert nonzero pixels to a boolean mask for evaluation.
+- `fusion.regions`: deterministic list with IDs, simplified polygons, exclusive
+  `[x0, y0, x1, y1]` bounding boxes, pixel area, max/mean heuristic score,
+  contributing detector references, and a full-image flag. References come from
+  spatially overlapping upstream `fusion.evidence` entries; unavailable detectors
+  never contribute. Upstream evidence is retained without modification.
+- `fusion.segmentation`: status (`unavailable`, `no_regions`, or `segmented`),
+  grid shape, region count, truncation and full-image flags. A missing map yields
+  no mask; a valid all-zero map yields a zero PNG. Neither implies authenticity.
+
+Coordinates and PNG dimensions refer to the **fused map grid**, which can be
+smaller than the original image. Consumers must scale explicitly for display.
+The region list is capped by descending pixel area (scan-order ties); the PNG
+retains all area-filtered components. A full-image region may reflect global
+processing and must be interpreted with the upstream evidence and assessment.
+Invalid/nonfinite maps fail visibly rather than becoming empty evidence.
