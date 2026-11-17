@@ -75,6 +75,9 @@ def segment(
             "inspect fusion.rules output"
         )
     binary = hysteresis(scores, high=config.high, low=config.low)
+    # Cleanup may remove the seed or split/merge grown components. Keep their
+    # original identities so surviving pixels retain the evidence that seeded them.
+    _, source_labels = cv2.connectedComponents(binary, connectivity=8)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (config.kernel_size,) * 2)
     binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
     binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
@@ -87,6 +90,9 @@ def segment(
     regions: list[dict[str, Any]] = []
     for label in kept[: config.max_regions]:
         component = labels == label
+        sources = np.unique(source_labels[component])
+        sources = sources[sources != 0]
+        provenance = np.isin(source_labels, sources)
         contours, _ = cv2.findContours(
             component.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
@@ -103,7 +109,7 @@ def segment(
                 "area": area,
                 "max_score": float(scores[component].max()),
                 "mean_score": float(scores[component].mean()),
-                "contributing_detectors": _contributors(evidence, component),
+                "contributing_detectors": _contributors(evidence, provenance),
                 "full_image": area == scores.size,
             }
         )

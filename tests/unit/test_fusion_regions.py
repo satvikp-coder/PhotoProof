@@ -90,6 +90,20 @@ def test_full_image_is_flagged():
     assert regions[0]["bbox"] == [0, 0, 10, 10]
 
 
+def test_cleanup_preserves_reference_from_removed_hysteresis_seed():
+    scores = np.zeros((20, 20), dtype=np.float32)
+    scores[5:15, 5:15] = 0.4
+    scores[4, 4] = 0.9  # Diagonally connected seed is removed by opening.
+    evidence = [
+        {"region": {"rows": [4], "cols": [4]}, "contributing_detectors": ["copymove.mask"]},
+        {"region": {"rows": [18], "cols": [18]}, "contributing_detectors": ["unrelated"]},
+    ]
+    mask, regions, _ = segment(scores, evidence=evidence, config=Config())
+    assert not mask[4, 4] and mask[10, 10]
+    assert len(regions) == 1
+    assert regions[0]["contributing_detectors"] == ["copymove.mask"]
+
+
 @pytest.mark.parametrize(
     "scores",
     [
@@ -110,6 +124,7 @@ def test_invalid_maps_fail_visibly(scores):
     "config",
     [
         {"low": 0.9},
+        {"high": 0.49},
         {"kernel_size": 2},
         {"max_regions": 1000},
         {"high": float("nan")},

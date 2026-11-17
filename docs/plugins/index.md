@@ -374,14 +374,20 @@ a score is not a probability. This step supplies localization, not a verdict.
 Configuration in `configs/plugins/fusion.regions.yaml`: `high` (0.70), `low` (0.30),
 `kernel_size` (3, odd, 1-21), `min_area_fraction` (0.001),
 `polygon_tolerance` (1 pixel), and `max_regions` (50, at most 100).
+`high` must be at least 0.5, the minimum score covered by upstream evidence
+summaries; `low` must be positive and no greater than `high`.
 
 - `fusion.mask`: immutable content-addressed grayscale PNG artifact, background 0,
   foreground 255. Convert nonzero pixels to a boolean mask for evaluation.
 - `fusion.regions`: deterministic list with IDs, simplified polygons, exclusive
   `[x0, y0, x1, y1]` bounding boxes, pixel area, max/mean heuristic score,
   contributing detector references, and a full-image flag. References come from
-  spatially overlapping upstream `fusion.evidence` entries; unavailable detectors
-  never contribute. Upstream evidence is retained without modification.
+  upstream `fusion.evidence` entries intersecting the original hysteresis components
+  that survive in the cleaned region. This retains a seed's references even when
+  opening removes the seed itself. Split regions share the original component's
+  references; merged regions union them. These are component-level references, not
+  claims that every retained pixel has detector support. Unavailable detectors never
+  contribute. Upstream evidence is retained without modification.
 - `fusion.segmentation`: status (`unavailable`, `no_regions`, or `segmented`),
   grid shape, region count, truncation and full-image flags. A missing map yields
   no mask; a valid all-zero map yields a zero PNG. Neither implies authenticity.
