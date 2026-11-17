@@ -2,7 +2,7 @@
 id: PP-034
 title: "feat(plugins): determine evidence sufficiency and report inconclusive results"
 milestone: M4
-labels: [type:feature, priority:P1, area:plugins, effort:medium, status:blocked]
+labels: [type:feature, priority:P1, area:plugins, effort:medium, status:in-progress]
 depends_on: [PP-033]
 ---
 ## Summary
