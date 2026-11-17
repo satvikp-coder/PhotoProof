@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore parsing and bounded execution of dependency-update automation, regenerate all
+  lockfiles together, and preserve release-only versioning (Refs #78).
+
 ### Added
 
 - A run resolves its media contracts from stored evidence, once per run, and hands them to
