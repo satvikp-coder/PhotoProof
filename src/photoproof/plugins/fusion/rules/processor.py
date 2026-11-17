@@ -12,12 +12,10 @@ from typing import Any
 
 import numpy as np
 
+from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.fusion.normalize import DETECTOR_FAMILIES
-from photoproof.plugins.fusion.rules import (
-    MEDIUM_HIGH_SCORE_THRESHOLD,
-    STRENGTH_WEIGHTS,
-)
+from photoproof.plugins.fusion.rules.schema import Config
 
 #: Output contracts that carry a spatial map suitable for fusion.
 _MAP_OUTPUTS = frozenset(
@@ -155,7 +153,20 @@ def run(ctx: PluginContext) -> dict[str, object]:
             continue
         m = _as_map(layer.get("map"))
         if m is None:
+            unavailable.append(str(det_id))
             continue
+        if not m.size or not np.isfinite(m).all() or np.any((m < 0) | (m > 1)):
+            raise InputRejectedError(
+                f"fusion.rules: invalid score map for {det_id}; supply finite scores in [0, 1]"
+            )
+        valid = layer.get("valid_mask")
+        if valid is not None:
+            mask = np.asarray(valid)
+            if mask.shape != m.shape or mask.dtype != np.bool_:
+                raise InputRejectedError(
+                    f"fusion.rules: invalid valid_mask for {det_id}; match the map with booleans"
+                )
+            m = np.where(mask, m, 0.0)
         layer_maps[str(det_id)] = m
         layer_info[str(det_id)] = {
             "strength_class": layer.get("strength_class", "weak"),
@@ -168,11 +179,12 @@ def run(ctx: PluginContext) -> dict[str, object]:
     if not layer_maps:
         return {
             "fusion.map": None,
+            "fusion.score_info": {"label": "heuristic_score", "calibration": "uncalibrated"},
             "fusion.evidence": [
                 {
                     "detector_id": name,
                     "reason": "unavailable",
-                    "score": 0.0,
+                    "score": None,
                     "strength_class": "unknown",
                     "families": [],
                     "rules_fired": [],
@@ -185,84 +197,56 @@ def run(ctx: PluginContext) -> dict[str, object]:
     common_maps = _resample_to_common_grid(layer_maps)
     h, w = next(iter(common_maps.values())).shape
 
-    # Fused score map.
-    fused = np.zeros((h, w), dtype=np.float32)
-
-    # Group layers by strength class and family.
-
-    strong_layers: list[tuple[str, np.ndarray]] = []
-    medium_layers: list[tuple[str, np.ndarray]] = []
-    weak_layers: list[tuple[str, np.ndarray]] = []
-    for det_id, m in common_maps.items():
-        sc = layer_info[det_id]["strength_class"]
-        fam = DETECTOR_FAMILIES.get(det_id, "unknown")
-        if sc == "strong":
-            strong_layers.append((det_id, m))
-        elif sc == "medium":
-            medium_layers.append((det_id, m))
-        elif sc == "weak":
-            weak_layers.append((det_id, m))
-
-    # Strong contribution: max over strong layers.
-    if strong_layers:
-        strong_stack = np.stack([m for _, m in strong_layers], axis=0)
-        fused = np.maximum(fused, strong_stack.max(axis=0))
-
-    # Per-pixel family support: which families have medium/strong > 0?
-    support_families = np.zeros((h, w), dtype=object)
-    for i in range(h):
-        for j in range(w):
-            fam_set: set[str] = set()
-            for det_id, m in strong_layers + medium_layers:
-                if m[i, j] > 0:
-                    fam_set.add(DETECTOR_FAMILIES.get(det_id, "unknown"))
-            support_families[i, j] = fam_set
-
-    # Medium layers: gated if another family has support, or score > threshold.
-    gated_medium_scores: list[np.ndarray] = []
-    gated_medium_weights: list[float] = []
-    for det_id, m in medium_layers:
-        fam = DETECTOR_FAMILIES.get(det_id, "unknown")
-        weight_val = STRENGTH_WEIGHTS["medium"]
-        gated = np.zeros((h, w), dtype=np.float32)
-        for i in range(h):
-            for j in range(w):
-                families = support_families[i, j]
-                other_families = families - {fam}
-                if other_families or m[i, j] > MEDIUM_HIGH_SCORE_THRESHOLD:
-                    gated[i, j] = m[i, j]
-        gated_medium_scores.append(gated)
-        gated_medium_weights.append(weight_val)
-
-    # Weak layers: gated if medium/strong support exists (from any family).
-    gated_weak_scores: list[np.ndarray] = []
-    gated_weak_weights: list[float] = []
-    for det_id, m in weak_layers:
-        fam = DETECTOR_FAMILIES.get(det_id, "unknown")
-        weight_val = STRENGTH_WEIGHTS["weak"]
-        gated = np.zeros((h, w), dtype=np.float32)
-        for i in range(h):
-            for j in range(w):
-                if support_families[i, j]:
-                    gated[i, j] = m[i, j]
-        gated_weak_scores.append(gated)
-        gated_weak_weights.append(weight_val)
-
-    # Combine medium and weak via weighted noisy-OR.
-    all_gated_scores = gated_medium_scores + gated_weak_scores
-    all_gated_weights = gated_medium_weights + gated_weak_weights
-    if all_gated_scores:
-        score_stack = np.stack(all_gated_scores, axis=0)
-        weight_arr = np.array(all_gated_weights, dtype=np.float32)
-        # Weighted noisy-OR applied per pixel.
-        product = np.ones((h, w), dtype=np.float32)
-        for s, wgt in zip(score_stack, weight_arr, strict=False):
-            product *= 1.0 - wgt * s
-        combined = 1.0 - product
-        fused = np.minimum(fused + combined, 1.0)
-
-    # Clamp to [0, 1].
-    fused = np.clip(fused, 0.0, 1.0)
+    config = ctx.config if isinstance(ctx.config, Config) else Config.model_validate(ctx.config)
+    families = {name: DETECTOR_FAMILIES.get(name, "unknown") for name in common_maps}
+    strengths = {name: layer_info[name]["strength_class"] for name in common_maps}
+    weights = config.strength_weights
+    strong = {
+        name: m * weights.strong for name, m in common_maps.items() if strengths[name] == "strong"
+    }
+    medium = {name: m for name, m in common_maps.items() if strengths[name] == "medium"}
+    accepted: dict[str, np.ndarray] = dict(strong)
+    for name, m in medium.items():
+        independent = np.zeros((h, w), dtype=bool)
+        for other, values in {**strong, **medium}.items():
+            if families[other] != families[name]:
+                independent |= values > 0
+        accepted[name] = np.where(
+            independent | (m > config.medium_high_score_threshold), m * weights.medium, 0.0
+        )
+    supported = np.zeros((h, w), dtype=bool)
+    for values in accepted.values():
+        supported |= values > 0
+    for name, m in common_maps.items():
+        if strengths[name] == "weak":
+            accepted[name] = np.where(supported, m * weights.weak * config.weak_boost_factor, 0.0)
+    # Correlated cues contribute a maximum once per family, never repeated OR terms.
+    # Strong evidence combines by maximum; its family cannot boost it a second time.
+    strong_max = np.zeros((h, w), dtype=np.float32)
+    for values in strong.values():
+        strong_max = np.maximum(strong_max, values)
+    family_scores: list[np.ndarray] = []
+    for family in sorted(set(families.values())):
+        score = np.zeros((h, w), dtype=np.float32)
+        has_strong = np.zeros((h, w), dtype=bool)
+        for name, values in strong.items():
+            if families[name] == family:
+                has_strong |= values > 0
+        for name, values in accepted.items():
+            if families[name] == family and name not in strong:
+                score = np.maximum(score, values)
+        family_scores.append(np.where(has_strong, 0.0, score))
+        for name, values in accepted.items():
+            if families[name] != family:
+                continue
+            if name in strong:
+                accepted[name] = np.where(values == strong_max, values, 0.0)
+            else:
+                accepted[name] = np.where(~has_strong & (values == score), values, 0.0)
+    product = np.ones((h, w), dtype=np.float32)
+    for score in family_scores:
+        product *= 1.0 - score
+    fused = np.clip(1.0 - (1.0 - strong_max) * product, 0.0, 1.0)
 
     # Build region evidence summaries for suspicious regions (score >= 0.5).
     suspicious_mask = fused >= 0.5
@@ -277,7 +261,7 @@ def run(ctx: PluginContext) -> dict[str, object]:
         contributing: list[str] = []
         rules_fired: list[str] = []
         families_involved: set[str] = set()
-        for det_id, m in common_maps.items():
+        for det_id, m in accepted.items():
             region_det_scores = m[rows, cols]
             if np.any(region_scores > 0) and np.any(region_det_scores > 0):
                 contributing.append(det_id)
@@ -293,7 +277,6 @@ def run(ctx: PluginContext) -> dict[str, object]:
         # Unavailable detectors in this region's bounding box.
         for name in unavailable:
             if name not in layer_maps:
-                families_involved.add(DETECTOR_FAMILIES.get(name, "unknown"))
                 rules_fired.append(f"unavailable:{name}")
         evidence.append(
             {
@@ -309,6 +292,13 @@ def run(ctx: PluginContext) -> dict[str, object]:
                 },
                 "max_score": max_score,
                 "contributing_detectors": sorted(contributing),
+                "detector_scores": {
+                    name: float(common_maps[name][rows, cols].max())
+                    for name in sorted(contributing)
+                },
+                "weighted_contributions": {
+                    name: float(accepted[name][rows, cols].max()) for name in sorted(contributing)
+                },
                 "families": sorted(families_involved),
                 "rules_fired": sorted(set(rules_fired)),
             }
@@ -321,7 +311,7 @@ def run(ctx: PluginContext) -> dict[str, object]:
                 {
                     "detector_id": name,
                     "reason": "unavailable",
-                    "score": 0.0,
+                    "score": None,
                     "strength_class": "unknown",
                     "families": [DETECTOR_FAMILIES.get(name, "unknown")],
                     "rules_fired": [f"unavailable:{name}"],
@@ -331,4 +321,5 @@ def run(ctx: PluginContext) -> dict[str, object]:
     return {
         "fusion.map": fused.tolist(),
         "fusion.evidence": evidence,
+        "fusion.score_info": {"label": "heuristic_score", "calibration": "uncalibrated"},
     }
