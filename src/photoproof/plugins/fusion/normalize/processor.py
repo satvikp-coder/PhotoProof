@@ -139,7 +139,8 @@ def _layer_for_output(name: str, value: Any, cfg: dict[str, object]) -> dict[str
         if cfg.get("method") == "identity":
             if not 0 <= value <= 1:
                 raise InputRejectedError(
-                    f"fusion.normalize: invalid unit-interval score for {name}; inspect the detector"
+                    f"fusion.normalize: invalid unit-interval score for {name}; "
+                    "inspect the detector"
                 )
             score = float(value)
         else:
