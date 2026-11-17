@@ -19,6 +19,6 @@ def run(ctx: PluginContext) -> dict[str, object]:
             "alpha": "retained",
             "metadata": "removed",
             "max_edge": config.max_edge,
-            "label": "Derived preview ? not original evidence",
+            "label": "Derived preview - not original evidence",
         },
     }

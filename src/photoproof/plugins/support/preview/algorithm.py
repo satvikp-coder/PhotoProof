@@ -17,7 +17,7 @@ def encode_preview(pixels: np.ndarray, *, max_edge: int = 2048) -> tuple[bytes, 
     High-depth input must pass through working-image normalization first.
     """
     if not 1 <= max_edge <= 4096:
-        raise InputRejectedError("preview: max_edge must be 1?4096; choose a bounded display size")
+        raise InputRejectedError("preview: max_edge must be 1-4096; choose a bounded display size")
     if (
         not isinstance(pixels, np.ndarray)
         or pixels.dtype != np.uint8

@@ -137,6 +137,6 @@ sources use the existing working-image tone mapping first. Encoder settings are
 fixed for deterministic output within the recorded Pillow environment.
 
 Previews are content-addressed derived artifacts, explicitly labelled
-"Derived preview ? not original evidence" in `support.preview_info`, which reaches
+"Derived preview - not original evidence" in `support.preview_info`, which reaches
 the manifest alongside the preview hash. Consumers must display this label and
 use generated previews for display rather than browser-decoding the original.
