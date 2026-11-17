@@ -48,6 +48,7 @@ class PluginMetadata(BaseModel):
     after: tuple[str, ...] = ()  # must only reach a terminal state first
     entry_point: str = Field(default="processor:run", pattern=_ENTRY)
     inputs: tuple[str, ...] = ()
+    optional_inputs: tuple[str, ...] = ()  # contracts read if present; never required
     outputs: tuple[str, ...] = Field(min_length=1)
     timeout_seconds: float | None = Field(default=None, gt=0)
     supported_formats: tuple[str, ...] = ()  # empty = format-independent
@@ -62,7 +63,7 @@ class PluginMetadata(BaseModel):
             raise ValueError("duplicate plugin identifiers")
         return value
 
-    @field_validator("inputs", "outputs")
+    @field_validator("inputs", "outputs", "optional_inputs")
     @classmethod
     def _contracts(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         for name in value:
@@ -78,8 +79,11 @@ class PluginMetadata(BaseModel):
             raise ValueError("a plugin cannot depend on itself")
         if set(self.requires) & set(self.after):
             raise ValueError("a dependency cannot be both `requires` and `after`")
+        declared = set(self.inputs) | set(self.optional_inputs)
         if RUN_INPUTS & set(self.outputs):
             raise ValueError("plugins cannot produce reserved run inputs")
+        if declared & set(self.outputs):
+            raise ValueError("plugins cannot consume contracts they produce")
         return self
 
 

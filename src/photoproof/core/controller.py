@@ -25,7 +25,12 @@ from photoproof.contracts.analysis import (
 from photoproof.contracts.artifacts import ArtifactRef
 from photoproof.contracts.enums import AnalysisMode, ExecutionState, RunStatus
 from photoproof.contracts.events import EventType
-from photoproof.contracts.exceptions import ConfigurationError, InputRejectedError, StorageError
+from photoproof.contracts.exceptions import (
+    ConfigurationError,
+    DecoderError,
+    InputRejectedError,
+    StorageError,
+)
 from photoproof.contracts.plugins import PluginContext
 from photoproof.core.bootstrap import Application
 from photoproof.core.cache.run_cache import RunCache, cache_key
@@ -45,6 +50,7 @@ from photoproof.core.storage.store import sha256_bytes, sha256_file
 from photoproof.imaging.arrays import decoded_to_array, working_to_array
 from photoproof.imaging.decoder import DecodedImage
 from photoproof.imaging.formats import HEADER_BYTES, detect_format
+from photoproof.imaging.isolation import IsolatedDecoder
 from photoproof.imaging.normalization import normalize
 from photoproof.versioning.build import build_info, distribution_version
 
@@ -243,6 +249,7 @@ class AnalysisController:
             software={
                 **build_info(app.root),
                 "image_decoders": app.decoders.library_versions(),
+                "image_isolation": app.settings.imaging.isolation,
             },
         )
         manifest_path = app.storage.write_json(manifest, "manifests", f"{run_id}.json")
@@ -416,7 +423,7 @@ class AnalysisController:
             return
         try:
             decoded = self._decode_bytes(data, target.sha256)
-        except (InputRejectedError, StorageError) as error:
+        except (InputRejectedError, StorageError, DecoderError) as error:
             reason = f"the decoded image is unavailable: {error}"
             for name in image_names:
                 unavailable[name] = reason
@@ -438,7 +445,18 @@ class AnalysisController:
                 "the stored target is not a recognised image format, so no decoder can read it"
             )
         decoder = app.decoders.for_format(media_format)
-        return decoder.decode(data, source_sha256=sha256, limits=app.decode_limits())
+        # Production decoding runs in an isolated child process. In-process decoding is a
+        # development-only escape hatch (imaging.isolation = "in_process") and must not be
+        # used in production.
+        isolated = IsolatedDecoder(decoder, isolation=app.settings.imaging.isolation)
+        try:
+            return isolated.decode(
+                data,
+                source_sha256=sha256,
+                limits=app.decode_limits(),
+            )
+        finally:
+            isolated.close()
 
     def _plugin_identities(self, execution_plan: ExecutionPlan) -> dict[str, dict[str, object]]:
         return {

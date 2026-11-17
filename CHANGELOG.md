@@ -6,7 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore parsing and bounded execution of dependency-update automation, regenerate all
+  lockfiles together, and preserve release-only versioning (Refs #78).
+
 ### Added
+
+- Generate bounded, metadata-free derived PNG previews from normalized working pixels,
+  retaining alpha and preserving original evidence (#10).
 
 - A run resolves its media contracts from stored evidence, once per run, and hands them to
   plugins that declare them in `inputs`: `input.original_bytes` (the stored original),
@@ -29,6 +37,37 @@ All notable changes to this project are documented here. The format follows
   into suspected manipulation, confirmed differences, and unavailable evidence, with every
   claim traceable to manifest paths and artifact hashes. CLI command `python main.py report
   RUN_ID [--format html|json]` (#46).
+- `imaging/isolation.py`: `IsolatedDecoder` now spawns a short-lived child per decode over a
+  single bound `Pipe` (no `multiprocessing.Queue` feeder thread), enforces a real
+  wall-clock deadline, applies `RLIMIT_AS`/`RLIMIT_CPU` where the platform supports them,
+  validates every child reply (dimensions, pixel count, buffer size, source SHA-256), never
+  trusts arbitrary child exception objects, and cleans up the child on every exit path
+  (#9).
+- `core/database/store.py`: `Database` is now a context manager, `close()` is idempotent,
+  and `open_connection_count()` tracks live connections so tests can assert nothing is left
+  open after success, startup failure, run failure and shutdown (#12).
+- `contracts/plugins.py`: new `optional_inputs` field on `PluginMetadata` (plugin API
+  1.1.0 → 1.2.0). Plugins may declare inputs they read if present without requiring them;
+  the executor never skips a plugin solely for a missing optional input (#9, #32).
+- `contracts/evidence.py`: new `EvidenceLayer` contract — a normalized, comparable
+  representation of one detector's output with a score in ``[0, 1]``, strength class, and
+  explicit ``calibration: uncalibrated`` until #37 provides calibration data (#32).
+- `plugins/fusion/normalize/`: new `fusion.normalize` plugin reads every detector output
+  that is present (declared as optional inputs), maps each to an `EvidenceLayer` via robust
+  z-scoring and logistic squashing, and marks absent detectors as `unavailable` — never as
+  zero-score layers. Priority 90, runs after all detectors (#32).
+- `plugins/fusion/rules/`: new `fusion.rules` plugin fuses normalized evidence layers into a
+  heuristic suspicion map (`fusion.map`) and per-region evidence summaries (`fusion.evidence`)
+  using transparent, documented rules. Strong evidence (copy-move) can mark a region
+  suspicious alone; medium evidence needs family support or a high score; weak evidence only
+  raises confidence where medium/strong support exists. Detector families count once.
+  Priority 90, requires `fusion.normalize` (#33).
+- `plugins/fusion/assessment/`: new `fusion.assessment` plugin produces the run's overall
+  assessment category based on coverage (which detectors were available and applicable).
+  Missing evidence leads to `inconclusive` rather than an implied clean result. Categories:
+  `manipulation_indicated`, `differences_found` (comparison mode),
+  `no_indicators_found_with_sufficient_coverage`, `inconclusive`. Priority 95, requires
+  `fusion.rules` (#34).
 
 ### Fixed
 
@@ -61,6 +100,15 @@ All notable changes to this project are documented here. The format follows
   incorrect return keys are fixed; `analyze_clustering` gained `method` and
   `min_matches_per_cluster`, and `clustering_result_to_dict` exists (#22).
 - `core/isolation.py`: fixed mypy errors and the Unix-only `resource` import (#9).
+- `imaging/isolation.py`: `IsolatedDecoder` now spawns a short-lived child per decode over a
+  single bound `Pipe` (no `multiprocessing.Queue` feeder thread), enforces a real
+  wall-clock deadline, applies `RLIMIT_AS`/`RLIMIT_CPU` where the platform supports them,
+  validates every child reply (dimensions, pixel count, buffer size, source SHA-256), never
+  trusts arbitrary child exception objects, and cleans up the child on every exit path
+  (#9).
+- `core/database/store.py`: `Database` is now a context manager, `close()` is idempotent,
+  and `open_connection_count()` tracks live connections so tests can assert nothing is left
+  open after success, startup failure, run failure and shutdown (#12).
 - Tests: `tests.fixtures.*` imports work whether or not pytest is started with
   `python -m` (CI runs the console script), and mypy targets Linux, matching the CI
   quality job.

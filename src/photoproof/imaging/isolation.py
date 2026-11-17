@@ -8,6 +8,49 @@ reports a typed error and continues.
 When ``isolation`` is ``"in_process"`` (development only), decoding runs directly in
 the calling process with no isolation -- use this only when the platform cannot
 enforce child-process limits.
+
+Child-process guarantees
+------------------------
+
+* Every decode is its own short-lived child: ``spawn`` on every platform so the child
+  never inherits the parent's threads, file descriptors or (on macOS py3.15+) the
+  ``fork`` deprecation. Re-importing the adapter for each decode keeps child startup
+  failure distinct from a decode failure and prevents a crashing decoder from poisoning
+  a long-lived worker.
+* Each child uses a single bound ``Pipe`` (no ``multiprocessing.Queue`` feeder thread)
+  and the child's only inbound message is ``(data_bytes, limits_dict)``. The parent
+  never trusts arbitrary child exception objects: responses are validated against a
+  fixed tag vocabulary, and unknown or malformed messages raise ``DecoderCrashed``.
+* The parent enforces a real wall-clock deadline. A child that does not reply before
+  it is terminated and joined so no orphan remains.
+* Memory and CPU limits are applied where the platform supports them. On Linux the
+  child caps its own virtual address space (``RLIMIT_AS``). Because native libraries
+  reserve large virtual-memory regions that are never resident, ``RLIMIT_AS`` is
+  intentionally generous and is derived from the decoded-pixel budget rather than set
+  to a tiny value; the parent's wall-clock deadline and the decoder's own input-size
+  checks are the real backstops. macOS ignores ``RLIMIT_AS``, so memory is not capped
+  there (documented). Windows uses a Job Object with ``KillOnJobClose``.
+* Every child is cleaned up on every exit path: normal return, exception, timeout and
+  parent process termination. ``close()`` is idempotent and is called from a
+  ``finally`` on every decode; there is no reliance on ``__del__`` or ``atexit``.
+* Returned dimensions, pixel count, buffer size and type are validated before the
+  decoded image is accepted.
+* The original source SHA-256 is preserved in the decoded metadata.
+* The parent process survives a crashing decoder.
+
+Platform-specific guarantees
+----------------------------
+
+    ========  =========================  =============  ========================
+    Platform  Memory                     CPU           Wall clock
+    ========  =========================  =============  ========================
+    Linux     RLIMIT_AS (generous for    RLIMIT_CPU    parent deadline -> term ->
+              native VM reservations)              kill
+    macOS     not enforced               RLIMIT_CPU    parent deadline -> term ->
+                                              kill
+    Windows   Job Object (KillOnJobClose) not enforced  parent deadline -> term ->
+                                          kill
+    ========  =========================  =============  ========================
 """
 
 from __future__ import annotations
@@ -18,7 +61,6 @@ from typing import Any, cast
 
 from photoproof.contracts.exceptions import (
     DecoderCrashed,
-    DecoderError,
     DecoderMemoryLimit,
     DecoderTimeout,
     InputRejectedError,
@@ -30,76 +72,137 @@ try:
 except ImportError:  # pragma: no cover - resource is Unix-only
     resource = None  # type: ignore[assignment]
 
+#: Messages the child sends back are validated against this fixed tag vocabulary.
+_CHILD_REPLY_OK = "ok"
+_CHILD_REPLY_ERROR = "error"
 
-def _apply_limits(limits_dict: dict[str, Any]) -> None:
-    """Apply resource limits inside the child process before any decoding."""
-    if resource is None:
-        return
-    # Memory ceiling: derived from the input size plus decoded pixel budget.
-    memory_bytes = limits_dict.get("max_input_bytes", 0) + limits_dict.get(
-        "max_decoded_bytes", 2 << 30
+#: How long the parent waits for the child to finish after termination.
+_CHILD_JOIN_SECONDS = 5.0
+
+
+def _limits_dict(limits: DecodeLimits) -> dict[str, Any]:
+    """Convert ``DecodeLimits`` into a plain dict safe to send across the pipe."""
+    return {
+        "max_input_bytes": limits.max_input_bytes,
+        "max_pixels": limits.max_pixels,
+        "max_frames": limits.max_frames,
+        "timeout_seconds": limits.timeout_seconds,
+        "max_decoded_bytes": limits.max_decoded_bytes,
+    }
+
+
+def _limits_from_dict(d: dict[str, Any]) -> DecodeLimits:
+    """Convert a limits dict back into ``DecodeLimits`` with safe defaults."""
+    return DecodeLimits(
+        max_input_bytes=int(d.get("max_input_bytes", 0)),
+        max_pixels=int(d.get("max_pixels", 0)),
+        max_frames=int(d.get("max_frames", 1)),
+        timeout_seconds=float(d.get("timeout_seconds", 30.0)),
+        max_decoded_bytes=int(d.get("max_decoded_bytes", 2 << 30)),
     )
-    if memory_bytes > 0:
-        with contextlib.suppress(ValueError, OSError):
-            resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
-
-    timeout_seconds = limits_dict.get("timeout_seconds", 30)
-    if timeout_seconds > 0:
-        with contextlib.suppress(ValueError, OSError):
-            resource.setrlimit(resource.RLIMIT_CPU, (int(timeout_seconds), int(timeout_seconds)))
 
 
 def _child_entry(
     adapter_name: str,
     limits_dict: dict[str, Any],
-    conn: Any,
+    child_conn: Any,
 ) -> None:
-    """Run in the child process: set limits, decode, send result back.
+    """Run in the child process: apply limits, import the adapter, decode one request.
 
-    The worker is started once and reused for multiple decode calls. Each request
-    arrives on ``conn`` as ``(data_bytes, limits_dict)``; each response is
-    ``("ok", decoded_image)`` or ``("error", exception)``. A ``None`` request
-    shuts down the worker.
+    The child lives for exactly one decode. Limits are applied before the adapter is
+    imported so native-library startup happens under the ceiling. ``child_conn``
+    receives one message ``(data_bytes, limits_dict)`` and replies either
+    ``("ok", decoded_image)`` or ``("error", "<class name>: <message>")``. The reply
+    is a plain tuple of strings, never an exception object, so the parent cannot be
+    made to execute or trust arbitrary child state.
     """
     try:
-        _apply_limits(limits_dict)
+        _apply_child_limits(limits_dict)
 
-        # Import the adapter lazily inside the child.
         module_name, class_name = adapter_name.rsplit(".", 1)
         module = __import__(module_name, fromlist=[class_name])
         adapter_cls = getattr(module, class_name)
         adapter = adapter_cls()
 
-        while True:
-            msg = conn.recv()
-            if msg is None:  # shutdown signal
-                return
-            try:
-                data, request_limits_dict = msg
-            except (ValueError, TypeError):
-                # Ping message or other non-(data, limits) message
-                conn.send(("ok", None))
-                continue
-            try:
-                limits = limits_dict_to_limits(request_limits_dict)
-                result = adapter.decode(data, source_sha256="", limits=limits)
-                conn.send(("ok", result))
-            except Exception as exc:  # noqa: BLE001 - child must report any failure
-                conn.send(("error", exc))
-    except Exception as exc:  # noqa: BLE001 - child startup failure
+        msg = child_conn.recv()
+        if not (isinstance(msg, tuple) and len(msg) == 2):
+            raise ValueError("child request must be (data, limits_dict)")
+        data, request_limits_dict = msg
+        if not isinstance(data, (bytes, bytearray)):
+            raise ValueError("child request data must be bytes")
+        if not isinstance(request_limits_dict, dict):
+            raise ValueError("child request limits must be a mapping")
+
+        limits = _limits_from_dict(request_limits_dict)
+        result = adapter.decode(bytes(data), source_sha256="", limits=limits)
+
+        child_conn.send((_CHILD_REPLY_OK, result))
+    except BaseException as exc:  # noqa: BLE001 - report any child failure as typed text
         with contextlib.suppress(Exception):
-            conn.send(("error", exc))
+            # If the pipe is broken there is nothing more to send.
+            child_conn.send((_CHILD_REPLY_ERROR, f"{type(exc).__name__}: {exc}"))
+    finally:
+        with contextlib.suppress(Exception):
+            child_conn.close()
 
 
-def limits_dict_to_limits(d: dict[str, Any]) -> DecodeLimits:
-    """Convert a limits dict to a DecodeLimits instance."""
-    return DecodeLimits(
-        max_input_bytes=d.get("max_input_bytes", 0),
-        max_pixels=d.get("max_pixels", 0),
-        max_frames=d.get("max_frames", 1),
-        timeout_seconds=d.get("timeout_seconds", 30.0),
-        max_decoded_bytes=d.get("max_decoded_bytes", 2 << 30),
-    )
+def _apply_child_limits(limits_dict: dict[str, Any]) -> None:
+    """Apply resource limits inside the child before any decoding.
+
+    ``RLIMIT_AS`` caps virtual address space. On Linux it is enforced; macOS ignores it
+    and Windows handles memory through a Job Object in ``core.isolation``. The ceiling
+    is derived from the decoded-pixel budget plus a generous allowance for native
+    library reservations (Pillow's codecs, NumPy's BLAS): a tiny fixed value would
+    crash a healthy child for reasons unrelated to real memory use. The adapter
+    enforces ``max_input_bytes``/``max_pixels``/``max_decoded_bytes`` before allocating
+    pixels, and the parent enforces the wall-clock deadline, so there is never an
+    unbounded allowance.
+    """
+    if resource is None:
+        return
+    # Core dumps of evidence in memory must never be produced.
+    with contextlib.suppress(ValueError, OSError):
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    # CPU time limit mirrors the wall-clock deadline so a runaway native decoder is
+    # stopped by the OS as well as by the parent.
+    timeout_seconds = float(limits_dict.get("timeout_seconds", 60.0))
+    if timeout_seconds > 0:
+        with contextlib.suppress(ValueError, OSError):
+            soft = max(1, int(timeout_seconds))
+            _, hard = resource.getrlimit(resource.RLIMIT_CPU)
+            ceiling = soft + 1 if hard == resource.RLIM_INFINITY else min(soft + 1, hard)
+            resource.setrlimit(resource.RLIMIT_CPU, (min(soft, ceiling), ceiling))
+    # Virtual address space ceiling. Derived from the pixel budget plus headroom for
+    # native-library virtual-memory reservations that are never resident.
+    max_decoded_bytes = int(limits_dict.get("max_decoded_bytes", 2 << 30))
+    max_input_bytes = int(limits_dict.get("max_input_bytes", 0))
+    ceiling = max_decoded_bytes + max_input_bytes + (1 << 30)  # +1 GiB headroom
+    if ceiling > 0:
+        with contextlib.suppress(ValueError, OSError):
+            resource.setrlimit(resource.RLIMIT_AS, (ceiling, ceiling))
+
+
+def _validate_decoded(result: DecodedImage) -> DecodedImage:
+    """Validate a decoded image returned by the child before the parent accepts it.
+
+    Raises ``DecoderCrashed`` for malformed dimensions, pixel count, buffer size or
+    type. Never trusts the child's word.
+    """
+    if result.width < 1 or result.height < 1:
+        raise DecoderCrashed(f"decoder returned invalid dimensions {result.width}x{result.height}")
+    if result.channels < 1:
+        raise DecoderCrashed(f"decoder returned invalid channel count {result.channels}")
+    expected = result.width * result.height * result.channels
+    if expected == 0:
+        raise DecoderCrashed("decoder returned a zero-size image")
+    if len(result.pixels) != expected:
+        raise DecoderCrashed(
+            f"decoder pixel buffer holds {len(result.pixels)} bytes, expected "
+            f"{expected} for {result.width}x{result.height}x{result.channels}"
+        )
+    if not isinstance(result.source_sha256, str) or len(result.source_sha256) != 64:
+        raise DecoderCrashed("decoder returned an invalid source SHA-256")
+    return result
 
 
 def _decode_in_process(
@@ -113,11 +216,10 @@ def _decode_in_process(
 
 
 class _IsolatedWorker:
-    """A persistent child process that decodes images with resource limits.
+    """A short-lived child process that decodes one image with resource limits.
 
-    The worker is started once and reused for multiple decode calls. This avoids
-    the overhead of spawning a new process (and re-importing heavy libraries like
-    Pillow) for every decode, which was too slow on CI runners.
+    The child is spawned per-decode so a crashing, hanging or memory-blowing decoder
+    cannot poison a long-lived worker or leak threads/fd state across decodes.
     """
 
     def __init__(
@@ -131,20 +233,31 @@ class _IsolatedWorker:
         self._startup_timeout = startup_timeout
         self._proc: Any = None
         self._conn: Any = None
-        self._start_child()
 
-    def _start_child(self) -> None:
-        """Start the isolated child process and wait for it to be ready."""
-        # Use spawn context (fork causes deprecation warnings on macOS py3.15+
-        # when called from a multi-threaded process).
+    def decode(
+        self,
+        data: bytes,
+        limits: DecodeLimits,
+        timeout_seconds: float,
+        source_sha256: str = "",
+    ) -> DecodedImage:
+        """Spawn a child, decode ``data``, and return the validated result.
+
+        Every exit path terminates and joins the child so no orphan remains.
+        """
+        self._start_child(_limits_dict(limits))
+        try:
+            return self._decode_once(data, limits, timeout_seconds, source_sha256)
+        finally:
+            self.close()
+
+    def _start_child(self, limits_dict: dict[str, Any]) -> None:
+        """Start the isolated child process using the spawn context."""
         ctx: Any = mp.get_context("spawn")
 
         parent_conn, child_conn = ctx.Pipe()
 
         adapter_name = f"{self._adapter.__class__.__module__}.{self._adapter.__class__.__name__}"
-
-        # Empty limits dict; limits are sent per-request.
-        limits_dict: dict[str, Any] = {}
 
         self._proc = ctx.Process(
             target=_child_entry,
@@ -153,92 +266,64 @@ class _IsolatedWorker:
         )
         self._proc.start()
         child_conn.close()  # child owns its end; parent uses parent_conn
-
-        # Wait for the child to be ready by sending a trivial probe.
-        # If the child fails during import/setup, we detect it here.
         self._conn = parent_conn
-        self._conn.send((b"__ping__",))
 
-        try:
-            kind, payload = self._conn.recv()
-        except (EOFError, OSError):
-            # Child died during startup.
-            self._proc.join(timeout=5)
-            exit_code = self._proc.exitcode
-            raise DecoderTimeout(
-                f"decoder child exited during startup (exit code {exit_code})"
-            ) from None
-
-        if kind == "error":
-            exc = payload
-            self._proc.join(timeout=5)
-            if isinstance(exc, ImportError):
-                raise DecoderTimeout(f"decoder child failed to import adapter: {exc}") from exc
-            raise DecoderCrashed(
-                f"decoder child failed during startup: {type(exc).__name__}: {exc}"
-            ) from exc
-
-    def decode(
+    def _decode_once(
         self,
         data: bytes,
         limits: DecodeLimits,
         timeout_seconds: float,
+        source_sha256: str,
     ) -> DecodedImage:
-        """Decode ``data`` in the child process with the given limits."""
-        limits_dict = {
-            "max_input_bytes": limits.max_input_bytes,
-            "max_pixels": limits.max_pixels,
-            "max_frames": limits.max_frames,
-            "timeout_seconds": limits.timeout_seconds,
-            "max_decoded_bytes": limits.max_decoded_bytes,
-        }
-        self._conn.send((data, limits_dict))
+        """Send one request and wait for the child's validated reply."""
+        if self._conn is None:
+            raise DecoderCrashed("decoder child connection is closed")
+        self._conn.send((bytes(data), _limits_dict(limits)))
 
-        # Wait for the child to respond or timeout.
-        if not self._conn.poll(timeout_seconds + 1):
-            # Child hasn't responded within timeout - kill it.
-            self._proc.kill()
-            self._proc.join(timeout=5)
+        # Enforce a real wall-clock deadline.
+        if not self._conn.poll(timeout_seconds + 1.0):
+            self._terminate_child()
             raise DecoderTimeout(f"decoder exceeded {timeout_seconds}s wall-clock limit") from None
 
         try:
             kind, payload = self._conn.recv()
         except (EOFError, OSError):
-            # Child process died during decode.
-            self._proc.join(timeout=5)
-            raise DecoderCrashed("decoder child died during decode") from None
+            # Child exited without replying: crash, or killed by a limit.
+            self._proc.join(timeout=_CHILD_JOIN_SECONDS)
+            raise DecoderCrashed("decoder child exited without returning a result") from None
 
-        if kind == "ok":
-            return cast(DecodedImage, payload)
+        if kind == _CHILD_REPLY_OK:
+            result = cast(DecodedImage, payload)
+            # Preserve the caller's source SHA-256 in the decoded metadata.
+            object.__setattr__(result, "source_sha256", source_sha256)
+            return _validate_decoded(result)
 
-        # kind == "error"
-        exc = payload
-        if isinstance(exc, InputRejectedError):
-            raise exc
-        if isinstance(exc, DecoderError):
-            raise exc
-        if isinstance(exc, MemoryError):
-            raise DecoderMemoryLimit("decoder exceeded memory ceiling") from exc
-        if isinstance(exc, TimeoutError):
-            raise DecoderTimeout("decoder exceeded time limit") from exc
-        raise DecoderCrashed(f"decoder raised {type(exc).__name__}: {exc}") from exc
+        # kind == _CHILD_REPLY_ERROR
+        text = str(payload)
+        if text.startswith("InputRejectedError:"):
+            raise InputRejectedError(text.split(":", 1)[1].strip())
+        if "MemoryError" in text:
+            raise DecoderMemoryLimit(f"decoder exceeded memory ceiling: {text}") from None
+        if "TimeoutError" in text:
+            raise DecoderTimeout(f"decoder exceeded time limit: {text}") from None
+        raise DecoderCrashed(f"decoder raised {text}")
 
-    def close(self) -> None:
-        """Shut down the child process cleanly."""
-        if self._conn is not None:
-            with contextlib.suppress(OSError, BrokenPipeError):
-                self._conn.send((None,))
-                self._conn.close()
-        if self._proc is not None:
-            self._proc.join(timeout=5)
+    def _terminate_child(self) -> None:
+        """Terminate and join the child, never leaving an orphan."""
+        if self._proc is not None and self._proc.is_alive():
+            self._proc.terminate()
+            self._proc.join(timeout=_CHILD_JOIN_SECONDS)
             if self._proc.is_alive():
                 self._proc.kill()
-                self._proc.join(timeout=5)
+                self._proc.join(timeout=_CHILD_JOIN_SECONDS)
 
-    def __del__(self) -> None:
-        """Ensure child process is cleaned up when the worker is garbage collected."""
-        with contextlib.suppress(Exception):
-            self.close()
+    def close(self) -> None:
+        """Shut down the child process cleanly. Idempotent."""
+        if self._conn is not None:
+            with contextlib.suppress(OSError, BrokenPipeError):
+                self._conn.close()
+            self._conn = None
+        self._terminate_child()
 
 
 class IsolatedDecoder:
@@ -264,7 +349,6 @@ class IsolatedDecoder:
         self._adapter = adapter
         self._isolation = isolation
         self._formats = adapter.formats
-        self._worker: _IsolatedWorker | None = None
 
     @property
     def formats(self) -> frozenset[str]:
@@ -276,12 +360,6 @@ class IsolatedDecoder:
     def probe(self, data: bytes) -> str | None:
         return self._adapter.probe(data)
 
-    def _get_worker(self) -> _IsolatedWorker:
-        """Lazily create the isolated worker process."""
-        if self._worker is None:
-            self._worker = _IsolatedWorker(self._adapter, self._isolation)
-        return self._worker
-
     def decode(
         self,
         data: bytes,
@@ -292,19 +370,14 @@ class IsolatedDecoder:
         """Decode ``data`` with limits enforced, either in-process or in a child."""
         if self._isolation == "in_process":
             return _decode_in_process(self._adapter, data, source_sha256, limits)
-        worker = self._get_worker()
+        worker = _IsolatedWorker(self._adapter, self._isolation)
         try:
-            return worker.decode(data, limits, limits.timeout_seconds)
+            return worker.decode(data, limits, limits.timeout_seconds, source_sha256)
         finally:
             worker.close()
 
     def close(self) -> None:
-        """Shut down the isolated worker process if one was created."""
-        if self._worker is not None:
-            self._worker.close()
-            self._worker = None
+        """No persistent worker to close (each decode spawns its own child)."""
 
     def __del__(self) -> None:
-        """Ensure child process is cleaned up when decoder is garbage collected."""
-        with contextlib.suppress(Exception):
-            self.close()
+        """No child resources to clean up (each child is joined on return)."""

@@ -113,6 +113,11 @@ LATEST_VERSION = len(MIGRATIONS)
 _open_connections: set[sqlite3.Connection] = set()
 
 
+def open_connection_count() -> int:
+    """Number of database connections still open (for tests and health diagnostics)."""
+    return len(_open_connections)
+
+
 def _close_all_connections() -> None:
     """Close all open database connections at interpreter shutdown."""
     for conn in list(_open_connections):
@@ -147,11 +152,18 @@ class Database:
     def __init__(self, connection: sqlite3.Connection, path: Path) -> None:
         self._conn = connection
         self.path = path
+        self._closed = False
         _open_connections.add(connection)
 
     def __del__(self) -> None:
         with suppress(Exception):  # nosec B110 - best-effort cleanup during garbage collection
             self.close()
+
+    def __enter__(self) -> "Database":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.close()
 
     # --------------------------------------------------------------- lifecycle
 
@@ -163,6 +175,7 @@ class Database:
         requires ``allow_migration`` (the CONTROLLED ``--repair`` path).
         """
         path.parent.mkdir(parents=True, exist_ok=True)
+        conn = None
         try:
             conn = sqlite3.connect(
                 path, isolation_level=None, timeout=30.0
@@ -172,6 +185,8 @@ class Database:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.row_factory = sqlite3.Row
         except sqlite3.Error as error:
+            if conn is not None:
+                conn.close()
             raise DatabaseError(f"{path}: unreadable database: {error}") from error
         db = cls(conn, path)
         try:
@@ -204,9 +219,13 @@ class Database:
         return db
 
     def close(self) -> None:
+        if self._closed:
+            return
         if self._conn in _open_connections:
             _open_connections.discard(self._conn)
-        self._conn.close()
+        with suppress(Exception):  # already-closed connections must not raise
+            self._conn.close()
+        self._closed = True
 
     def schema_version(self) -> int:
         return int(self._conn.execute("PRAGMA user_version").fetchone()[0])

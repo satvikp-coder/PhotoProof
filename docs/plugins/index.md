@@ -363,3 +363,12 @@ Options:
 | `--description TEXT` | Short description for METADATA |
 
 After generating, add the docs page to the `mkdocs.yml` nav, write the algorithm, run ruff and mypy, bump the version and update the changelog.
+
+## Safe preview support
+
+`support.preview` (priority 5) consumes `image.working` and produces the
+`support.preview` PNG artifact plus `support.preview_info` (dimensions, derived
+label, metadata-removal policy and retained alpha). Missing working pixels skip
+the plugin visibly; no preview substitutes for evidence. Configure `max_edge` in
+`configs/plugins/support.preview.yaml`. The reusable `imaging.preview.make_preview`
+API accepts a normalized `WorkingImage` and an explicit artifact writer.
