@@ -49,8 +49,8 @@ jobs:
       - name: Check for an existing automation PR
         id: existing
         run: |
-          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --base main --head deps/auto \
-            --state open --json number --jq '.[0].number // empty')
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --base main --state open \
+            --json number,headRefName | python -c 'import json,sys; print(next((p["number"] for p in json.load(sys.stdin) if p["headRefName"].startswith("deps/auto")), ""))')
           echo "number=$number" >> "$GITHUB_OUTPUT"
       - name: Verify pinned uv archive
         if: steps.existing.outputs.number == ''
@@ -111,7 +111,8 @@ jobs:
         run: |
           git config user.name 'PhotoProof dependency automation'
           git config user.email 'deps@photoproof.local'
-          git switch -C deps/auto
+          branch="deps/auto-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git switch -c "$branch"
           python - <<'PY'
           from pathlib import Path
           p = Path('CHANGELOG.md')
@@ -122,7 +123,7 @@ jobs:
           PY
           git add requirements.lock requirements-dev.lock requirements-tools.lock CHANGELOG.md
           git commit -m 'build(deps): refresh hash-pinned dependency lockfiles'
-          git push origin HEAD:refs/heads/deps/auto
+          git push origin "HEAD:refs/heads/$branch"
           cat > "$RUNNER_TEMP/deps-pr.md" <<'BODY'
           ## Summary
           Refresh all three universal hash-pinned dependency lockfiles.
@@ -158,9 +159,19 @@ jobs:
           BODY
           labels=()
           if [[ "$CHECK_OUTCOME" != success ]]; then labels=(--label ci:blocked); fi
-          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head deps/auto --draft \
+          if ! gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" --draft \
             --title 'build(deps): refresh hash-pinned dependency lockfiles' \
-            --body-file "$RUNNER_TEMP/deps-pr.md" "${labels[@]}"
+            --body-file "$RUNNER_TEMP/deps-pr.md" "${labels[@]}"; then
+            echo '::warning::Draft PR publication failed; generated changes are preserved on the branch below.'
+            {
+              echo '## Manual draft publication required'
+              echo 'The repository may restrict PR creation by GitHub Actions. No settings were changed.'
+              echo "Validated check outcome: $CHECK_OUTCOME"
+              echo "Preserved branch: $branch"
+              echo "Compare: https://github.com/$GITHUB_REPOSITORY/compare/main...$branch"
+              echo 'Open a draft manually, then run the complete required CI and review gates.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Report validation failure
         if: steps.checks.outcome == 'failure'
         run: exit 1
