@@ -30,9 +30,10 @@ def test_killed_claimant_is_recovered_without_double_counting(tmp_path: Path) ->
         )
         context = multiprocessing.get_context("spawn")
         reader, writer = context.Pipe(duplex=False)
-        process = context.Process(
-            target=_claim_then_wait, args=(str(path), writer, context.Event())
-        )
+        # Keep the parent reference alive until the spawned child has rebuilt
+        # its synchronization primitives (POSIX named semaphores are unlinked on GC).
+        stop = context.Event()
+        process = context.Process(target=_claim_then_wait, args=(str(path), writer, stop))
         process.start()
         writer.close()
         try:
