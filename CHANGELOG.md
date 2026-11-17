@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Refresh hash-pinned dependency lockfiles (Refs #78).
+
 ### Fixed
 
 - Restore parsing and bounded execution of dependency-update automation, regenerate all
