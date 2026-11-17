@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Create runtime coordination files with owner-only POSIX permissions (Refs #81).
+
 - Restore parsing and bounded execution of dependency-update automation, regenerate all
   lockfiles together, and preserve release-only versioning (Refs #78).
 
