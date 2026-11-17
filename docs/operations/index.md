@@ -50,3 +50,18 @@ goes to the CLI unchanged: `python main.py repair --dry-run` is a dry run.
 Hard requirements fail; recommended resources warn; the GPU is informational.
 `--doctor` also lists packages installed in `.venv` that no lockfile pins.
 Set `PHOTOPROOF_LAUNCHER_VERBOSE=1` to print the launcher report on every start.
+
+## Reference comparison input checks
+
+Use `python main.py analyze TARGET --reference REFERENCE --profile comparison`.
+Both files pass ingestion, verified evidence storage and isolated decoding. The manifest
+records `comparison.preflight` with the reference trust statement, both hashes, working
+pixel/byte equality, shape/aspect relationships and size warnings. A reference is
+user-supplied comparison material. Differences do not identify which file to trust.
+
+Identical decodable bytes produce `inputs are identical` and comparison plugins are
+NOT_APPLICABLE; no change evidence is invented. Other selected detectors retain their
+normal pipeline-health outcomes. Missing or rejected reference pixels yield INCOMPLETE
+with an unavailable preflight. Combined image pixels share one configured budget rather
+than each receiving a full allowance. Registration and interpretation remain separate
+implementation stages; preflight alone is not a forensic assessment.

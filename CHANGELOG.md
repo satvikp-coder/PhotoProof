@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Resolve verified reference pixels once per unique image, record comparison relationship
+  checks and trust limitations, and enforce a shared image-buffer budget. Identical byte
+  comparisons produce an informational result without fabricated difference evidence (#27).
+
 - Generate bounded, metadata-free derived PNG previews from normalized working pixels,
   retaining alpha and preserving original evidence (#10).
 
