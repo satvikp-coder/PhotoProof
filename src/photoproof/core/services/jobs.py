@@ -10,7 +10,6 @@ many readers, which is sufficient at this scale.
 
 from __future__ import annotations
 
-import datetime
 import hashlib
 import uuid
 from dataclasses import dataclass
@@ -69,121 +68,71 @@ class JobQueue:
     # ------------------------------------------------------------------ submit
 
     def submit(self, request: AnalysisRequest, client_token: str) -> str:
-        """Submit an analysis job and return its ``job_id``.
-
-        Idempotent: submitting the same request with the same client token
-        returns the existing job_id instead of creating a duplicate.
-        """
+        """Atomically submit a descriptor-only request with client idempotency."""
         payload = request.model_dump_json()
-        idempotency_key = self._idempotency_key(payload, client_token)
-
-        existing = self._db._conn.execute(
-            "SELECT job_id FROM jobs WHERE idempotency_key = ?",
-            (idempotency_key,),
-        ).fetchone()
-        if existing is not None:
-            return str(existing[0])
-
-        job_id = uuid.uuid4().hex
-        now = datetime.datetime.now(datetime.UTC).isoformat()
-
-        self._db._write(
-            "INSERT INTO jobs (job_id, state, payload, attempts, max_attempts, "
-            "lease_until, worker_id, idempotency_key, created_at, "
-            "updated_at, error_message) "
-            "VALUES (?, 'queued', ?, 0, ?, NULL, NULL, ?, ?, ?, NULL)",
-            (job_id, payload, self._settings.max_attempts, idempotency_key, now, now),
+        return self._db.submit_job(
+            job_id=uuid.uuid4().hex,
+            payload=payload,
+            max_attempts=self._settings.max_attempts,
+            idempotency_key=self._idempotency_key(payload, client_token),
         )
-        return job_id
 
-    # ------------------------------------------------------------------ claim
+    def get(self, job_id: str) -> Job | None:
+        """Read a job without claiming it."""
+        row = self._db.get_job(job_id)
+        return self._row_to_job(row) if row is not None else None
 
     def claim(self, worker_id: str) -> Job | None:
-        """Atomically claim the oldest queued job.
-
-        Uses ``BEGIN IMMEDIATE`` for an immediate write lock so concurrent
-        claimers cannot both select the same job. Returns the :class:`Job` or
-        ``None`` if no queued jobs are available.
-        """
+        """Atomically claim a queued job and return its fenced ownership token."""
         row = self._db.claim_job(worker_id, self._settings.lease_seconds)
         if row is None:
             return None
         return self._row_to_job(row)
 
-    # ------------------------------------------------------------------ complete/fail
+    def _owned_claim(self, job_id: str, claim: Job) -> Job:
+        token = claim
+        if token.job_id != job_id or not token.worker_id:
+            raise StorageError(f"job {job_id}: no owned claim; claim it before changing its state")
+        return token
 
-    def complete(self, job_id: str, result: Any = None) -> None:
-        """Mark a job as succeeded."""
-        self._db._write(
-            "UPDATE jobs SET state = 'succeeded', updated_at = datetime('now') "
-            "WHERE job_id = ? AND state = 'running'",
-            (job_id,),
+    def complete(self, job_id: str, result: Any = None, *, claim: Job) -> None:
+        """Complete an owned live claim; repeating its completion is idempotent.
+
+        Pass the original Job returned by claim, never a later lookup of the job.
+        The legacy result parameter is retained; run linkage is handled by workers.
+        """
+        token = self._owned_claim(job_id, claim)
+        if not self._db.transition_claimed_job(
+            job_id, worker_id=str(token.worker_id), attempt=token.attempts
+        ):
+            raise StorageError(
+                f"job {job_id}: claim expired or replaced; do not publish completion"
+            )
+
+    def fail(self, job_id: str, error_message: str, *, claim: Job) -> None:
+        """Fail an owned live claim, preserving attempts for the next actual claim."""
+        token = self._owned_claim(job_id, claim)
+        if not self._db.transition_claimed_job(
+            job_id,
+            worker_id=str(token.worker_id),
+            attempt=token.attempts,
+            error_message=error_message,
+        ):
+            raise StorageError(f"job {job_id}: claim expired or replaced; do not publish failure")
+
+    def renew(self, job_id: str, *, claim: Job) -> bool:
+        """Renew a still-live owned claim; return False when it has expired/replaced."""
+        token = self._owned_claim(job_id, claim)
+        return self._db.renew_job_claim(
+            job_id,
+            worker_id=str(token.worker_id),
+            attempt=token.attempts,
+            lease_seconds=self._settings.lease_seconds,
         )
 
-    def fail(self, job_id: str, error_message: str) -> None:
-        """Mark a job as failed.
-
-        If attempts remain, re-queues the job. Otherwise marks it failed.
-        """
-        row = self._db._conn.execute(
-            "SELECT attempts, max_attempts FROM jobs WHERE job_id = ?",
-            (job_id,),
-        ).fetchone()
-        if row is None:
-            raise StorageError(f"job {job_id} not found")
-        attempts = int(row[0]) + 1
-        max_attempts = int(row[1])
-
-        if attempts < max_attempts:
-            self._db._write(
-                "UPDATE jobs SET state = 'queued', worker_id = NULL, "
-                "lease_until = NULL, attempts = ?, updated_at = datetime('now') "
-                "WHERE job_id = ? AND state = 'running'",
-                (attempts, job_id),
-            )
-        else:
-            self._db._write(
-                "UPDATE jobs SET state = 'failed', error_message = ?, "
-                "updated_at = datetime('now') WHERE job_id = ? AND state = 'running'",
-                (error_message, job_id),
-            )
-
-    # ------------------------------------------------------------------ stale leases
-
     def requeue_stale(self) -> list[str]:
-        """Re-queue stale leases or fail them after ``max_attempts``.
-
-        Returns the list of job_ids that were re-queued or failed.
-        """
-        now = datetime.datetime.now(datetime.UTC).isoformat()
-        stale = self._db._conn.execute(
-            "SELECT job_id, attempts, max_attempts FROM jobs "
-            "WHERE state = 'running' AND lease_until < ?",
-            (now,),
-        ).fetchall()
-
-        requeued: list[str] = []
-        for row in stale:
-            job_id = str(row[0])
-            attempts = int(row[1]) + 1
-            max_attempts = int(row[2])
-            if attempts < max_attempts:
-                self._db._write(
-                    "UPDATE jobs SET state = 'queued', worker_id = NULL, "
-                    "lease_until = NULL, attempts = ?, updated_at = datetime('now') "
-                    "WHERE job_id = ? AND state = 'running'",
-                    (attempts, job_id),
-                )
-                requeued.append(job_id)
-            else:
-                self._db._write(
-                    "UPDATE jobs SET state = 'failed', "
-                    "error_message = 'lease expired after max attempts', "
-                    "updated_at = datetime('now') WHERE job_id = ? AND state = 'running'",
-                    (job_id,),
-                )
-                requeued.append(job_id)
-        return requeued
+        """Atomically recover expired claims according to the stored attempt budget."""
+        return self._db.recover_expired_jobs()
 
     # ------------------------------------------------------------------ internal
 

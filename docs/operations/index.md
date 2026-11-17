@@ -50,3 +50,40 @@ goes to the CLI unchanged: `python main.py repair --dry-run` is a dry run.
 Hard requirements fail; recommended resources warn; the GPU is informational.
 `--doctor` also lists packages installed in `.venv` that no lockfile pins.
 Set `PHOTOPROOF_LAUNCHER_VERBOSE=1` to print the launcher report on every start.
+
+## Durable queue lease ownership
+
+Jobs use single-host UTC lease deadlines. SQLite parses both legacy space-separated
+and ISO timestamps when comparing deadlines; string ordering is never used for
+expiry. A claim alone consumes an attempt. A failed or expired claim returns to the
+queue only while `attempts < max_attempts`; recovery does not consume a second
+attempt. The default is one attempt, so forensic analyses are not blindly retried.
+Concurrent duplicate submissions share one idempotency key and one job ID.
+
+### Queue API migration (MAJOR)
+
+Completion, failure and renewal now require the **original Job returned by claim**
+as a keyword argument. This prevents an old worker from changing a newer claim,
+even when the worker identifier is reused. Keep the original token; a later lookup
+is not a substitute for ownership. All SQL transitions also check the current owner,
+attempt and a still-live lease. Repeating the same valid completion is harmless.
+
+```python
+job = queue.claim("worker-1")
+if job is not None:
+    # Execute this claimed request, renewing the lease as needed.
+    queue.renew(job.job_id, claim=job)
+    queue.complete(job.job_id, claim=job)
+    # On execution failure instead: queue.fail(job.job_id, message, claim=job)
+```
+
+Callers that previously used `complete(job_id)`, `fail(job_id, message)` or published
+state from a fresh queue without the claim token must migrate as above. A lost
+claim raises `StorageError` for completion/failure and returns false for renewal;
+the caller must stop publishing that attempt's state.
+
+WAL remains enabled for writer connections, with a busy timeout and atomic claims.
+Keep the WAL/SHM sidecars with a live database and use PhotoProof's SQLite backup
+API for a consistent backup rather than copying a live database file by itself.
+Queue and controller results remain distinct from forensic assessment: an execution
+state never proves an image's provenance.

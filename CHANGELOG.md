@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep live background-job leases active, fence stale-worker transitions, count retries
+  once per actual claim, and make concurrent duplicate submissions idempotent (#50).
+
+### Changed
+
+- Job completion, failure and renewal require the original claim token; callers must
+  migrate as documented in the operations guide (breaking queue API change, #50).
+
 ### Added
 
 - A run resolves its media contracts from stored evidence, once per run, and hands them to

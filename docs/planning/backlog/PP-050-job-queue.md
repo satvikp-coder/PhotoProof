@@ -2,7 +2,7 @@
 id: PP-050
 title: "feat(core): add a durable SQLite-backed background job queue"
 milestone: M6
-labels: [type:feature, priority:P2, area:core, area:database, effort:large, status:ready]
+labels: [type:feature, priority:P2, area:core, area:database, effort:large, status:in-progress]
 depends_on: []
 ---
 ## Summary
@@ -35,6 +35,8 @@ message broker: the scale does not justify them.
   `lease_until`.
 - The job payload is the validated `AnalysisRequest` JSON (descriptors only, never bytes).
 - Stale leases are re-queued, or failed after `max_attempts`.
+- Completion, failure and renewal require the original claimed Job token and are
+  fenced by owner, attempt and a live lease. Only a claim consumes an attempt.
 - Settings: `services.background_workers` becomes > 0 capable (schema change) and
   `jobs.lease_seconds` is added.
 
@@ -80,4 +82,5 @@ None.
 
 ## Priority and Effort
 
-P2, large. Design review needed (status:needs-design).
+P2, large. The WAL decision is recorded in ADR-011; the operations guide documents
+lease fencing and the queue API migration.
