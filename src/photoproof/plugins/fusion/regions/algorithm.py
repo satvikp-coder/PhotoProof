@@ -51,7 +51,7 @@ def _contributors(evidence: object, component: np.ndarray) -> list[str]:
         )
         detectors = entry.get("contributing_detectors", [])
         if intersects and isinstance(detectors, list):
-            names.update(name for name in detectors if isinstance(name, str))
+            names.update(name for name in detectors if isinstance(name, str) and name.strip())
     return sorted(names)
 
 

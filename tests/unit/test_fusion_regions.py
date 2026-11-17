@@ -1,5 +1,6 @@
 """Deterministic localization, traceability, artifact and failure checks for #35."""
 
+import copy
 import hashlib
 import io
 import logging
@@ -151,6 +152,14 @@ def test_processor_artifact_and_empty_status(value):
         )
 
     evidence = [{"reason": "unavailable", "detector_id": "missing"}]
+    if value and value[0][0] > 0.5:
+        evidence.append(
+            {
+                "region": {"rows": [3], "cols": [3]},
+                "contributing_detectors": ["copymove.mask"],
+            }
+        )
+    before = copy.deepcopy(evidence)
     ctx = PluginContext(
         run_id="r",
         plugin_id="fusion.regions",
@@ -162,7 +171,7 @@ def test_processor_artifact_and_empty_status(value):
     )
     result = run(ctx)
     assert set(result) == {"fusion.mask", "fusion.regions", "fusion.segmentation"}
-    assert evidence == [{"reason": "unavailable", "detector_id": "missing"}]
+    assert evidence == before
     if value is None or value == []:
         assert result["fusion.mask"] is None and not written
         assert result["fusion.segmentation"]["status"] == "unavailable"
@@ -173,3 +182,19 @@ def test_processor_artifact_and_empty_status(value):
         assert pixels.shape == (8, 8)
         assert set(np.unique(pixels)) <= {0, 255}
         assert pixels.any() == (value[0][0] > 0)
+
+
+def test_positive_map_without_contributors_is_rejected_before_artifact_write():
+    written = []
+    ctx = PluginContext(
+        run_id="r",
+        plugin_id="fusion.regions",
+        config=Config(),
+        seed=0,
+        inputs={"fusion.map": [[0.9] * 8] * 8, "fusion.evidence": []},
+        write_artifact=lambda name, data, media: written.append(data),
+        logger=logging.getLogger("test"),
+    )
+    with pytest.raises(InputRejectedError, match="contributing detector"):
+        run(ctx)
+    assert not written

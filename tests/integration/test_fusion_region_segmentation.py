@@ -13,7 +13,7 @@ from PIL import Image
 from photoproof.contracts.analysis import AnalysisRequest
 from photoproof.core.bootstrap import Application
 from photoproof.core.controller import AnalysisController
-from photoproof.plugins.fusion.rules import processor as rules
+from photoproof.plugins.fusion.normalize import processor as normalize
 
 
 def test_fusion_regions_runs_through_controller(
@@ -49,21 +49,30 @@ def test_fusion_regions_runs_through_controller(
 def test_planted_upstream_evidence_through_controller(
     make_app: Callable[..., Application], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Inject a deterministic fused fixture at the real upstream plugin boundary."""
+    """Run actual fusion and segmentation from controlled normalized evidence."""
     scores = np.zeros((32, 32), dtype=np.float32)
     scores[8:24, 8:24] = 0.9
-    evidence = [
-        {"region": {"rows": [12], "cols": [12]}, "contributing_detectors": ["copymove.mask"]}
-    ]
     monkeypatch.setattr(
-        rules, "run", lambda ctx: {"fusion.map": scores.tolist(), "fusion.evidence": evidence}
+        normalize,
+        "run",
+        lambda ctx: {
+            "fusion.layers": [
+                {
+                    "detector_id": "copymove.mask",
+                    "map": scores.tolist(),
+                    "valid_mask": np.ones(scores.shape, dtype=bool).tolist(),
+                    "strength_class": "strong",
+                }
+            ],
+            "fusion.unavailable": [],
+        },
     )
     app = make_app("photoproof.plugins")
     source = tmp_path / "planted.png"
     Image.fromarray(np.zeros((32, 32, 3), dtype=np.uint8)).save(source)
     target, _ = app.ingestion().ingest_path(source, role="target")
     result = AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
-    assert result.outputs["fusion.evidence"] == evidence
+    assert result.outputs["fusion.evidence"][0]["contributing_detectors"] == ["copymove.mask"]
     regions = result.outputs["fusion.regions"]
     assert len(regions) == 1
     assert regions[0]["contributing_detectors"] == ["copymove.mask"]

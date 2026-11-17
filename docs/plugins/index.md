@@ -388,6 +388,8 @@ summaries; `low` must be positive and no greater than `high`.
   references; merged regions union them. These are component-level references, not
   claims that every retained pixel has detector support. Unavailable detectors never
   contribute. Upstream evidence is retained without modification.
+  A retained region without contributing detector references is rejected before
+  publishing a localization artifact; malformed upstream evidence is never repaired.
 - `fusion.segmentation`: status (`unavailable`, `no_regions`, or `segmented`),
   grid shape, region count, truncation and full-image flags. A missing map yields
   no mask; a valid all-zero map yields a zero PNG. Neither implies authenticity.

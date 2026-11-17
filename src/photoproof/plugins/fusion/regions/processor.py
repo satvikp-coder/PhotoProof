@@ -30,6 +30,11 @@ def run(ctx: PluginContext) -> dict[str, object]:
     mask, regions, summary = segment(
         fused, evidence=ctx.inputs.get("fusion.evidence", []), config=config
     )
+    if any(not region["contributing_detectors"] for region in regions):
+        raise InputRejectedError(
+            "fusion.regions: a retained region has no contributing detector references; "
+            "inspect upstream fusion.evidence before publishing localization"
+        )
     success, encoded = cv2.imencode(".png", mask * 255)
     if not success:
         raise InputRejectedError("fusion.regions: PNG encoding failed; inspect the fused grid")
