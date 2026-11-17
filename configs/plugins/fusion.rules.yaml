@@ -1,0 +1,12 @@
+# fusion.rules configuration.
+# Rules and weights for combining normalized evidence layers into a fused
+# suspicion map. A change to any rule or weight is a plugin MINOR or MAJOR bump.
+
+strength_weights:
+  strong: 1.0
+  medium: 0.6
+  weak: 0.3
+
+medium_high_score_threshold: 0.8
+weak_boost_factor: 0.2
+weak_only_max_score: 0.4

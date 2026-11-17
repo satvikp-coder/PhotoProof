@@ -24,16 +24,20 @@ def test_commands(app_root: Path, target_file: Path, capsys: pytest.CaptureFixtu
     code, out, _ = _run(app_root, capsys, "repair")
     assert code == 0 and "[applied]" in out
     assert _run(app_root, capsys, "doctor")[0] == 0
-    assert "No plugins installed" in _run(app_root, capsys, "plugins")[1]
-    assert json.loads(_run(app_root, capsys, "plugins", "--json")[1]) == {
-        "plugins": [],
-        "unavailable": [],
+    plugins_out = _run(app_root, capsys, "plugins")[1]
+    assert "compression.ela" in plugins_out and "metadata.exif" in plugins_out
+    listed = json.loads(_run(app_root, capsys, "plugins", "--json")[1])
+    assert listed["unavailable"] == []
+    assert {"compression.ela", "copymove.sift_keypoints", "metadata.exif"} <= {
+        row["id"] for row in listed["plugins"]
     }
     assert "settings" in json.loads(_run(app_root, capsys, "config", "--json")[1])
     code, out, _ = _run(app_root, capsys, "status")
-    assert code == 0 and "No production forensic detectors" in out
+    assert code == 0 and "registered" in out
+    # The fake JPEG cannot be decoded, so the pixel detectors skip and the run is
+    # INCOMPLETE — an honest "not enough coverage", never an authenticity verdict.
     code, out, _ = _run(app_root, capsys, "analyze", str(target_file), "--progress")
-    assert code == 0 and "NO_DETECTORS" in out
+    assert code in {0, 7} and ("INCOMPLETE" in out or "COMPLETED" in out)
     run_id = out.split()[1].rstrip(":")
     code, out, _ = _run(app_root, capsys, "manifest", run_id)
     assert code == 0 and run_id in out

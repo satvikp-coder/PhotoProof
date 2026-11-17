@@ -116,7 +116,9 @@ mkdocs build --strict  # what CI runs; warnings are errors
 
 ### 1.8 Regenerating lockfiles
 
-Only do this in a pull request whose purpose is dependency changes.
+Only do this in a pull request whose purpose is dependency changes. The weekly
+`.github/workflows/deps.yml` job regenerates all three lockfiles automatically and opens
+a PR; run the same commands locally to test or to prepare a manual dependency PR.
 
 ```bash
 uv pip compile pyproject.toml --group build --universal --python-version 3.11 \
@@ -128,7 +130,9 @@ uv pip compile pyproject.toml --group build --group dev --group docs --group sec
 ```
 
 All three files are universal (one file for every supported OS and Python version) and
-every requirement carries `--hash` values. Never hand-edit them.
+every requirement carries `--hash` values. Never hand-edit them. The deps.yml workflow
+pins and verifies the `uv` binary, never auto-merges, and leaves the PR in draft with the
+`ci:blocked` label if the test suite fails.
 
 ---
 
@@ -279,6 +283,8 @@ ISSUE → BRANCH → IMPLEMENTATION → TESTS → DOCUMENTATION → CHANGELOG �
    lands (detectors: `algorithm.py` PR first, `processor.py` wiring PR second).
 2. **Discuss scope** in the issue when the acceptance criteria are ambiguous.
 3. **Assign yourself** (or ask a maintainer) and set `status:in-progress`.
+   Team ownership and area splits are recorded in `docs/planning/team.md`;
+   the contributor work-allocation guide is in `docs/development/workflow.md`.
 4. **Branch** using the naming rules above.
 5. **Implement** exactly the acceptance criteria. Out-of-scope ideas become new issues.
 6. **Test**: add tests that would fail without your change.

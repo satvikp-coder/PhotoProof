@@ -59,3 +59,19 @@ class EventDeliveryError(PhotoProofError):
 
 class InputRejectedError(PhotoProofError):
     """An input violated an input policy (size, type, location)."""
+
+
+class DecoderError(PhotoProofError):
+    """An image decoder failed to produce a result."""
+
+
+class DecoderCrashed(DecoderError):
+    """The decoder process was killed by a signal or exited with an error."""
+
+
+class DecoderTimeout(DecoderError):
+    """The decoder exceeded its wall-clock time limit."""
+
+
+class DecoderMemoryLimit(DecoderError):
+    """The decoder exceeded its memory ceiling."""

@@ -54,7 +54,7 @@ flowchart LR
 
 | Area | Issues |
 |---|---|
-| Kickoff (do first) | [#75](https://github.com/satvikp-coder/PhotoProof/issues/75) team and ownership, [#63](https://github.com/satvikp-coder/PhotoProof/issues/63) branch protection (admin), [#76](https://github.com/satvikp-coder/PhotoProof/issues/76) workflow guide |
+| Kickoff (do first) | [#75](https://github.com/satvikp-coder/PhotoProof/issues/75) team and ownership, [#63](https://github.com/satvikp-coder/PhotoProof/issues/63) branch protection (admin), [#76](https://github.com/satvikp-coder/PhotoProof/issues/76) workflow guide (see [development/workflow.md](../development/workflow.md)) |
 | Enablers (small, unlock wave 2) | [#72](https://github.com/satvikp-coder/PhotoProof/issues/72) synthetic image toolkit, [#73](https://github.com/satvikp-coder/PhotoProof/issues/73) isolation helper, [#74](https://github.com/satvikp-coder/PhotoProof/issues/74) plugin scaffold |
 | Ingestion | [#1](https://github.com/satvikp-coder/PhotoProof/issues/1), [#2](https://github.com/satvikp-coder/PhotoProof/issues/2), [#3](https://github.com/satvikp-coder/PhotoProof/issues/3), [#4](https://github.com/satvikp-coder/PhotoProof/issues/4), [#5](https://github.com/satvikp-coder/PhotoProof/issues/5) (design) |
 | Web and reporting | [#38](https://github.com/satvikp-coder/PhotoProof/issues/38) WebKit shell, [#46](https://github.com/satvikp-coder/PhotoProof/issues/46) structured reports, [#48](https://github.com/satvikp-coder/PhotoProof/issues/48) and [#49](https://github.com/satvikp-coder/PhotoProof/issues/49) manifest and diagnostic tooling |

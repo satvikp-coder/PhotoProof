@@ -10,6 +10,111 @@ All notable changes to this project are documented here. The format follows
 
 - A loopback-only web foundation with accessible navigation, honest workflow placeholders,
   cached read-only diagnostics and application identity from configuration (#38).
+- A run resolves its media contracts from stored evidence, once per run, and hands them to
+  plugins that declare them in `inputs`: `input.original_bytes` (the stored original),
+  `image.decoded` (the pixels as decoded) and `image.working` (the normalized working
+  image), the last two as read-only NumPy arrays. This is the groundwork of the plugin
+  image-access contract (#12); decoder isolation is still #9. A run that cannot decode an
+  image skips the declaring plugins with `dependency_unavailable`, records the reason in
+  the manifest, and ends `INCOMPLETE` — missing pixels are never clean evidence.
+- `core/database/store.py`: `Database.backup()` (durable SQLite backup via the online
+  backup API) and `Database.verify_backup()` (read-only verification with `PRAGMA
+  integrity_check`/`foreign_key_check`, row counts, and SHA-256 manifest) (#62).
+- `cli.py`: New `python main.py backup` and `python main.py restore BACKUP [--dry-run]`
+  commands for creating and restoring verified SQLite database backups (#62).
+- `core/health/checks.py`: New `database.backup` health check that reports the age of the
+  newest verified backup and warns when it exceeds `retention.backup_days` (#62).
+- `core/config/validator.py`: `retention.backup_days` setting (`int | None`, default `None`)
+  controls when the `database.backup` health check warns (#62).
+- `core/reporting/`: new `build_report(manifest) -> Report` (pydantic, `report_version: 1`),
+  `render_html(report) -> str`, and `render_json(report) -> str`. Reports separate findings
+  into suspected manipulation, confirmed differences, and unavailable evidence, with every
+  claim traceable to manifest paths and artifact hashes. CLI command `python main.py report
+  RUN_ID [--format html|json]` (#46).
+- `imaging/isolation.py`: `IsolatedDecoder` now spawns a short-lived child per decode over a
+  single bound `Pipe` (no `multiprocessing.Queue` feeder thread), enforces a real
+  wall-clock deadline, applies `RLIMIT_AS`/`RLIMIT_CPU` where the platform supports them,
+  validates every child reply (dimensions, pixel count, buffer size, source SHA-256), never
+  trusts arbitrary child exception objects, and cleans up the child on every exit path
+  (#9).
+- `core/database/store.py`: `Database` is now a context manager, `close()` is idempotent,
+  and `open_connection_count()` tracks live connections so tests can assert nothing is left
+  open after success, startup failure, run failure and shutdown (#12).
+- `contracts/plugins.py`: new `optional_inputs` field on `PluginMetadata` (plugin API
+  1.1.0 → 1.2.0). Plugins may declare inputs they read if present without requiring them;
+  the executor never skips a plugin solely for a missing optional input (#9, #32).
+- `contracts/evidence.py`: new `EvidenceLayer` contract — a normalized, comparable
+  representation of one detector's output with a score in ``[0, 1]``, strength class, and
+  explicit ``calibration: uncalibrated`` until #37 provides calibration data (#32).
+- `plugins/fusion/normalize/`: new `fusion.normalize` plugin reads every detector output
+  that is present (declared as optional inputs), maps each to an `EvidenceLayer` via robust
+  z-scoring and logistic squashing, and marks absent detectors as `unavailable` — never as
+  zero-score layers. Priority 90, runs after all detectors (#32).
+- `plugins/fusion/rules/`: new `fusion.rules` plugin fuses normalized evidence layers into a
+  heuristic suspicion map (`fusion.map`) and per-region evidence summaries (`fusion.evidence`)
+  using transparent, documented rules. Strong evidence (copy-move) can mark a region
+  suspicious alone; medium evidence needs family support or a high score; weak evidence only
+  raises confidence where medium/strong support exists. Detector families count once.
+  Priority 90, requires `fusion.normalize` (#33).
+- `plugins/fusion/assessment/`: new `fusion.assessment` plugin produces the run's overall
+  assessment category based on coverage (which detectors were available and applicable).
+  Missing evidence leads to `inconclusive` rather than an implied clean result. Categories:
+  `manipulation_indicated`, `differences_found` (comparison mode),
+  `no_indicators_found_with_sufficient_coverage`, `inconclusive`. Priority 95, requires
+  `fusion.rules` (#34).
+
+### Fixed
+
+- `core/pipeline/executor.py`: an `ArtifactRef` nested inside a summary output is now
+  normalized to its JSON form, so a plugin that reports the artifact it wrote no longer
+  fails `invalid_output`. A declared input the run could not provide skips the plugin with
+  `dependency_unavailable` and the recorded reason instead of raising `KeyError`.
+- `core/security/windows/acl.py`: `icacls` is resolved to its full path (Bandit B607), and
+  the ACL reader now accepts the machine-qualified account and `OWNER RIGHTS`, and skips
+  the directory path on the first output line, so owner-only runtime directories are no
+  longer reported as open to other users (#80).
+- `core/storage/evidence.py`: a staged file that lost the publish race is read-only, which
+  Windows refuses to delete; cleanup now clears that mark first, so concurrent ingests of
+  identical content leave no temporary files behind.
+- `plugins/compression/ela/`: the processor returned an undeclared `ela_summary` output;
+  it is now declared as `compression.ela_summary` and the plugin runs (#15).
+- `plugins/noise/residual/` and `plugins/noise/variance_map/`: their summary outputs are
+  declared (`noise.residual_summary`, `noise.variance_summary`) and a zero noise estimate
+  no longer divides by zero in the Wiener threshold (#18, #19).
+- `plugins/copymove/sift_keypoints/`: the processor read `image.decoded` while its metadata
+  declared `image.working`; it now reads the declared working image, and keypoints are
+  capped at `max_keypoints` because OpenCV's `nfeatures` is a hint (#20).
+- `plugins/copymove/mask/` and `plugins/copymove/verification/`: `requires` listed input
+  contracts instead of plugin ids, and verification asked for contracts nothing produces;
+  both now name `copymove.matching`/`copymove.sift_keypoints` and the contracts their
+  processors read (#23, #24).
+- `plugins/metadata/exif/`: it declared `image.working` without reading it, which skipped
+  metadata analysis whenever pixels could not be decoded; the declaration is gone (#14).
+- `plugins/copymove/clustering/`: undefined variables, a missing NumPy import and
+  incorrect return keys are fixed; `analyze_clustering` gained `method` and
+  `min_matches_per_cluster`, and `clustering_result_to_dict` exists (#22).
+- `core/isolation.py`: fixed mypy errors and the Unix-only `resource` import (#9).
+- `imaging/isolation.py`: `IsolatedDecoder` now spawns a short-lived child per decode over a
+  single bound `Pipe` (no `multiprocessing.Queue` feeder thread), enforces a real
+  wall-clock deadline, applies `RLIMIT_AS`/`RLIMIT_CPU` where the platform supports them,
+  validates every child reply (dimensions, pixel count, buffer size, source SHA-256), never
+  trusts arbitrary child exception objects, and cleans up the child on every exit path
+  (#9).
+- `core/database/store.py`: `Database` is now a context manager, `close()` is idempotent,
+  and `open_connection_count()` tracks live connections so tests can assert nothing is left
+  open after success, startup failure, run failure and shutdown (#12).
+- Tests: `tests.fixtures.*` imports work whether or not pytest is started with
+  `python -m` (CI runs the console script), and mypy targets Linux, matching the CI
+  quality job.
+- `plugins/copymove/mask/`: `_compute_zncc` now normalizes using centered patch
+  energy so ZNCC is invariant to additive brightness offsets and zero-variance patches
+  return 0.0 instead of NaN (#135). Keypoints are stored as `[x, y]` but images are
+  indexed as `image[y, x]`; patch extraction and mask drawing now use the correct row/column
+  convention (#134). `analyze_copy_move` groups valid pairs into spatial clusters and
+  enforces `min_cluster_size`, discarding clusters below the threshold and counting retained
+  clusters in `num_clusters` (#136).
+
+### Changed
 
 - `core/isolation.py` runs a callable in a child process with wall-clock, CPU and memory limits
   and reports typed failures. `doctor` reports which limits this platform can enforce. Decoders
@@ -17,11 +122,11 @@ All notable changes to this project are documented here. The format follows
 - Pull requests automatically get the milestone of the issue they reference, unless someone has
   already set one.
 - 16-bit PNGs decode without loss. High-depth images get a `uint16` view with their transfer
-  function and primaries, and an 8-bit derivative through a documented tone curve. The pipeline
-  does not use these yet (#12).
+  function and primaries, and an 8-bit derivative through a documented tone curve. Plugins
+  that declare `image.decoded` receive the 16-bit view (#12).
 - `normalize` turns a decoded image into a working image in sRGB with EXIF orientation applied,
-  and records every transform. The decoded image stays available and unchanged. The pipeline
-  does not use it yet (#12).
+  and records every transform. The decoded image stays available and unchanged. Plugins that
+  declare `image.working` now receive it (#12).
 - `IngestionService` stages each input in quarantine, enforces the size limit while reading,
   identifies its type from content, and audits every rejection as `INPUT_REJECTED`. `analyze` now
   uses it for all inputs.
@@ -43,6 +148,80 @@ All notable changes to this project are documented here. The format follows
   owner. `CODEOWNERS` requests review from Satvik, Varun and Garv on every pull request.
 - `AGENTS.md`, with instructions for coding agents and the code review rules used by
   automated pull request reviews.
+- `imaging/arrays.py` defines the shared NumPy image-array contract for detector
+  plugins (`validate_image`, `to_float32`, `to_luma`, read-only enforcement). The
+  `synthetic` pytest fixture and `tests/fixtures/synthetic.py` provide seeded
+  synthetic forgery generators with exact ground-truth masks (#72). NumPy and
+  Pillow are now hash-pinned runtime dependencies.
+- `imaging/stats.py` provides shared block tiling (`tile`), block reduction
+  (`block_reduce`), robust z-scores (`robust_zscore`), `AnomalyMap` and block-map
+  upsampling (`upsample`) for regional detectors (#13). All detectors use the same
+  statistical language.
+- `plugins/metadata/exif/` implements the EXIF metadata forensic plugin
+  (`metadata.exif`) that extracts EXIF/XMP data and reports typed provenance
+  findings (editor detection, impossible dates, dimension mismatches, thumbnail
+  inconsistencies, absent metadata). GPS coordinates are never emitted (#14).
+- `plugins/compression/ela/` implements Error Level Analysis as a supporting
+  signal (#15). Recompresses at controlled JPEG quality, computes per-pixel
+  error, builds an `AnomalyMap` via block reduction and robust z-scores.
+  Explicitly labelled supporting evidence only.
+- `plugins/compression/jpeg_dct/` implements JPEG DCT/quantization analysis
+  (#16). Parses quantization tables from DQT markers, estimates JPEG quality,
+  and builds a per-block double-compression likelihood map via DCT coefficient
+  histogram periodicity analysis. Pure-Python bitstream parsing.
+- `plugins/compression/jpeg_grid/` implements JPEG 8x8 grid misalignment
+  detection (#17). Estimates the dominant blocking-grid origin via Blocking
+  Artifact Grid analysis and produces a per-window mismatch map.
+
+- `plugins/noise/residual/` implements noise residual extraction (#18).
+  Recompresses at controlled JPEG quality, computes per-pixel absolute error,
+  builds an `AnomalyMap` via block reduction and robust z-scores.
+  Explicitly labelled supporting evidence only.
+
+- `plugins/noise/variance_map/` implements noise variance estimation and
+  consistency mapping (#19). Estimates local noise sigma per block from the
+  residual, applies signal-dependent correction, and builds a robust-z
+  consistency map. Provides coverage fraction and confidence level.
+
+- `plugins/copymove/sift_keypoints/` implements SIFT keypoint extraction (#20).
+  Detects SIFT keypoints and computes descriptors on the decoded image, the first
+  stage of the copy-move detection chain.
+
+- `plugins/copymove/matching/` implements SIFT descriptor matching (#21).
+  Matches descriptors using KNN and generalized Lowe ratio filtering (g2NN),
+  with spatial distance constraints and symmetric deduplication.
+
+- plugins/copymove/clustering/` implements copy-move clustering (#22).
+  Groups matched keypoint pairs into clusters using hierarchical clustering
+  (Ward linkage) or DBSCAN on displacement vectors. Produces per-cluster
+  bounding boxes, displacement vectors, and sizes.
+
+- `plugins/copymove/mask/` implements copy-move region masks (#24).
+  Generates pixel-level source/target localization masks from verified
+  copy-move matches using bounded ZNCC correlation.
+
+- `plugins/visual/sharpness/` implements local sharpness analysis (#25).
+  Maps local focus using the variance of the Laplacian, with optional
+  contrast normalization and robust-z inconsistency detection. A weak
+  visual cue for copy-move detection.
+
+- `plugins/visual/edges/` implements edge boundary analysis (#26).
+  Characterizes object boundaries using Canny edge detection and Sobel
+  gradient analysis. Estimates edge width and flags boundaries inconsistent
+  with the image's typical edge-width distribution. Complementary to #25.
+
+- `core/services/jobs/` implements a durable job queue (#50).
+  Provides at-least-once execution of analysis jobs with lease-based worker
+  fencing and idempotent submission. SQLite in WAL mode stores jobs durably;
+  `JobQueue.submit()`, `claim()`, `complete()`, `fail()` and `requeue_stale()`
+  are the core API. Adds `services.background_workers` and `jobs.lease_seconds`
+  settings.
+- `core/services/manager/` and `core/services/worker/` supervise worker processes
+  that claim and run queued jobs (#51). `WorkerManager` starts N worker processes,
+  monitors their health, restarts crashed workers with exponential backoff, and
+  shuts down gracefully on signal. `Worker` claims jobs from the queue, runs them
+  through the analysis controller, and updates job status. Adds `jobs.max_attempts`
+  setting.
 
 ### Changed
 

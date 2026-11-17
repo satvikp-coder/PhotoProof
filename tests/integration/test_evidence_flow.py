@@ -23,8 +23,17 @@ def objects(root: Path) -> list[Path]:
 
 
 def analyze_json(root: Path, capsys: pytest.CaptureFixture[str], *args: str) -> dict[str, object]:
-    assert _invoke(root, "analyze", *args, "--json") == 0
-    return json.loads(capsys.readouterr().out)  # type: ignore[no-any-return]
+    """Run ``analyze --json`` and require a terminal, non-blocked result.
+
+    The fixture target is an undecodable JPEG, so the pixel detectors skip and the run
+    is INCOMPLETE (a nonzero exit that says coverage was insufficient). These tests are
+    about evidence storage, manifests and health, not about detector outcomes.
+    """
+    code = _invoke(root, "analyze", *args, "--json")
+    result = json.loads(capsys.readouterr().out)  # type: ignore[no-any-return]
+    assert result["status"] in {"COMPLETED", "INCOMPLETE"}
+    assert code == (0 if result["status"] == "COMPLETED" else 7)
+    return result
 
 
 def inspect(root: Path, use: Callable[[Application], object]) -> object:
@@ -159,7 +168,8 @@ def test_repair_migrates_an_older_database_then_analyze_works(
     assert objects(app_root) == []
     assert _invoke(app_root, "repair") == 0
     assert (database.parent / "photoproof.db.v1.bak").is_file()
-    assert _invoke(app_root, "analyze", str(target_file)) == 0
+    capsys.readouterr()  # drop the pre-repair preflight output before parsing JSON
+    analyze_json(app_root, capsys, str(target_file))
     assert len(objects(app_root)) == 1
 
 

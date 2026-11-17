@@ -1,0 +1,24 @@
+"""$plugin_display plugin metadata."""
+
+from __future__ import annotations
+
+METADATA = {
+    "id": "$plugin_id",
+    "name": "$name_display",
+    "description": "$description",
+    "version": "1.0.0",
+    "api_version": "1.0.0",
+    "priority": $priority,
+    "required": $required,
+    "enabled_default": $enabled_default,
+    "requires": $requires,
+    "after": (),
+    "entry_point": "processor:run",
+    "inputs": $inputs,
+    "outputs": $outputs,
+    "timeout_seconds": 60,
+    "supported_formats": (),
+    "deterministic": True,
+    "config_schema": "schema:Config",
+    "python_dependencies": ["numpy"],
+}

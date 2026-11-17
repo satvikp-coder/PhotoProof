@@ -179,6 +179,24 @@ class ResourceSettings(_Strict):
     min_free_disk_mb: int = Field(ge=0)
 
 
+class RetentionSettings(_Strict):
+    cache_days: int = Field(ge=1)
+    artifact_days: int = Field(ge=1)
+    run_days: int | None = Field(default=None, ge=1)
+    backup_days: int | None = Field(default=None, ge=1)
+
+
+class QuotaSettings(_Strict):
+    max_total_mb: int = Field(ge=1)
+    warn_at_percent: float = Field(ge=0, le=100)
+    max_run_artifacts_mb: int = Field(ge=1)
+
+
+class JobsSettings(_Strict):
+    lease_seconds: int = Field(ge=1, le=86_400)
+    max_attempts: int = Field(ge=1, le=10)
+
+
 class SecuritySettings(_Strict):
     forbidden_plugins: tuple[str, ...]
     allow_blacklist_bypass: StrictBool
@@ -203,7 +221,7 @@ class ReportingSettings(_Strict):
 
 
 class ServiceSettings(_Strict):
-    background_workers: int = Field(ge=0, le=0)  # ponytail: workers not implemented yet (backlog)
+    background_workers: int = Field(ge=0)  # background worker processes for jobs
 
 
 def is_loopback_host(host: str) -> bool:
@@ -240,6 +258,10 @@ class DevelopmentSettings(_Strict):
     debug: StrictBool
 
 
+class ImagingSettings(_Strict):
+    isolation: Literal["process", "in_process"] = "process"
+
+
 class Settings(_Strict):
     schema_version: int = Field(ge=1)
     environment: EnvironmentSettings
@@ -255,11 +277,15 @@ class Settings(_Strict):
     health: HealthSettings
     recovery: RecoverySettings
     resources: ResourceSettings
+    retention: RetentionSettings
+    quotas: QuotaSettings
+    jobs: JobsSettings
     security: SecuritySettings
     formats: FormatSettings
     reporting: ReportingSettings
     services: ServiceSettings
     ui: UISettings
+    imaging: ImagingSettings
     development: DevelopmentSettings
 
     @model_validator(mode="after")
@@ -272,6 +298,8 @@ class Settings(_Strict):
             problems.append("security.allow_blacklist_bypass must be false in production")
         if not is_loopback_host(self.ui.host):
             problems.append("ui.host must be a loopback address until WebKit authentication exists")
+        if production and self.imaging.isolation != "process":
+            problems.append("imaging.isolation must be process in production")
         overlap = set(self.plugins.blacklist) & set(self.security.forbidden_plugins)
         if overlap:
             problems.append(

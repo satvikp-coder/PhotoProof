@@ -45,3 +45,6 @@ Thumbs.db
 
 # Local context
 context/
+
+# Local agent working state (journals, scratch), never part of the product
+.opencode/

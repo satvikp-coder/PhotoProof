@@ -1,0 +1,48 @@
+"""Processor wiring for the $name_display plugin.
+
+Calls the pure algorithm in :mod:`photoproof.plugins.$family.$name.algorithm` and
+returns typed outputs matching ``METADATA.outputs``.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+from photoproof.contracts.exceptions import InputRejectedError, NotApplicableError
+from photoproof.contracts.plugins import PluginContext
+from photoproof.plugins.$family.$name.algorithm import analyze_$snake_name
+from photoproof.plugins.$family.$name.schema import Config
+
+
+def run(ctx: PluginContext) -> dict[str, Any]:
+    """Run $name_display on verified inputs.
+
+    Reads the declared inputs and returns the declared outputs.
+    """
+    for contract in $inputs:
+        if contract not in ctx.inputs:
+            raise NotApplicableError(
+                "$plugin_id requires $first_input; not declared in inputs"
+            )
+
+    image = ctx.inputs["image.decoded"]
+    if not isinstance(image, np.ndarray):
+        raise InputRejectedError(
+            f"$plugin_id: image.decoded must be a NumPy array, got {type(image).__name__}"
+        )
+
+    config = ctx.config if isinstance(ctx.config, Config) else None
+    window_size = getattr(config, "window_size", 11) if config else 11
+    threshold = getattr(config, "threshold", 0.5) if config else 0.5
+
+    result = analyze_$snake_name(image, window_size=window_size, threshold=threshold)
+
+    return {
+        "$first_output": result,
+        "$second_output": {
+            "algorithm": "$name_display",
+            "config": result.get("config", {}),
+        },
+    }

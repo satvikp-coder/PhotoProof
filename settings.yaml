@@ -54,6 +54,21 @@ resources:
   max_image_pixels: 178956970  # decompression-bomb ceiling for future decoders
   min_free_disk_mb: 1024
 
+retention:
+  cache_days: 7        # cache entries older than this are disposable
+  artifact_days: 30    # derived artifacts older than this are disposable
+  run_days: null       # keep run records indefinitely unless set
+  backup_days: null    # verified backups older than this many days are stale (null = keep)
+
+quotas:
+  max_total_mb: 10240       # 10 GiB total runtime data
+  warn_at_percent: 80       # warn at 80% of quota
+  max_run_artifacts_mb: 500 # 500 MiB per run's artifacts
+
+jobs:
+  lease_seconds: 300        # job lease expires after 5 minutes; stale leases are re-queued
+  max_attempts: 3           # a failed job is retried up to this many times
+
 security:
   forbidden_plugins: []        # non-bypassable; --ignore-blacklist does not affect these
   allow_blacklist_bypass: true # must be false when environment.mode is production
@@ -66,6 +81,9 @@ reporting:
 
 services:
   background_workers: 0        # reserved: background job workers are planned; must be 0
+
+imaging:
+  isolation: process           # process | in_process (in_process only in development)
 
 ui:
   host: 127.0.0.1              # web interface; loopback only until authentication exists

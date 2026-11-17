@@ -6,6 +6,7 @@ that need runtime directories: file logging, the audit trail, and state persiste
 """
 
 import os
+import socket
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -27,6 +28,7 @@ from photoproof.core.logging.setup import (
 )
 from photoproof.core.pipeline.discovery import BUILTIN_PLUGIN_PACKAGE, discover
 from photoproof.core.pipeline.registry import PluginRegistry
+from photoproof.core.services.jobs import JobQueue
 from photoproof.core.storage.evidence import EvidenceStore
 from photoproof.core.storage.store import RuntimeStorage
 from photoproof.imaging.decoder import DecodeLimits
@@ -48,6 +50,7 @@ class Application:
     bus: EventBus
     decoders: DecoderRegistry = field(default_factory=default_decoders)
     _db: Database | None = field(default=None, repr=False)
+    _job_queue: JobQueue | None = field(default=None, repr=False)
     started: bool = False
     _read_only_database: bool = field(default=False, repr=False)
 
@@ -68,7 +71,7 @@ class Application:
         Construct and close on the calling thread. Never starts logging, emits lifecycle
         events, migrates a database or closes the running application's services.
         """
-        view = replace(self, _db=None, started=False, _read_only_database=True)
+        view = replace(self, _db=None, _job_queue=None, started=False, _read_only_database=True)
         try:
             yield view
         finally:
@@ -80,6 +83,12 @@ class Application:
             return self.database() if self.database_path.parent.is_dir() else None
         except DatabaseError:
             return None
+
+    def job_queue(self) -> JobQueue:
+        """The durable job queue for asynchronous analysis execution."""
+        if self._job_queue is None:
+            self._job_queue = JobQueue(self.database(), self.settings.jobs)
+        return self._job_queue
 
     def evidence(self) -> EvidenceStore:
         """The verifying store for original evidence. Raises ``DatabaseError``."""
@@ -186,6 +195,8 @@ def attach_persistence(bus: EventBus, db: Database) -> None:
                 mode=str(data["mode"]),
                 profile=str(data["profile"]),
                 cache_key=_opt(data.get("cache_key")),
+                pid=os.getpid(),
+                hostname=socket.gethostname(),
             )
         elif event.type is EventType.RUN_STARTED and event.run_id:
             db.set_run_status(event.run_id, "RUNNING")

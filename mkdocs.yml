@@ -85,6 +85,7 @@ nav:
       - security/index.md
   - Development:
       - development/index.md
+      - Contributor work-allocation: development/workflow.md
       - Versioning and releases: development/releases.md
       - CI/CD and repository settings: development/ci.md
   - Testing:
@@ -94,3 +95,6 @@ nav:
       - Roadmap: planning/index.md
       - Backlog: planning/backlog.md
       - Team: planning/team.md
+      - ADR-003 Optional Plugin Inputs: planning/adr-003-optional-inputs.md
+      - ADR-004 Rule-Based Evidence Fusion: planning/adr-004-rule-based-fusion.md
+      - ADR-005 Evidence Sufficiency: planning/adr-005-evidence-sufficiency.md

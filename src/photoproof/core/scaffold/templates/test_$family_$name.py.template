@@ -1,0 +1,38 @@
+"""Tests for photoproof.plugins.$family.$name.algorithm."""
+
+import numpy as np
+import pytest
+
+from photoproof.contracts.exceptions import InputRejectedError
+from photoproof.plugins.$family.$name.algorithm import analyze_$snake_name
+from photoproof.plugins.$family.$name import METADATA
+
+
+def test_metadata_is_valid() -> None:
+    """Generated metadata passes basic validation."""
+    assert METADATA["id"] == "$plugin_id"
+    assert METADATA["api_version"] == "1.0.0"
+    assert isinstance(METADATA["priority"], int)
+    assert isinstance(METADATA["inputs"], tuple)
+    assert isinstance(METADATA["outputs"], tuple)
+
+
+def test_algorithm_stub_raises_not_implemented() -> None:
+    """The generated algorithm raises NotImplementedError until implemented."""
+    image = np.zeros((32, 32), dtype=np.uint8)
+    with pytest.raises(NotImplementedError):
+        analyze_$snake_name(image)
+
+
+def test_algorithm_rejects_invalid_input() -> None:
+    """Invalid input is rejected before the algorithm runs."""
+    with pytest.raises(InputRejectedError):
+        analyze_$snake_name("not an array")  # type: ignore[arg-type]
+
+
+@pytest.mark.xfail(reason="algorithm not yet implemented")
+def test_algorithm_produces_output() -> None:
+    """Placeholder: will pass once the algorithm is implemented."""
+    image = np.random.randint(0, 256, (32, 32), dtype=np.uint8)
+    result = analyze_$snake_name(image)
+    assert isinstance(result, dict)

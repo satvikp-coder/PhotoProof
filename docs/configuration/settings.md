@@ -41,6 +41,7 @@ feature flags) must be real YAML booleans: `true`/`false`, not `"yes"`, `1` or
 | `formats.accepted` | `[jpeg, png, webp]` | subset of `jpeg png webp heif avif jxl tiff` | Only files whose signature matches one of these formats are accepted. Everything else is rejected at ingestion and audited. |
 | `reporting.include_effective_settings` | `true` | bool | Embed effective settings in manifests. |
 | `services.background_workers` | `0` | must be `0` | *Reserved*; workers are not implemented. |
+| `retention.backup_days` | `null` | int ≥ 1 | Verified backups older than this many days produce a `database.backup` health warning. `null` disables the check. |
 | `ui.host` | `127.0.0.1` | IP literal or `localhost` | Operational WebKit binding. No URL, port or arbitrary DNS name. Only loopback addresses/localhost are accepted in all environments until authentication exists. |
 | `ui.port` | `8501` | integer, 1–65535 | Operational WebKit port; booleans, strings and fractional numbers are rejected. |
 | `development.debug` | `false` | bool | **Must be `false` in production.** |

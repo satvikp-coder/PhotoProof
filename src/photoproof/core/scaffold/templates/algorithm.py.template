@@ -1,0 +1,33 @@
+"""$name_display algorithm.
+
+Pure NumPy implementation: takes decoded image arrays and returns results.
+No PluginContext, no filesystem access, no side effects.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+from photoproof.contracts.exceptions import InputRejectedError
+
+
+def analyze_$snake_name(
+    image: np.ndarray,
+    *,
+    window_size: int = 11,
+    threshold: float = 0.5,
+) -> dict[str, Any]:
+    """Analyze the image and return $name_display results.
+
+    This is a stub: replace the body with the real algorithm.  Raising
+    ``NotImplementedError`` here is intentional until the algorithm is implemented.
+    """
+    if not isinstance(image, np.ndarray):
+        raise InputRejectedError(f"expected a NumPy ndarray, got {type(image).__name__}")
+    if image.ndim not in (2, 3):
+        raise InputRejectedError(
+            f"image must have 2 or 3 dimensions, got {image.ndim}"
+        )
+    raise NotImplementedError("$name_display algorithm not yet implemented")

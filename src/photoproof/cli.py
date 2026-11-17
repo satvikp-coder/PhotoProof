@@ -7,8 +7,10 @@ INCOMPLETE).
 
 import argparse
 import json
+import shutil
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from photoproof.contracts.analysis import AnalysisRequest
@@ -29,8 +31,18 @@ from photoproof.core.config.policy import (
     decide_all,
 )
 from photoproof.core.controller import AnalysisController
+from photoproof.core.database.store import Database
 from photoproof.core.health.checks import CheckResult, default_registry
 from photoproof.core.health.repair import preflight, publish_findings, run_repairs
+from photoproof.core.pipeline.manifest_tools import (
+    diff_manifests,
+    fingerprint_matches,
+    manifest_graph,
+    manifest_timeline,
+)
+from photoproof.core.reporting import build_report, render_html, render_json
+from photoproof.core.scaffold import ScaffoldError, generate
+from photoproof.core.services.housekeeping import HousekeepingService
 from photoproof.core.storage.store import sha256_file
 
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_CONFIG, EXIT_HEALTH, EXIT_NOT_COMPLETED = 0, 1, 2, 4, 6, 7
@@ -70,6 +82,89 @@ def _parser() -> argparse.ArgumentParser:
     manifest = sub.add_parser("manifest", help="show an execution manifest")
     manifest.add_argument("run_id")
     manifest.add_argument("--json", action="store_true")
+    manifest.add_argument(
+        "--graph",
+        choices=["mermaid", "dot"],
+        help="print the dependency graph as Mermaid or DOT",
+    )
+    manifest.add_argument(
+        "--timeline",
+        action="store_true",
+        help="print a per-plugin start and duration table",
+    )
+    manifest_diff = sub.add_parser("manifest-diff", help="compare two execution manifests")
+    manifest_diff.add_argument("run_a")
+    manifest_diff.add_argument("run_b")
+    manifest_diff.add_argument("--json", action="store_true", help="output JSON instead of text")
+    housekeeping = sub.add_parser(
+        "housekeeping", help="report and apply storage retention and quotas"
+    )
+    housekeeping.add_argument(
+        "--apply",
+        action="store_true",
+        help="apply deletions (default is dry run)",
+    )
+    backup_cmd = sub.add_parser("backup", help="create a verified backup of the SQLite database")
+    backup_cmd.add_argument(
+        "--target",
+        type=Path,
+        help="backup destination (default: ARE/database/backups/<timestamp>.db)",
+    )
+    restore = sub.add_parser("restore", help="restore the SQLite database from a verified backup")
+    restore.add_argument(
+        "backup",
+        type=Path,
+        help="backup file to restore from",
+    )
+    restore.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="verify the backup and report what would be restored, without changing anything",
+    )
+    report_cmd = sub.add_parser("report", help="generate a forensic report for a run")
+    report_cmd.add_argument("run_id", help="run ID to report on")
+    report_cmd.add_argument(
+        "--format",
+        choices=["html", "json"],
+        default="html",
+        help="output format (default: html)",
+    )
+    report_cmd.add_argument(
+        "--output",
+        type=Path,
+        help="write report to this file (default: stdout)",
+    )
+    new_plugin = sub.add_parser(
+        "new-plugin", help="generate a plugin skeleton from a family and name"
+    )
+    new_plugin.add_argument("plugin_id", help="plugin id, e.g. copymove.ela")
+    new_plugin.add_argument(
+        "--priority",
+        type=int,
+        help="plugin priority (default depends on family)",
+    )
+    new_plugin.add_argument(
+        "--required",
+        action="store_true",
+        help="mark the plugin as required",
+    )
+    new_plugin.add_argument(
+        "--no-enabled-default",
+        action="store_true",
+        help="disable the plugin by default",
+    )
+    new_plugin.add_argument(
+        "--description",
+        help="short description of the plugin",
+    )
+    diagnose = sub.add_parser(
+        "diagnose", help="show diagnostics for failed or skipped plugins in a run"
+    )
+    diagnose.add_argument("run_id", help="run ID to diagnose")
+    diagnose.add_argument(
+        "--plugin",
+        help="show detail for one plugin (default: list all non-success plugins)",
+    )
     return parser
 
 
@@ -266,14 +361,231 @@ def cmd_analyze(app: Application, args: argparse.Namespace) -> int:
     return EXIT_OK if ok else EXIT_NOT_COMPLETED
 
 
-def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
+def cmd_housekeeping(app: Application, apply: bool) -> int:
+    service = HousekeepingService(
+        app.storage,
+        app.database_or_none(),
+        app.settings.retention,
+        app.settings.quotas,
+    )
+    report = service.run(apply=apply)
+    print(json.dumps(report.to_dict(), indent=2))
+    if report.errors:
+        return EXIT_ERROR
+    return EXIT_OK
+
+
+def cmd_backup(app: Application, target: Path | None) -> int:
+    """Create a verified backup of the SQLite database."""
+    app.storage.ensure_layout()
+    backup_dir = app.storage.path("database", "backups")
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    target_path = target or backup_dir / f"{timestamp}.db"
+
+    db = app.database()
+    db.backup(target_path)
+    manifest = Database.verify_backup(target_path)
+    manifest["created_at"] = datetime.now(UTC).isoformat()
+    manifest_path = target_path.with_suffix(".json")
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+
+    print(f"backup created: {target_path}")
+    print(f"manifest: {manifest_path}")
+    print(f"verified: {manifest['verified']}")
+    return EXIT_OK if manifest["verified"] else EXIT_ERROR
+
+
+def cmd_restore(app: Application, backup: Path, dry_run: bool) -> int:
+    """Restore the SQLite database from a verified backup."""
+    manifest = Database.verify_backup(backup)
+    if not manifest["verified"]:
+        problems = []
+        if manifest["integrity_check"] != "ok":
+            problems.append(f"integrity_check={manifest['integrity_check']}")
+        fk_issues = manifest["foreign_key_issues"]
+        if isinstance(fk_issues, list):
+            problems.append(f"foreign_key_issues={len(fk_issues)}")
+        print(
+            f"error: backup {backup} is not verified: {'; '.join(problems)}",
+            file=sys.stderr,
+        )
+        return EXIT_ERROR
+
+    app.storage.ensure_layout()
+    backup_dir = app.storage.path("database", "backups")
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    current_db = app.database_path
+    pre_restore = backup_dir / f"{timestamp}.db.pre-restore"
+
+    if dry_run:
+        print(f"would restore {backup} -> {current_db}")
+        print(f"would back up current database to {pre_restore}")
+        print(f"verified backup: {manifest['sha256']} (schema {manifest['schema_version']})")
+        return EXIT_OK
+
+    # Back up the current database first (if it exists)
+    if current_db.is_file():
+        app.database().backup(pre_restore)
+        print(f"backed up current database to {pre_restore}")
+
+    # Atomically swap
+    shutil.copy2(backup, current_db)
+    print(f"restored {backup} -> {current_db}")
+    return EXIT_OK
+
+
+def cmd_report(app: Application, run_id: str, fmt: str, output: Path | None) -> int:
+    """Generate a forensic report for a run."""
+    app.storage.ensure_layout()
+    manifest = app.storage.read_json("manifests", f"{run_id}.json")
+    if not isinstance(manifest, dict):
+        print(f"error: manifest for run {run_id} is not a JSON object", file=sys.stderr)
+        return EXIT_ERROR
+    report = build_report(manifest)
+
+    content = render_html(report) if fmt == "html" else render_json(report)
+
+    if output is not None:
+        output.write_text(content, encoding="utf-8")
+        print(f"report written to {output}")
+    else:
+        print(content)
+    return EXIT_OK
+
+
+def cmd_new_plugin(args: argparse.Namespace) -> int:
+    """Generate a plugin skeleton from a family and name."""
+    try:
+        target = generate(
+            args.plugin_id,
+            base=Path.cwd(),
+            priority=args.priority,
+            required=args.required,
+            enabled_default=not args.no_enabled_default,
+            description=args.description,
+        )
+    except ScaffoldError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return EXIT_USAGE
+
+    print(f"plugin scaffold created at {target}")
+    print("Next steps:")
+    print("  1. Add the docs page to the mkdocs.yml nav")
+    print("  2. Write the algorithm in algorithm.py")
+    print("  3. Run ruff and mypy on the generated files")
+    print("  4. Bump the version and update the changelog")
+    return EXIT_OK
+
+
+def _failure_hint(ex: dict[str, object]) -> str:
+    """Return an actionable hint for a failed/skipped plugin execution."""
+    category = ex.get("failure_category")
+    message = ex.get("message") or ""
+    if category == "timeout":
+        return f"execution exceeded the effective timeout; {message}"
+    if category == "dependency_unavailable":
+        deps = ex.get("dependency_status") or {}
+        if not isinstance(deps, dict):
+            deps = {}
+        chain = ", ".join(f"{k}={v}" for k, v in deps.items()) or "no dependencies recorded"
+        return f"dependency unavailable: {chain}"
+    if category == "config_error":
+        return f"configuration error: {message}"
+    if category == "invalid_output":
+        return f"output did not match declared contract: {message}"
+    if category == "load_error":
+        return f"plugin could not be loaded: {message}"
+    if category == "interrupted":
+        return "run was interrupted before this plugin finished"
+    if category == "aborted_by_policy":
+        return "plugin was aborted by policy"
+    if category == "exception":
+        return f"unhandled exception: {message}"
+    return str(message or "no further detail")
+
+
+def cmd_diagnose(app: Application, run_id: str, plugin_id: str | None) -> int:
+    """Show diagnostics for failed or skipped plugins in a run."""
+    app.storage.ensure_layout()
+    manifest = app.storage.read_json("manifests", f"{run_id}.json")
+    if not isinstance(manifest, dict):
+        print(f"error: manifest for run {run_id} is not a JSON object", file=sys.stderr)
+        return EXIT_ERROR
+
+    executions = manifest.get("executions", {}) or {}
+    if not executions:
+        print(f"no plugin executions recorded for run {run_id}")
+        return EXIT_OK
+
+    non_success = {
+        pid: ex
+        for pid, ex in executions.items()
+        if ex.get("state") not in {"completed", "not_applicable"}
+    }
+
+    if not non_success:
+        print(f"run {run_id}: all plugins completed successfully")
+        return EXIT_OK
+
+    if plugin_id is not None:
+        ex = non_success.get(plugin_id)
+        if ex is None:
+            print(
+                f"plugin {plugin_id!r} not found among non-success plugins for run {run_id}",
+                file=sys.stderr,
+            )
+            return EXIT_USAGE
+        state = ex.get("state", "unknown")
+        category = ex.get("failure_category") or "none"
+        message = ex.get("message") or "none"
+        started = ex.get("started_at") or "not started"
+        finished = ex.get("finished_at") or "not finished"
+        deps = ex.get("dependency_status") or {}
+        dep_str = ", ".join(f"{k}={v}" for k, v in deps.items()) or "none"
+        print(f"=== Plugin: {plugin_id} ===")
+        print(f"state: {state}")
+        print(f"failure category: {category}")
+        print(f"hint: {_failure_hint(ex)}")
+        print(f"message: {message}")
+        print(f"started: {started}")
+        print(f"finished: {finished}")
+        print(f"dependency status: {dep_str}")
+        if ex.get("exception_type"):
+            print(f"exception type: {ex['exception_type']}")
+        if ex.get("traceback"):
+            print("\n--- traceback ---")
+            print(ex["traceback"])
+        # Re-execution hint
+        profile = manifest.get("profile", "default")
+        print(f"\nRe-run: python main.py analyze <target> --no-cache --profile {profile}")
+        return EXIT_OK
+
+    # List all non-success plugins
+    print(f"Run {run_id}: {len(non_success)} non-success plugin(s)")
+    print()
+    for pid in sorted(non_success):
+        ex = non_success[pid]
+        state = ex.get("state", "unknown")
+        category = ex.get("failure_category") or "none"
+        print(f"  {state:<15} {pid:<40} {category}")
+    print()
+    print("Use `photoproof diagnose <run-id> --plugin <id>` for detail and traceback.")
+    return EXIT_OK
+
+
+def cmd_manifest(
+    app: Application, run_id: str, as_json: bool, graph: str | None, timeline: bool
+) -> int:
     path = app.storage.path("manifests", f"{run_id}.json")
     manifest = app.storage.read_json("manifests", f"{run_id}.json")
     run = app.database().get_run(run_id)
     recorded = run.get("manifest_sha256") if run else None
     if recorded is None:
         print(
-            "warning: no database record of this manifest's hash; cannot verify it", file=sys.stderr
+            "warning: no database record of this manifest's hash; cannot verify it",
+            file=sys.stderr,
         )
     elif sha256_file(path) != recorded:
         print(
@@ -282,7 +594,27 @@ def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
             file=sys.stderr,
         )
         return EXIT_ERROR
-    if as_json or not isinstance(manifest, dict):
+    if not isinstance(manifest, dict):
+        print(f"error: manifest for run {run_id} is not a JSON object", file=sys.stderr)
+        return EXIT_ERROR
+
+    if graph:
+        print(manifest_graph(manifest, format=graph))
+        return EXIT_OK
+    if timeline:
+        rows = manifest_timeline(manifest)
+        if not rows:
+            print("no plugin executions recorded")
+            return EXIT_OK
+        print(f"{'plugin':<40} {'state':<15} {'started':<28} {'duration':<10}")
+        print("-" * 95)
+        for row in rows:
+            started = row["started_at"] or "-"
+            dur = f"{row['duration_seconds']:.3f}s" if row["duration_seconds"] is not None else "-"
+            print(f"{row['plugin_id']:<40} {row['state']:<15} {started:<28} {dur:<10}")
+        return EXIT_OK
+
+    if as_json:
         print(json.dumps(manifest, indent=2, sort_keys=True))
         return EXIT_OK
     print(f"run {manifest['run_id']}  status {manifest['status']}  profile {manifest['profile']}")
@@ -292,11 +624,56 @@ def cmd_manifest(app: Application, run_id: str, as_json: bool) -> int:
     print(f"  fingerprint   {manifest['computational_fingerprint']}")
     print(f"  cache         {manifest['cache']}")
     print(f"  override      {manifest['blacklist_override']}")
-    print("  order         " + (" → ".join(manifest["execution_order"]) or "(none)"))
+    print("  order         " + (" -> ".join(manifest["execution_order"]) or "(none)"))
     for pid, ex in manifest["executions"].items():
         print(f"    {ex['state']:<15} {pid} {ex.get('failure_category') or ''}")
     for reason in manifest["blocked_reasons"]:
         print(f"  blocked: {reason}")
+    return EXIT_OK
+
+
+def cmd_manifest_diff(app: Application, run_a: str, run_b: str, as_json: bool) -> int:
+    """Compare two execution manifests and report the differences."""
+    app.storage.ensure_layout()
+    ma = app.storage.read_json("manifests", f"{run_a}.json")
+    mb = app.storage.read_json("manifests", f"{run_b}.json")
+    if not isinstance(ma, dict) or not isinstance(mb, dict):
+        print("error: one or both manifests are not JSON objects", file=sys.stderr)
+        return EXIT_ERROR
+
+    if fingerprint_matches(ma, mb):
+        print(f"{run_a} and {run_b}: computationally identical (same fingerprint)")
+        return EXIT_OK
+
+    diffs = diff_manifests(ma, mb)
+    if not diffs:
+        print(f"{run_a} and {run_b}: no differences found")
+        return EXIT_OK
+
+    if as_json:
+        print(json.dumps(diffs, indent=2, sort_keys=True, default=str))
+        return EXIT_OK
+
+    print(f"Manifest diff: {run_a} vs {run_b}")
+    print()
+    for category in (
+        "identity",
+        "inputs",
+        "configuration",
+        "plugins",
+        "graph",
+        "states",
+        "outputs",
+    ):
+        entries = diffs.get(category)
+        if not entries:
+            continue
+        print(f"## {category}")
+        for field, (va, vb) in entries.items():
+            print(f"  {field}:")
+            print(f"    {run_a}: {va}")
+            print(f"    {run_b}: {vb}")
+        print()
     return EXIT_OK
 
 
@@ -322,6 +699,21 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
             return cmd_config(app, args.json)
         if command == "plugins":
             return cmd_plugins(app, args.profile, _override(args), args.json)
+        # Manifest hash verification runs before preflight so a tampered manifest
+        # is reported with EXIT_ERROR even when the audit trail also flags it.
+        if command == "manifest":
+            path = app.storage.path("manifests", f"{args.run_id}.json")
+            manifest = app.storage.read_json("manifests", f"{args.run_id}.json")
+            if isinstance(manifest, dict):
+                run = app.database().get_run(args.run_id)
+                recorded = run.get("manifest_sha256") if run else None
+                if recorded is not None and sha256_file(path) != recorded:
+                    print(
+                        f"error: {path} does not match the SHA-256 recorded for run "
+                        f"{args.run_id}; the manifest was modified after the run",
+                        file=sys.stderr,
+                    )
+                    return EXIT_ERROR
         if (code := _start(app)) is not None:
             return code
         if command == "preflight":
@@ -336,8 +728,22 @@ def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int
             return cmd_status(app)
         if command == "analyze":
             return cmd_analyze(app, args)
+        if command == "housekeeping":
+            return cmd_housekeeping(app, args.apply)
         if command == "manifest":
-            return cmd_manifest(app, args.run_id, args.json)
+            return cmd_manifest(app, args.run_id, args.json, args.graph, args.timeline)
+        if command == "manifest-diff":
+            return cmd_manifest_diff(app, args.run_a, args.run_b, args.json)
+        if command == "backup":
+            return cmd_backup(app, args.target)
+        if command == "restore":
+            return cmd_restore(app, args.backup, args.dry_run)
+        if command == "report":
+            return cmd_report(app, args.run_id, args.format, args.output)
+        if command == "new-plugin":
+            return cmd_new_plugin(args)
+        if command == "diagnose":
+            return cmd_diagnose(app, args.run_id, args.plugin)
         return EXIT_USAGE
     except (InputRejectedError, PolicyError, StorageError) as error:
         print(f"error: {error}", file=sys.stderr)

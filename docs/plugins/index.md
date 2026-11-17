@@ -38,7 +38,7 @@ METADATA = {
     "requires": ["ingest.decode"],  # must SUCCEED first; outputs usable as inputs
     "after": ["metadata.exif"],  # ordering only
     "entry_point": "processor:run",  # module-in-package:function
-    "inputs": ["image.working_rgb"],  # contracts consumed
+    "inputs": ["image.working"],  # contracts consumed
     "outputs": ["compression.ela_map"],  # contracts produced (exactly these keys)
     "timeout_seconds": 30,  # default: scheduling.default_plugin_timeout_seconds
     "supported_formats": ["jpeg"],  # empty = format-independent
@@ -54,11 +54,20 @@ empty `outputs`, outputs named `input.*`, malformed entry points, an incompatibl
 version, or a missing entry module. Duplicate IDs across packages make the whole
 registry invalid (`RegistryError`).
 
-## Decoded and working images (planned)
+## Decoded and working images
 
-`imaging/normalization.py` already turns a decoded image into a working image: sRGB, with EXIF
-orientation applied, and a log of every transform. Plugins cannot reach any of these yet. #12
-will expose them, and each plugin will choose:
+The run resolves the media contracts from stored evidence, once per run, and hands them to
+plugins that declare them in `inputs`:
+
+- **`input.original_bytes`** — the stored original bytes, immune to decoding.
+- **`image.decoded`** — the pixels as decoded, handed over as a read-only NumPy array.
+- **`image.working`** — the normalized working image (sRGB, EXIF orientation applied,
+  every transform recorded), also read-only.
+
+A run that cannot decode an image skips the plugins that declared it with
+`dependency_unavailable` and records the reason in the manifest; the run is `INCOMPLETE`,
+never clean evidence. Plugins read these through `ctx.inputs`. A `ctx.image()` accessor,
+`image.working_hdr` and full lazy resolution are planned in #12. Each plugin chooses:
 
 - **`image.working`** for detectors that compare pixels across regions or images.
 - **`image.decoded`** for compression and noise detectors. Colour conversion changes pixel
@@ -79,6 +88,177 @@ will expose them, and each plugin will choose:
 Code values are unchanged apart from orientation. A plugin that needs floats converts them itself,
 because it knows which conversion its maths needs. `image.working` is always 8-bit: high-depth
 sources reach it through a documented, per-channel tone curve, recorded in `transforms`.
+
+## Array conventions
+
+Detector algorithms receive NumPy arrays through the media inputs
+(`image.decoded`, `image.working`) in `ctx.inputs`. The shared convention is
+defined in `photoproof.imaging.arrays`:
+
+* Working arrays: `H x W x C`, C-contiguous, RGB channel order, `uint8` for 8-bit
+  or `uint16` for high bit depth; grayscale as `H x W`.
+* Algorithms convert to `float32` internally via `to_float32(arr)`, which scales
+  `uint8` to `[0, 1]` by dividing by 255 and `uint16` by dividing by 65535.
+* Arrays handed to plugins are read-only (`arr.flags.writeable = False`); mutation
+  raises `ValueError`. Use `as_read_only(arr)` or `ensure_read_only(arr)` to enforce
+  this before handing arrays to plugins.
+* `validate_image(arr)` checks shape, dtype, contiguity, NaN values and zero size,
+  returning an `ImageSpec` or raising `InputRejectedError`.
+* `to_luma(arr)` converts RGB to single-channel BT.601 luma as `H x W` `float32`.
+
+Synthetic forgery generators with exact ground-truth masks live in
+`tests/fixtures/synthetic.py` and are exposed to tests through the `synthetic`
+pytest fixture. Generators include `textured_scene`, `copy_move`, `splice`,
+`noise_splice`, `blur_patch`, `jpeg`, `double_jpeg`, `misaligned_jpeg_patch`
+and `with_exif`.
+
+## Block statistics
+
+Regional detectors share a common block-tiling and robust-statistics library in
+`photoproof.imaging.stats`:
+
+* `tile(array, block, stride, border)` splits a 2-D array into blocks with
+  per-block coordinates.
+* `block_reduce(array, block, stride, func)` applies a reduction (mean, median,
+  MAD, etc.) to each block.
+* `robust_zscore(values, mask)` computes robust z-scores using the median/MAD
+  estimator; returns `degenerate=True` when MAD = 0 instead of dividing by zero.
+* `AnomalyMap` bundles per-block values, block/stride geometry, a validity mask
+  and notes for serialization and visualization.
+* `upsample(anomaly_map, image_shape, mode)` lifts block-level maps to full
+  image resolution for display.
+
+## Metadata forensics
+
+The `metadata.exif` plugin extracts EXIF and XMP metadata and reports provenance
+inconsistencies as typed findings. Metadata is trivially editable and often
+stripped, so findings are reported as context, never as proof. GPS coordinates
+are never emitted. Findings include:
+
+* `metadata_editor_detected` — editing software tags found (info)
+* `metadata_impossible_date` — EXIF date outside plausible range (low)
+* `metadata_dimension_mismatch` — EXIF dimensions disagree with actual (medium)
+* `metadata_thumbnail_mismatch` — embedded thumbnail differs from downscaled main (medium)
+* `metadata_absent` — no metadata container found (info, not suspicious)
+* `metadata_oversized_exif` — EXIF block exceeds size limit (low)
+* `metadata_ifd_loop` — EXIF IFD nesting exceeds limit (low)
+
+Each finding carries a severity (`info`/`low`/`medium`) and a false-positive note.
+
+## Compression forensics
+
+The `compression.ela` plugin implements Error Level Analysis as a supporting signal.
+It recompresses the image at a controlled JPEG quality and computes the absolute
+pixel difference. Regions with different compression histories show different error
+levels.
+
+* Config: `quality` (1-100, default 95), `aggregate` (max|mean), `block` (default 16),
+  `edge_suppression` (bool, default true)
+* Outputs: `compression.ela_map` (8-bit PNG artifact), `compression.ela_anomaly`
+  (AnomalyMap of block-level robust z-scores)
+* Applicable to JPEG primary; non-JPEG inputs run with `context: no_jpeg_history`
+* Explicitly labelled supporting evidence only - never a standalone forgery verdict
+
+The `compression.jpeg_dct` plugin reads JPEG quantization tables from DQT markers
+and performs 8x8 DCT on decoded blocks to detect double-compression patterns via
+histogram periodicity analysis.
+
+* Outputs: `compression.jpeg_tables` (tables, estimated quality, standard_table flag)
+  and `compression.dq_map` (AnomalyMap of per-block double-compression likelihood)
+* Applicable to JPEG only; `NOT_APPLICABLE` for other formats
+* Pure-Python JPEG bitstream parsing - no native decoder bindings required
+
+The `compression.jpeg_grid` plugin estimates the dominant 8x8 blocking-grid origin
+of the image and maps regions whose blocking artifacts align to a different grid,
+which is characteristic of content pasted from another JPEG or of cropping.
+
+* Outputs: `compression.grid_origin` (`{dx, dy, confidence}`) and
+  `compression.grid_map` (AnomalyMap: higher = locally aligned to a different phase)
+* Config: `window` (default 64), `stride` (default 32)
+* Uses luminance channel; low-confidence results for high-quality or non-JPEG inputs
+
+## Noise Forensics
+
+The `noise.residual` plugin extracts high-frequency noise residuals via wavelet-based
+denoising (BayesShrink or Wiener thresholding). The residual captures sensor noise
+and post-processing fingerprints that spliced regions often lack.
+
+* Outputs: `noise.residual` (float32 NPZ artifact) and `noise.sigma_global`
+  (global noise sigma estimate via MAD)
+* Config: `wavelet` (default `db8`), `levels` (default 4), `method`
+  (`bayesshrink`|`wiener`), `channel` (`luma`|`rgb`)
+* Uses pure-Python JPEG bitstream parsing via PyWavelets
+
+The `noise.variance_map` plugin estimates local noise variance per block from the
+noise residual and builds a noise-consistency map highlighting regions whose noise
+level is inconsistent with the rest of the image.
+
+* Outputs: `noise.sigma_map` (per-block sigma map) and
+  `noise.consistency_map` (robust z-score map)
+* Config: `block` (default 32), `intensity_bins` (default 8),
+  `texture_threshold` (default 15.0), `saturation_threshold` (default 0.98),
+  `min_valid_fraction` (default 0.30)
+* Provides coverage fraction and confidence level (high/medium/low)
+
+## Copy-Move Forgery
+
+The `copymove.sift_keypoints` plugin detects SIFT keypoints and computes descriptors
+on the decoded image. This is the first stage of the copy-move detection chain:
+keypoints → matches → clusters → verified transforms → masks.
+
+* Outputs: `copymove.keypoints` (NPZ artifact with keypoints and descriptors) and
+  `copymove.keypoint_stats` (summary statistics)
+* Config: `max_keypoints` (default 20000), `contrast_threshold` (default 0.04),
+  `edge_threshold` (default 10.0), `rootsift` (default true),
+  `max_edge` (default 3000)
+* Uses OpenCV's SIFT implementation (available since OpenCV 4.4)
+
+The `copymove.matching` plugin matches SIFT descriptors using KNN and generalized
+Lowe ratio filtering (g2NN). It performs dependency-aware matching with spatial
+constraints and symmetric deduplication.
+
+* Outputs: `copymove.matches` (NPZ artifact with index pairs and distances) and
+  `copymove.match_stats` (summary statistics)
+* Config: `k` (default 10), `ratio` (default 0.5), `min_spatial_distance`
+  (default 10), `max_pairs` (default 50000)
+* Uses OpenCV FLANN or brute-force matching depending on descriptor count
+
+The `copymove.clustering` plugin groups matched keypoint pairs into clusters using
+hierarchical clustering (Ward linkage) or DBSCAN on displacement vectors.
+
+* Outputs: `copymove.clusters` (cluster list with source/target bounding boxes,
+  displacement, size) and `copymove.match_stats` (summary statistics)
+* Config: `method` (default `hierarchical`), `cut_threshold` (default 0.5),
+  `eps` (default 0.5), `min_matches_per_cluster` (default 4)
+
+The `copymove.mask` plugin generates pixel-level source/target masks from
+verified copy-move matches using bounded ZNCC correlation.
+
+* Outputs: `copymove.mask` (NPZ artifact with mask, source_mask, target_mask)
+  and `copymove.mask_stats` (summary statistics)
+* Config: `window_size` (default 11), `threshold` (default 0.5),
+  `min_cluster_size` (default 5)
+
+The `visual.sharpness` plugin maps local focus and sharpness using the
+variance of the Laplacian, with optional contrast normalization and robust-z
+inconsistency detection. It is a weak visual cue for copy-move detection.
+
+* Outputs: `visual.sharpness_map` (per-block log Laplacian variance) and
+  `visual.sharpness_anomaly` (robust-z inconsistency map)
+* Config: `block` (default 32), `contrast_normalize` (default true)
+* Uses OpenCV Laplacian on luminance; documented depth-of-field false positives
+
+The `visual.edges` plugin characterizes object boundaries using Canny edge
+detection and Sobel gradient analysis. It estimates edge width (the blur
+profile across the edge) and flags boundaries that are abnormally sharp or
+soft relative to the image's typical edges.
+
+* Outputs: `visual.edge_width_map` (per-pixel edge width) and
+  `visual.edge_segments` (contour segment list with mean width)
+* Config: `sigma` (default 1.0), `profile_length` (default 15),
+  `min_segment_length` (default 20)
+* Complementary to #25: #25 measures blur inside blocks, this measures
+  transition profiles across boundaries
 
 ## Supported formats
 
@@ -155,3 +335,31 @@ dependency semantics, the state machine and failure policies. In short:
   keys, so any change to what the plugin ships invalidates cached results.
 - A plugin is compatible with host API `X.Z.*` if it was built for `X.Y.*` with
   `Y <= Z`. During `0.x` the minor version must match exactly.
+
+## Scaffolding new plugins
+
+Use the `new-plugin` CLI command to generate a consistent plugin skeleton:
+
+```
+python main.py new-plugin <family>.<name>
+```
+
+This creates:
+
+- `src/photoproof/plugins/<family>/<name>/__init__.py` — complete `METADATA`
+- `src/photoproof/plugins/<family>/<name>/algorithm.py` — pure NumPy stub (raises `NotImplementedError`)
+- `src/photoproof/plugins/<family>/<name>/processor.py` — context → algorithm → outputs wiring
+- `src/photoproof/plugins/<family>/<name>/schema.py` — pydantic config model
+- `tests/unit/plugins/test_<family>_<name>.py` — metadata validity + algorithm tests (one `xfail`)
+- `docs/plugins/<family>-<name>.md` — detector page template
+
+Options:
+
+| Option | Meaning |
+|---|---|
+| `--priority N` | Plugin scheduling priority (default depends on family) |
+| `--required` | Mark the plugin as required at the pipeline level |
+| `--no-enabled-default` | Disable the plugin by default |
+| `--description TEXT` | Short description for METADATA |
+
+After generating, add the docs page to the `mkdocs.yml` nav, write the algorithm, run ruff and mypy, bump the version and update the changelog.

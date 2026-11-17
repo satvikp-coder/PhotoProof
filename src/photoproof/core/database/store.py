@@ -5,6 +5,8 @@ each; an existing database is backed up with the SQLite backup API before any
 migration is applied to it.
 """
 
+import atexit
+import os
 import sqlite3
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
@@ -12,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from photoproof.contracts.exceptions import DatabaseError, MigrationRequiredError
+from photoproof.core.storage.store import sha256_file
 
 MIGRATIONS: Sequence[str] = (
     # 1: initial schema
@@ -76,18 +79,91 @@ MIGRATIONS: Sequence[str] = (
     );
     CREATE INDEX submissions_sha256 ON submissions(sha256);
     """,
+    # 3: concurrency - record owning process and hostname; set busy_timeout
+    """
+    ALTER TABLE runs ADD COLUMN pid INTEGER;
+    ALTER TABLE runs ADD COLUMN hostname TEXT;
+    """,
+    # 4: durable job queue for asynchronous analysis
+    """
+    CREATE TABLE jobs (
+        job_id TEXT PRIMARY KEY,
+        state TEXT NOT NULL
+            CHECK (state IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+        payload TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 1,
+        lease_until TEXT,
+        worker_id TEXT,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        error_message TEXT
+    );
+    CREATE INDEX jobs_state_lease ON jobs(state, lease_until);
+    CREATE INDEX jobs_idempotency ON jobs(idempotency_key);
+    """,
 )
 LATEST_VERSION = len(MIGRATIONS)
+
+#: Track open database connections so they can be closed at interpreter shutdown.
+#: This prevents ``sqlite3.Connection.__del__`` warnings during garbage collection
+#: on platforms where ``__del__`` is not reliably called before the sqlite3 library
+#: is torn down.
+_open_connections: set[sqlite3.Connection] = set()
+
+
+def open_connection_count() -> int:
+    """Number of database connections still open (for tests and health diagnostics)."""
+    return len(_open_connections)
+
+
+def _close_all_connections() -> None:
+    """Close all open database connections at interpreter shutdown."""
+    for conn in list(_open_connections):
+        with suppress(Exception):  # nosec B110 - best-effort cleanup at shutdown
+            conn.close()
+    _open_connections.clear()
+
+
+atexit.register(_close_all_connections)
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def is_process_alive(pid: int | None) -> bool:
+    """Return True if ``pid`` refers to a process that is still running.
+
+    On Windows, uses os.kill(pid, 0) which raises if the process doesn't exist.
+    On POSIX, the same. Returns False for None or non-existent processes.
+    """
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+    return True
+
+
 class Database:
     def __init__(self, connection: sqlite3.Connection, path: Path) -> None:
         self._conn = connection
         self.path = path
+        self._closed = False
+        _open_connections.add(connection)
+
+    def __del__(self) -> None:
+        with suppress(Exception):  # nosec B110 - best-effort cleanup during garbage collection
+            self.close()
+
+    def __enter__(self) -> "Database":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.close()
 
     # --------------------------------------------------------------- lifecycle
 
@@ -102,32 +178,44 @@ class Database:
         """
         if not read_only:
             path.parent.mkdir(parents=True, exist_ok=True)
+        conn = None
         try:
             conn = (
                 sqlite3.connect(
-                    path.resolve().as_uri() + "?mode=ro", uri=True, isolation_level=None
+                    path.resolve().as_uri() + "?mode=ro",
+                    uri=True,
+                    isolation_level=None,
+                    timeout=30.0,
                 )
                 if read_only
-                else sqlite3.connect(path, isolation_level=None)
+                else sqlite3.connect(path, isolation_level=None, timeout=30.0)
             )
             conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA busy_timeout = 30000")
+            if not read_only:
+                conn.execute("PRAGMA journal_mode=WAL")
             conn.row_factory = sqlite3.Row
         except sqlite3.Error as error:
-            raise DatabaseError(f"{path}: cannot open database: {error}") from error
+            if conn is not None:
+                conn.close()
+            raise DatabaseError(f"{path}: unreadable database: {error}") from error
         db = cls(conn, path)
         try:
             version = db.schema_version()
         except sqlite3.DatabaseError as error:  # e.g. the file is not a SQLite database
             conn.close()
+            _open_connections.discard(conn)
             raise DatabaseError(f"{path}: unreadable database: {error}") from error
         if version > LATEST_VERSION:
             conn.close()
+            _open_connections.discard(conn)
             raise DatabaseError(
                 f"{path}: schema version {version} is newer than this release supports "
                 f"({LATEST_VERSION}). Manual action required: upgrade PhotoProof."
             )
         if 0 < version < LATEST_VERSION and not allow_migration:
             conn.close()
+            _open_connections.discard(conn)
             raise MigrationRequiredError(
                 f"{path}: schema version {version} needs migration to {LATEST_VERSION}. "
                 "Run `python main.py --repair` (a backup is taken first)."
@@ -135,6 +223,7 @@ class Database:
         if version < LATEST_VERSION:
             if read_only:
                 conn.close()
+                _open_connections.discard(conn)
                 raise MigrationRequiredError(
                     "database needs initialization or migration; run local repair"
                 )
@@ -142,11 +231,18 @@ class Database:
                 db._migrate(version)
             except DatabaseError:
                 conn.close()
+                _open_connections.discard(conn)
                 raise
         return db
 
     def close(self) -> None:
-        self._conn.close()
+        if self._closed:
+            return
+        if self._conn in _open_connections:
+            _open_connections.discard(self._conn)
+        with suppress(Exception):  # already-closed connections must not raise
+            self._conn.close()
+        self._closed = True
 
     def schema_version(self) -> int:
         return int(self._conn.execute("PRAGMA user_version").fetchone()[0])
@@ -180,6 +276,53 @@ class Database:
             destination.close()
         return target
 
+    @staticmethod
+    def verify_backup(target: Path) -> dict[str, object]:
+        """Verify a backup database file.
+
+        Opens the backup read-only, runs ``PRAGMA integrity_check`` and
+        ``PRAGMA foreign_key_check``, computes SHA-256, and counts rows in each
+        table. Returns a manifest dict with ``sha256``, ``schema_version``,
+        ``row_counts``, ``integrity_check``, ``foreign_key_issues`` and
+        ``verified``.
+        """
+        uri = f"file:{target}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True)
+        try:
+            integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            fk_issues = conn.execute("PRAGMA foreign_key_check").fetchall()
+            _TABLE_QUERIES = {
+                "runs": "SELECT COUNT(*) FROM runs",
+                "plugin_executions": "SELECT COUNT(*) FROM plugin_executions",
+                "artifacts": "SELECT COUNT(*) FROM artifacts",
+                "cache_entries": "SELECT COUNT(*) FROM cache_entries",
+                "health_checks": "SELECT COUNT(*) FROM health_checks",
+                "evidence": "SELECT COUNT(*) FROM evidence",
+                "submissions": "SELECT COUNT(*) FROM submissions",
+            }
+            row_counts: dict[str, int | None] = {}
+            for table, query in _TABLE_QUERIES.items():
+                try:
+                    row = conn.execute(query).fetchone()
+                    row_counts[table] = row[0] if row else None
+                except sqlite3.Error:
+                    row_counts[table] = None
+            schema_version = conn.execute("PRAGMA user_version").fetchone()[0]
+        finally:
+            conn.close()
+
+        sha = sha256_file(target)
+        verified = integrity == "ok" and len(fk_issues) == 0
+
+        return {
+            "sha256": sha,
+            "schema_version": schema_version,
+            "row_counts": row_counts,
+            "integrity_check": integrity,
+            "foreign_key_issues": [list(r) for r in fk_issues],
+            "verified": verified,
+        }
+
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
         """Run statements atomically; any exception rolls everything back."""
@@ -210,23 +353,78 @@ class Database:
         except sqlite3.Error as error:
             raise DatabaseError(f"{self.path}: write failed: {error}") from error
 
-    def create_run(self, run_id: str, *, mode: str, profile: str, cache_key: str | None) -> None:
+    def create_run(
+        self,
+        run_id: str,
+        *,
+        mode: str,
+        profile: str,
+        cache_key: str | None,
+        pid: int | None = None,
+        hostname: str | None = None,
+    ) -> None:
         self._write(
-            "INSERT INTO runs (run_id, created_at, status, mode, profile, cache_key) "
-            "VALUES (?, ?, 'CREATED', ?, ?, ?)",
-            (run_id, _now(), mode, profile, cache_key),
+            "INSERT INTO runs (run_id, created_at, status, mode, profile, "
+            "cache_key, pid, hostname) VALUES (?, ?, 'CREATED', ?, ?, ?, ?, ?)",
+            (run_id, _now(), mode, profile, cache_key, pid, hostname),
         )
 
     def set_run_status(self, run_id: str, status: str) -> None:
         self._write("UPDATE runs SET status = ? WHERE run_id = ?", (status, run_id))
 
+    def claim_job(self, worker_id: str, lease_seconds: int) -> dict[str, object] | None:
+        """Atomically claim the oldest queued job.
+
+        Uses ``BEGIN IMMEDIATE`` for an immediate write lock so concurrent
+        claimers cannot both select the same job. Returns the job row as a
+        dict, or ``None`` if no queued jobs are available.
+        """
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute(
+                    """
+                    UPDATE jobs
+                    SET state = 'running',
+                        worker_id = ?,
+                        lease_until = datetime('now', ? || ' seconds'),
+                        attempts = attempts + 1,
+                        updated_at = datetime('now')
+                    WHERE job_id = (
+                        SELECT job_id FROM jobs
+                        WHERE state = 'queued'
+                        ORDER BY created_at
+                        LIMIT 1
+                    )
+                    RETURNING job_id, state, payload, attempts, max_attempts,
+                              lease_until, worker_id, idempotency_key,
+                              created_at, updated_at, error_message
+                    """,
+                    (worker_id, str(lease_seconds)),
+                ).fetchone()
+                self._conn.execute("COMMIT")
+                return dict(row) if row else None
+            except BaseException:
+                with suppress(sqlite3.Error):
+                    self._conn.execute("ROLLBACK")
+                raise
+        except sqlite3.Error as error:
+            raise DatabaseError(f"{self.path}: job claim failed: {error}") from error
+
     def unfinished_runs(self, *, older_than: str) -> list[dict[str, object]]:
-        """Runs without ``finished_at`` created before the ISO timestamp ``older_than``."""
+        """Runs without ``finished_at`` created before the ISO timestamp ``older_than``,
+        excluding runs whose owning process is still alive."""
         rows = self._conn.execute(
             "SELECT * FROM runs WHERE finished_at IS NULL AND created_at < ? ORDER BY created_at",
             (older_than,),
         ).fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            run = dict(row)
+            pid = run.get("pid")
+            if not is_process_alive(pid):
+                result.append(run)
+        return result
 
     def mark_runs_aborted(self, run_ids: Sequence[str]) -> None:
         try:
