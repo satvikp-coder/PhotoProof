@@ -126,3 +126,17 @@ A corrupt or missing evidence blob is a MANUAL critical finding.
 
 Report vulnerabilities privately: see
 [SECURITY.md](https://github.com/satvikp-coder/PhotoProof/blob/main/SECURITY.md).
+
+## Derived display previews
+
+`support.preview` re-encodes normalized 8-bit working pixels as PNG with no EXIF,
+GPS, XMP, IPTC or source ICC metadata. It never reads original evidence bytes.
+The longest edge is at most `max_edge` (default 2048, bounded to 4096), with
+aspect ratio preserved to integer-pixel rounding. Alpha is retained. High-depth
+sources use the existing working-image tone mapping first. Encoder settings are
+fixed for deterministic output within the recorded Pillow environment.
+
+Previews are content-addressed derived artifacts, explicitly labelled
+"Derived preview ? not original evidence" in `support.preview_info`, which reaches
+the manifest alongside the preview hash. Consumers must display this label and
+use generated previews for display rather than browser-decoding the original.
