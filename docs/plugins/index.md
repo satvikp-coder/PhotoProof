@@ -388,3 +388,12 @@ Migration: version 1.0.0 could emit invalid zero layers for unsupported outputs 
 ignored mapping configuration. Historical manifests remain unchanged; re-analyze to
 obtain corrected evidence. Cache fingerprints include the changed plugin version and
 implementation. Consumers must use the unavailable list rather than substitute zeros.
+
+## Safe preview support
+
+`support.preview` (priority 5) consumes `image.working` and produces the
+`support.preview` PNG artifact plus `support.preview_info` (dimensions, derived
+label, metadata-removal policy and retained alpha). Missing working pixels skip
+the plugin visibly; no preview substitutes for evidence. Configure `max_edge` in
+`configs/plugins/support.preview.yaml`. The reusable `imaging.preview.make_preview`
+API accepts a normalized `WorkingImage` and an explicit artifact writer.

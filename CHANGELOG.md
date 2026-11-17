@@ -20,6 +20,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Generate bounded, metadata-free derived PNG previews from normalized working pixels,
+  retaining alpha and preserving original evidence (#10).
+
 - A run resolves its media contracts from stored evidence, once per run, and hands them to
   plugins that declare them in `inputs`: `input.original_bytes` (the stored original),
   `image.decoded` (the pixels as decoded) and `image.working` (the normalized working
