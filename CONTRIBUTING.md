@@ -131,8 +131,15 @@ uv pip compile pyproject.toml --group build --group dev --group docs --group sec
 
 All three files are universal (one file for every supported OS and Python version) and
 every requirement carries `--hash` values. Never hand-edit them. The deps.yml workflow
-pins and verifies the `uv` binary, never auto-merges, and leaves the PR in draft with the
-`ci:blocked` label if the test suite fails.
+pins and verifies the `uv` archive, regenerates all three lockfiles together, and opens
+only draft PRs. A validation failure adds `ci:blocked` and leaves the workflow failed.
+The application version stays unchanged until release. Generated branches use
+`deps/auto-<run-id>-<attempt>`; an existing open automation PR prevents duplicate updates.
+If repository policy prevents bot-created PRs, the validated branch is preserved and
+the workflow summary provides a compare link for manual draft publication; it never
+changes repository policy. Test failures still fail the workflow.
+Because pushes made with `GITHUB_TOKEN` do not start ordinary PR workflows, a maintainer
+must trigger the full CI matrix and review checks before merging the draft.
 
 ---
 

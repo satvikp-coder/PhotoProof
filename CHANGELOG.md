@@ -6,10 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore parsing and bounded execution of dependency-update automation, regenerate all
+  lockfiles together, and preserve release-only versioning (Refs #78).
+
 ### Added
 
 - Segment fused heuristic maps into cleaned suspicious regions with traceable detector
   references, immutable binary PNG masks, and explicit unavailable/truncation status (#35).
+
+- Generate bounded, metadata-free derived PNG previews from normalized working pixels,
+  retaining alpha and preserving original evidence (#10).
 
 - A run resolves its media contracts from stored evidence, once per run, and hands them to
   plugins that declare them in `inputs`: `input.original_bytes` (the stored original),

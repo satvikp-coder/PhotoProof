@@ -400,3 +400,12 @@ The region list is capped by descending pixel area (scan-order ties); the PNG
 retains all area-filtered components. A full-image region may reflect global
 processing and must be interpreted with the upstream evidence and assessment.
 Invalid/nonfinite maps fail visibly rather than becoming empty evidence.
+
+## Safe preview support
+
+`support.preview` (priority 5) consumes `image.working` and produces the
+`support.preview` PNG artifact plus `support.preview_info` (dimensions, derived
+label, metadata-removal policy and retained alpha). Missing working pixels skip
+the plugin visibly; no preview substitutes for evidence. Configure `max_edge` in
+`configs/plugins/support.preview.yaml`. The reusable `imaging.preview.make_preview`
+API accepts a normalized `WorkingImage` and an explicit artifact writer.
