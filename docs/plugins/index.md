@@ -372,7 +372,7 @@ minimum component area. Thresholds are **provisional and uncalibrated** until #3
 a score is not a probability. This step supplies localization, not a verdict.
 
 Configuration in `configs/plugins/fusion.regions.yaml`: `high` (0.70), `low` (0.30),
-`kernel_size` (3, odd, 1?21), `min_area_fraction` (0.001),
+`kernel_size` (3, odd, 1-21), `min_area_fraction` (0.001),
 `polygon_tolerance` (1 pixel), and `max_regions` (50, at most 100).
 
 - `fusion.mask`: immutable content-addressed grayscale PNG artifact, background 0,

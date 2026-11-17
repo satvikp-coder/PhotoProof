@@ -11,8 +11,6 @@ All notable changes to this project are documented here. The format follows
 - Segment fused heuristic maps into cleaned suspicious regions with traceable detector
   references, immutable binary PNG masks, and explicit unavailable/truncation status (#35).
 
-### Added
-
 - A run resolves its media contracts from stored evidence, once per run, and hands them to
   plugins that declare them in `inputs`: `input.original_bytes` (the stored original),
   `image.decoded` (the pixels as decoded) and `image.working` (the normalized working
