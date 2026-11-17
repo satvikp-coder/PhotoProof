@@ -373,3 +373,12 @@ family once. `fusion.score_info` explicitly labels the map `heuristic_score` and
 score. Region summaries include effective detector references, raw maximum detector
 scores and weighted contributions. See [ADR-004](../planning/adr-004-rule-based-fusion.md)
 for the complete formula, provisional defaults, limitations and migration from 1.0.0.
+
+## Safe preview support
+
+`support.preview` (priority 5) consumes `image.working` and produces the
+`support.preview` PNG artifact plus `support.preview_info` (dimensions, derived
+label, metadata-removal policy and retained alpha). Missing working pixels skip
+the plugin visibly; no preview substitutes for evidence. Configure `max_edge` in
+`configs/plugins/support.preview.yaml`. The reusable `imaging.preview.make_preview`
+API accepts a normalized `WorkingImage` and an explicit artifact writer.
