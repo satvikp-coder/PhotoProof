@@ -372,3 +372,12 @@ coverage and yields `inconclusive` for unavailable evidence. The fixed categorie
 separate from pipeline RunStatus. See [ADR-005](../planning/adr-005-evidence-sufficiency.md)
 for coverage states, precedence, provisional limitations, historical migration and the
 remaining measured-comparison integration. No accuracy or calibrated-confidence claim is made.
+
+## Safe preview support
+
+`support.preview` (priority 5) consumes `image.working` and produces the
+`support.preview` PNG artifact plus `support.preview_info` (dimensions, derived
+label, metadata-removal policy and retained alpha). Missing working pixels skip
+the plugin visibly; no preview substitutes for evidence. Configure `max_edge` in
+`configs/plugins/support.preview.yaml`. The reusable `imaging.preview.make_preview`
+API accepts a normalized `WorkingImage` and an explicit artifact writer.
