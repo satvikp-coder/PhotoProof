@@ -79,3 +79,25 @@ def test_only_effective_contributors_are_attributed():
     ]
     evidence = _run(layers)["fusion.evidence"]
     assert evidence[0]["contributing_detectors"] == ["compression.dq_map"]
+
+
+def test_global_scalar_context_does_not_collapse_spatial_localization():
+    spatial = np.zeros((16, 16), dtype=np.float32)
+    spatial[4:12, 4:12] = 0.9
+    layers = [
+        {"detector_id": "copymove.mask", "strength_class": "strong", "map": spatial.tolist()},
+        {
+            "detector_id": "compression.ela_summary",
+            "strength_class": "weak",
+            "map": [[0.8]],
+            "notes": ["scalar_normalized"],
+        },
+    ]
+    fused = np.asarray(_run(layers)["fusion.map"])
+    assert fused.shape == spatial.shape
+    assert fused[0, 0] == 0 and fused[8, 8] >= 0.9
+
+
+def test_weak_boost_is_proportional_to_accepted_support():
+    layers = [_layer("copymove.mask", "strong", 0.01), _layer("compression.ela_map", "weak", 1.0)]
+    assert 0.01 < _run(layers)["fusion.map"][0][0] < 0.02

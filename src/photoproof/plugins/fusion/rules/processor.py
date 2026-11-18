@@ -53,15 +53,19 @@ def _as_map(values: Any) -> np.ndarray | None:
     return None
 
 
-def _resample_to_common_grid(maps: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+def _resample_to_common_grid(
+    maps: dict[str, np.ndarray], *, global_layers: frozenset[str] = frozenset()
+) -> dict[str, np.ndarray]:
     """Resample all maps to the smallest common grid (nearest-neighbor).
 
     Returns a new dict; input maps are not modified.
     """
     if not maps:
         return {}
-    min_h = min(m.shape[0] for m in maps.values())
-    min_w = min(m.shape[1] for m in maps.values())
+    spatial = [m for name, m in maps.items() if name not in global_layers]
+    grids = spatial or list(maps.values())
+    min_h = min(m.shape[0] for m in grids)
+    min_w = min(m.shape[1] for m in grids)
     if min_h == 0 or min_w == 0:
         return {name: np.zeros((0, 0), dtype=np.float32) for name in maps}
     result: dict[str, np.ndarray] = {}
@@ -145,6 +149,7 @@ def run(ctx: PluginContext) -> dict[str, object]:
     # Build per-detector maps from layers.
     layer_maps: dict[str, np.ndarray] = {}
     layer_info: dict[str, dict[str, object]] = {}
+    global_layers: set[str] = set()
     for layer in layers:
         if not isinstance(layer, dict):
             continue
@@ -167,6 +172,13 @@ def run(ctx: PluginContext) -> dict[str, object]:
                     f"fusion.rules: invalid valid_mask for {det_id}; match the map with booleans"
                 )
             m = np.where(mask, m, 0.0)
+        notes = layer.get("notes", ())
+        if isinstance(notes, (list, tuple)) and "scalar_normalized" in notes:
+            if m.shape != (1, 1):
+                raise InputRejectedError(
+                    f"fusion.rules: global scalar {det_id} must have exactly one score"
+                )
+            global_layers.add(str(det_id))
         layer_maps[str(det_id)] = m
         layer_info[str(det_id)] = {
             "strength_class": layer.get("strength_class", "weak"),
@@ -194,7 +206,7 @@ def run(ctx: PluginContext) -> dict[str, object]:
         }
 
     # Resample all maps to a common grid.
-    common_maps = _resample_to_common_grid(layer_maps)
+    common_maps = _resample_to_common_grid(layer_maps, global_layers=frozenset(global_layers))
     h, w = next(iter(common_maps.values())).shape
 
     config = ctx.config if isinstance(ctx.config, Config) else Config.model_validate(ctx.config)
@@ -215,11 +227,15 @@ def run(ctx: PluginContext) -> dict[str, object]:
             independent | (m > config.medium_high_score_threshold), m * weights.medium, 0.0
         )
     supported = np.zeros((h, w), dtype=bool)
+    support_level = np.zeros((h, w), dtype=np.float32)
     for values in accepted.values():
         supported |= values > 0
+        support_level = np.maximum(support_level, values)
     for name, m in common_maps.items():
         if strengths[name] == "weak":
-            accepted[name] = np.where(supported, m * weights.weak * config.weak_boost_factor, 0.0)
+            accepted[name] = np.where(
+                supported, m * weights.weak * config.weak_boost_factor * support_level, 0.0
+            )
     # Correlated cues contribute a maximum once per family, never repeated OR terms.
     # Strong evidence combines by maximum; its family cannot boost it a second time.
     strong_max = np.zeros((h, w), dtype=np.float32)
@@ -265,6 +281,8 @@ def run(ctx: PluginContext) -> dict[str, object]:
             region_det_scores = m[rows, cols]
             if np.any(region_scores > 0) and np.any(region_det_scores > 0):
                 contributing.append(det_id)
+                if det_id in global_layers:
+                    rules_fired.append(f"global_context:{det_id}")
                 sc = layer_info[det_id]["strength_class"]
                 fam = DETECTOR_FAMILIES.get(det_id, "unknown")
                 families_involved.add(fam)
@@ -292,6 +310,7 @@ def run(ctx: PluginContext) -> dict[str, object]:
                 },
                 "max_score": max_score,
                 "contributing_detectors": sorted(contributing),
+                "global_context_detectors": sorted(set(contributing) & global_layers),
                 "detector_scores": {
                     name: float(common_maps[name][rows, cols].max())
                     for name in sorted(contributing)

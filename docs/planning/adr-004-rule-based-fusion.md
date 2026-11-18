@@ -34,7 +34,8 @@ are provisional until #37, and scores remain uncalibrated heuristics.
    family, or its raw score exceeding `medium_high_score_threshold` (default 0.8).
    Multiply accepted maps by `strength_weights.medium` (default 0.6).
 3. Gate weak maps on positive **accepted** medium/strong contribution, then multiply
-   by `strength_weights.weak * weak_boost_factor` (defaults 0.3 * 0.2).
+   by `strength_weights.weak * weak_boost_factor * strongest_accepted_support`
+   (default weight/factor 0.3 * 0.2). Tiny support cannot enable a disproportionate boost.
    A rejected medium cue cannot enable a weak cue. Weak-only output is exactly zero;
    the retained `weak_only_max_score` compatibility setting is therefore an upper
    bound that cannot make weak-only evidence positive.
@@ -47,6 +48,12 @@ Only effective winning contributors (ties retained) reach region attribution. In
 pixels contribute nothing; malformed/nonfinite/out-of-range maps fail visibly. Inputs
 are resampled by nearest neighbour to the smallest common grid without modifying them.
 The heuristic formula has no statistical independence or forensic accuracy guarantee.
+
+Layers tagged `scalar_normalized` are global context. Their one-cell scores are
+broadcast after the spatial common grid is selected; they must not collapse localization
+to one pixel. Region summaries list `global_context_detectors` and mark the corresponding
+rules so global context is not mistaken for a spatial measurement. A scalar tag on a
+multi-cell map is invalid. Other genuine spatial resolutions retain smallest-grid handling.
 
 ### Correction and migration
 
