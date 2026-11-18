@@ -9,11 +9,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from photoproof.contracts.analysis import AnalysisRequest, AnalysisResult
 from photoproof.core.bootstrap import Application
 from photoproof.core.controller import AnalysisController
+from photoproof.plugins.fusion.normalize import processor as normalize
 
 Factory = Callable[..., Application]
 
@@ -66,3 +68,39 @@ def test_fusion_assessment_runs_through_controller(make_app: Factory, tmp_path: 
     lower = outputs_json.lower()
     for word in ["authentic", "genuine", "real"]:
         assert word not in lower
+
+
+@pytest.mark.parametrize("minimum, expected", [(2, "manipulation_indicated"), (3, "inconclusive")])
+def test_controller_resolves_coverage_inputs_and_config(
+    make_app: Factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, minimum: int, expected: str
+) -> None:
+    """Controlled normalized evidence flows through actual fusion and assessment."""
+    monkeypatch.setattr(
+        normalize,
+        "run",
+        lambda ctx: {
+            "fusion.layers": [
+                {
+                    "detector_id": "copymove.mask",
+                    "map": [[0.9]],
+                    "strength_class": "strong",
+                    "valid_mask": [[True]],
+                },
+                {
+                    "detector_id": "noise.consistency_map",
+                    "map": [[0.0]],
+                    "strength_class": "medium",
+                    "valid_mask": [[True]],
+                },
+            ],
+            "fusion.unavailable": [],
+        },
+    )
+    app = make_app("photoproof.plugins")
+    config = app.root / "configs" / "plugins" / "fusion.assessment.yaml"
+    config.write_text(f"minimum_families_for_sufficient_coverage: {minimum}\n", encoding="utf-8")
+    result = _analyze_ingested(app, _make_png(tmp_path / "coverage.png"))
+    assessment = result.outputs["fusion.assessment"]
+    assert assessment["category"] == expected
+    assert assessment["coverage"]["geometry"] == "applicable_available"
+    assert assessment["coverage"]["noise"] == "applicable_available"

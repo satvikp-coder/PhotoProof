@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** assessment version 2.0.0 consumes actual coverage inputs, applies
+  configured thresholds, excludes weak/invalid coverage and reports missing evidence
+  as inconclusive. Historical categories retain their old semantics; see ADR-005 (#34).
+
 - **Breaking:** corrected fusion rule version 2.0.0 applies configured weights, counts
   each detector family once, and prevents rejected medium cues from enabling weak
   boosts. Unavailable evidence uses a null score. Historical results retain their old
@@ -22,6 +26,9 @@ All notable changes to this project are documented here. The format follows
 
 - Consume persisted noise residuals in the variance detector through verified bounded
   numerical reads instead of requiring an in-memory array (Refs #19, #32).
+
+- Preserve Unicode issue bodies and milestone names when publishing the backlog from
+  Windows locales that do not use UTF-8 (Refs #78).
 
 - Restore parsing and bounded execution of dependency-update automation, regenerate all
   lockfiles together, and preserve release-only versioning (Refs #78).

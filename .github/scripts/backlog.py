@@ -244,7 +244,12 @@ def sync_labels(repo: str, number: int, desired: list[str], current: set[str]) -
 
 def gh(*args: str, input_text: str | None = None) -> str:
     result = subprocess.run(
-        ["gh", *args], capture_output=True, text=True, input=input_text, check=False
+        ["gh", *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        input=input_text,
+        check=False,
     )
     if result.returncode != 0:
         raise SystemExit(f"gh {' '.join(args[:3])} failed: {result.stderr.strip()}")
