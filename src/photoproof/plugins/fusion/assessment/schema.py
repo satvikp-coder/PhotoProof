@@ -5,15 +5,18 @@ Coverage rules for determining sufficient evidence.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Config(BaseModel):
     """Assessment configuration."""
 
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
     minimum_families_for_sufficient_coverage: int = Field(
         default=2,
         ge=1,
+        le=5,
         description="Minimum number of independent detector families with "
         "non-low confidence required for sufficient coverage.",
     )

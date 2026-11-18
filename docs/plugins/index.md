@@ -401,6 +401,15 @@ retains all area-filtered components. A full-image region may reflect global
 processing and must be interpreted with the upstream evidence and assessment.
 Invalid/nonfinite maps fail visibly rather than becoming empty evidence.
 
+## Conservative evidence assessment
+
+`fusion.assessment` version 2.0.0 consumes actual normalized coverage and accepted fusion
+outputs. It applies configured thresholds, excludes weak/invalid maps from sufficient
+coverage and yields `inconclusive` for unavailable evidence. The fixed categories remain
+separate from pipeline RunStatus. See [ADR-005](../planning/adr-005-evidence-sufficiency.md)
+for coverage states, precedence, provisional limitations, historical migration and the
+remaining measured-comparison integration. No accuracy or calibrated-confidence claim is made.
+
 ## Rule-based evidence fusion
 
 `fusion.rules` consumes available normalized maps and valid masks. Its version 2.0.0

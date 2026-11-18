@@ -13,7 +13,7 @@ METADATA = {
     "description": "Produces the run's overall assessment category based on coverage "
     "(which detectors were available and applicable). Missing evidence leads to "
     "inconclusive rather than an implied clean result.",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "api_version": "1.2.0",
     "priority": 95,
     "required": False,
@@ -22,7 +22,7 @@ METADATA = {
     "after": (),
     "entry_point": "processor:run",
     "inputs": (),
-    "optional_inputs": ("fusion.map", "fusion.evidence"),
+    "optional_inputs": ("fusion.map", "fusion.evidence", "fusion.layers", "fusion.unavailable"),
     "outputs": ("fusion.assessment",),
     "timeout_seconds": 120,
     "supported_formats": (),
