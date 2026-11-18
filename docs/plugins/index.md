@@ -480,3 +480,16 @@ This does not register two images or define detector block/cell footprints. Cons
 must retain their sampling grid and valid mask and explicitly project into the working
 space. Optional declared media is resolved when available; missing geometry remains
 unavailable and is never replaced by an assumed identity matrix.
+
+## Numerical encoding and spatial grid projection
+
+`encode_npy` pairs with `decode_npy`: it serializes plain numerical arrays with
+pickle disabled and enforces element/byte ceilings, including the NPY header,
+before the artifact writer is called. The noise variance producer uses this
+encoder. Encoding bounds do not constrain the upstream algorithm's total RSS.
+
+`SamplingGrid` and `project_scores` preserve explicit measured cell footprints,
+partial border centres and boolean validity during decoded-to-working projection.
+Unsupported points receive an invalid mask, never zero-score evidence. The pure
+projection API is available; production normalization/fusion wiring remains in
+progress. See [ADR-016](../planning/adr-016-spatial-evidence-grids.md).

@@ -8,6 +8,37 @@ import numpy as np
 from photoproof.contracts.exceptions import InputRejectedError
 
 
+def encode_npy(
+    array: np.ndarray, *, max_bytes: int = 64 << 20, max_elements: int = 16_777_216
+) -> bytes:
+    """Encode a bounded plain numerical array without object serialization.
+
+    Byte limits include the NPY header. The caller supplies an already allocated
+    array; these limits bound encoding, not upstream algorithm memory.
+    """
+    for name, limit in (("max_bytes", max_bytes), ("max_elements", max_elements)):
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise InputRejectedError(f"NPY {name} must be a positive integer")
+    if (
+        not isinstance(array, np.ndarray)
+        or not 1 <= array.ndim <= 8
+        or any(size < 1 for size in array.shape)
+        or array.dtype.hasobject
+        or array.dtype.fields is not None
+        or array.dtype.subdtype is not None
+        or array.dtype.kind not in "biuf"
+        or array.dtype.itemsize not in (1, 2, 4, 8)
+    ):
+        raise InputRejectedError("NPY encoding requires a nonempty plain numerical array")
+    if array.size > max_elements or array.nbytes > max_bytes:
+        raise InputRejectedError("NPY encoding exceeds the numerical allocation ceiling")
+    stream = io.BytesIO()
+    np.save(stream, array, allow_pickle=False)
+    if stream.tell() > max_bytes:
+        raise InputRejectedError("NPY encoding including header exceeds its byte ceiling")
+    return stream.getvalue()
+
+
 def decode_npy(
     data: bytes,
     *,

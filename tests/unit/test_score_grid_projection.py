@@ -144,3 +144,15 @@ def test_invalid_transform_cannot_shift_or_reinterpret_evidence(matrix):
             geometry=geometry,
             output_shape=(3, 4),
         )
+
+
+def test_valid_zero_measurement_is_distinct_from_unmeasured_fill():
+    values, valid = project_scores(
+        np.zeros((1, 1), dtype=np.float32),
+        np.ones((1, 1), dtype=bool),
+        grid=SamplingGrid((3, 1), (1, 0), (1, 1), (1, 1)),
+        geometry=_geometry(3, 1),
+        output_shape=(1, 3),
+    )
+    assert not values.any()
+    np.testing.assert_array_equal(valid, [[False, True, False]])

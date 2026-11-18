@@ -50,6 +50,6 @@ not an acceptable shortcut. Regenerating all upstream algorithms loses direct ev
 consumption and provenance.
 
 ## Verification
-Twenty deterministic tests cover all eight EXIF transforms, partial cells, sparse
+Twenty-one deterministic tests cover all eight EXIF transforms, partial cells, sparse
 coverage, invalid masks, sampling failures, output ceilings and malformed transforms.
 These prove geometric behavior, not forensic accuracy or calibration.
