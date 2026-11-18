@@ -499,7 +499,7 @@ length before constructing a read-only view. Its default ceiling is 64 MiB and
 or complex arrays fail visibly. Hash verification remains the byte broker's job;
 this parser does not establish forensic meaning or calibration.
 
-`noise.variance_map` version 1.1.1 requires API 1.5.0 and consumes the actual
+`noise.variance_map` version 1.1.1 requires API 1.6.0 and consumes the actual
 `noise.residual` NPY artifact using this broker/parser. Its output names and
 validity-aware summary remain unchanged. The parser does not make unsupported
 normalization inputs available or resolve the large JSON-map transport limit.
@@ -535,3 +535,9 @@ Binary evidence-layer transport is prototyped in
 [ADR-017](../planning/adr-017-binary-evidence-layer-wire.md). Its score and validity
 artifacts keep explicit source and sampling provenance. Controller transport probes
 work; production normalization/fusion migration remains in progress.
+
+API1.6.0 also adds the declared host input `pipeline.upstream_status`, a versioned
+snapshot of planned producers and their actual scheduler states. It does not add
+missing numerical values. It distinguishes inapplicability/failure from measured
+zeros without exposing exception text or runtime handles. See
+[ADR-018](../planning/adr-018-upstream-execution-status.md).

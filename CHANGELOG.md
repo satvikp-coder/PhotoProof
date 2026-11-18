@@ -35,6 +35,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Provide declared upstream execution-state snapshots separately from missing optional
+  measurements, preserving failure/applicability distinctions (Refs #32, #34).
+
 - Add explicit measured-cell score projection that preserves invalid sampling gaps,
   partial border footprints and EXIF coordinates (Refs #32; integration in progress).
 

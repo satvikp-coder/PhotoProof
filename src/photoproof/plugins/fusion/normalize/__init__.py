@@ -93,7 +93,7 @@ DETECTOR_NORMALIZATION = {
         "strength_class": "weak",
         "rationale": "Scalar ELA anomaly summary; same rationale as ela_map.",
     },
-    # JPEG DCT: medium evidence; double-compression signatures are reliable.
+    # JPEG DCT: provisional medium cue; benign re-saving is a confounder.
     "compression.jpeg_tables": {
         "z0": 2.5,
         "k": 1.0,
@@ -105,8 +105,8 @@ DETECTOR_NORMALIZATION = {
         "z0": 2.5,
         "k": 1.0,
         "strength_class": "medium",
-        "rationale": "DQ map deviations indicate double compression; a well-understood "
-        "forensic signal with low false-positive rate.",
+        "rationale": "DQ deviations may indicate recompression, including benign re-saving; "
+        "provisional medium strength is not a validated false-positive guarantee.",
     },
     # JPEG grid: weak evidence; grid misalignment can occur naturally.
     "compression.grid_origin": {
@@ -192,7 +192,7 @@ DETECTOR_NORMALIZATION = {
         "strength_class": "weak",
         "rationale": "Edge segment anomalies; same rationale as edge_width_map.",
     },
-    # Copy-move: strong evidence; verified geometric transforms are reliable.
+    # Verified geometric repetition is a strong candidate cue, not standalone proof.
     "copymove.keypoints": {
         "z0": 2.0,
         "k": 0.8,

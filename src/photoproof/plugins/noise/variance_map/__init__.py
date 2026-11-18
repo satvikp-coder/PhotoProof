@@ -7,7 +7,7 @@ METADATA = {
     "name": "Noise Variance Map",
     "description": "Local noise variance estimation and noise-consistency mapping.",
     "version": "1.1.1",
-    "api_version": "1.5.0",
+    "api_version": "1.6.0",
     "priority": 20,
     "required": False,
     "enabled_default": True,
