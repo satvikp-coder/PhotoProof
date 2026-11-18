@@ -528,9 +528,9 @@ message **no fused evidence available**. Consumers must show that message and th
 inconclusive assessment, never render a blank clean heatmap. Zero values on a valid
 map also never establish authenticity.
 
-The plugin has no filesystem or artifact-reading capability. It regenerates the
-safe preview from normalized working pixels using the exact recorded preview
-settings and checks the resulting SHA-256 against the upstream artifact reference
-before rendering. A mismatch fails visibly. Only that generated preview supplies
-image context; original evidence bytes are never opened. The stored preview is
+The plugin uses API 1.4.0 to read the actual declared safe-preview artifact through
+its verified bounded broker. It checks PNG mode and dimensions against the recorded
+preview metadata before allocating pixels. Missing or corrupt stored previews fail
+visibly and are preserved; they are never regenerated as a substitute. Only those
+verified derived pixels supply image context; original evidence bytes are never opened. The stored preview is
 not read or repaired by this step. All output hashes reach the normal manifest.

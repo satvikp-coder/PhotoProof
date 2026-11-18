@@ -15,7 +15,6 @@ from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.fusion.heatmap.colormap import CIVIDIS
 from photoproof.plugins.fusion.heatmap.schema import Config
-from photoproof.plugins.support.preview.algorithm import encode_preview
 
 
 def _png(pixels: np.ndarray) -> bytes:
@@ -110,15 +109,26 @@ def run(ctx: PluginContext) -> dict[str, object]:
         raise InputRejectedError("heatmap: safe preview unavailable; enable support.preview")
     ref = ArtifactRef.model_validate(raw_ref.get("artifact"))
     max_edge = info.get("max_edge")
-    if not isinstance(max_edge, int):
-        raise InputRejectedError("heatmap: safe preview max_edge missing; rerun support.preview")
-    # Context has no artifact reader. Regenerate the exact safe encoding from normalized
-    # pixels and verify its hash against the declared upstream artifact before rendering.
-    data, _, _ = encode_preview(ctx.image("image.working"), max_edge=max_edge)
+    if isinstance(max_edge, bool) or not isinstance(max_edge, int) or not 1 <= max_edge <= 4096:
+        raise InputRejectedError("heatmap: invalid preview bound; rerun support.preview")
+    data = ctx.artifact("support.preview")
     if hashlib.sha256(data).hexdigest() != ref.sha256:
-        raise InputRejectedError("heatmap: regenerated safe preview hash mismatch; rerun analysis")
-    with Image.open(io.BytesIO(data)) as image:
-        preview = np.array(image)
+        raise InputRejectedError("heatmap: safe preview hash mismatch; preserve the artifact")
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            if (
+                image.format != "PNG"
+                or image.mode not in {"L", "RGB", "RGBA"}
+                or min(image.size) < 1
+                or max(image.size) > max_edge
+                or image.size != (info.get("width"), info.get("height"))
+            ):
+                raise InputRejectedError(
+                    "heatmap: preview header disagrees with bounded derived metadata"
+                )
+            preview = np.array(image)
+    except (OSError, ValueError) as error:
+        raise InputRejectedError("heatmap: invalid derived PNG; preserve the artifact") from error
     try:
         scores = np.asarray(value, dtype=np.float32)
     except (TypeError, ValueError) as error:

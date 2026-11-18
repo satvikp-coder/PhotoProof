@@ -76,14 +76,14 @@ def _context(scores, *, bad_hash=False):
         inputs={
             "fusion.map": scores,
             "fusion.regions": [],
-            "image.working": pixels,
             "support.preview": {"artifact": dumped},
-            "support.preview_info": {"max_edge": 2048},
+            "support.preview_info": {"max_edge": 2048, "width": 12, "height": 12},
         },
         config=Config(),
         seed=0,
         write_artifact=writer,
         logger=logging.getLogger("test"),
+        read_artifact=lambda name, limit, selector: data,
     )
     return ctx, written
 
@@ -124,5 +124,14 @@ def test_preview_mismatch_fails_visibly():
 def test_invalid_scores_fail_visibly(value):
     ctx, written = _context(value)
     with pytest.raises(InputRejectedError, match="finite 2-D"):
+        run(ctx)
+    assert not written
+
+
+@pytest.mark.parametrize("field,value", [("width", 11), ("height", 13), ("max_edge", 8)])
+def test_preview_header_must_match_declared_bounds(field, value):
+    ctx, written = _context([[0.9]])
+    ctx.inputs["support.preview_info"][field] = value
+    with pytest.raises(InputRejectedError, match="header"):
         run(ctx)
     assert not written

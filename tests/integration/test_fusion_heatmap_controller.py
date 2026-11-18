@@ -56,6 +56,7 @@ def test_missing_fused_evidence_has_no_heatmap(
         lambda ctx: {
             "fusion.map": None,
             "fusion.evidence": [{"detector_id": "missing", "reason": "unavailable"}],
+            "fusion.score_info": {"label": "heuristic_score", "calibration": "uncalibrated"},
         },
     )
     app = make_app("photoproof.plugins")
@@ -67,3 +68,32 @@ def test_missing_fused_evidence_has_no_heatmap(
     assert result.outputs["fusion.heatmap"] is None
     assert result.outputs["fusion.overlay"] is None
     assert result.outputs["fusion.legend"]["message"] == "no fused evidence available"
+
+
+def test_tampered_stored_preview_is_not_regenerated(make_app, tmp_path, monkeypatch):
+    from photoproof.plugins.support.preview import processor as preview
+
+    app = make_app("photoproof.plugins")
+    real_preview = preview.run
+    corrupted = []
+
+    def tamper_after_write(ctx):
+        outputs = real_preview(ctx)
+        ref = outputs["support.preview"]
+        path = app.storage.blob_path("artifacts", ref.sha256)
+        path.chmod(0o600)
+        changed = b"x" * ref.size
+        path.write_bytes(changed)
+        corrupted.append((path, changed))
+        return outputs
+
+    monkeypatch.setattr(preview, "run", tamper_after_write)
+    source = tmp_path / "tamper-test.png"
+    Image.fromarray(np.full((32, 32, 3), 120, dtype=np.uint8)).save(source)
+    original = source.read_bytes()
+    target = app.ingestion().ingest_path(source, role="target")[0]
+    result = AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
+    assert next(p.state for p in result.plugins if p.plugin_id == "fusion.heatmap") == "FAILED"
+    assert "fusion.heatmap" not in result.outputs
+    assert all(path.read_bytes() == changed for path, changed in corrupted)
+    assert app.storage.blob_path("objects", target.sha256).read_bytes() == original
