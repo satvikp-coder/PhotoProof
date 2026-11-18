@@ -1,0 +1,10 @@
+# fusion.regions configuration.
+# Hysteresis thresholding, morphological cleanup, and polygon simplification
+# parameters for turning fused evidence layers into clean region masks.
+
+high: 0.70
+low: 0.30
+kernel_size: 3
+min_area_fraction: 0.001
+polygon_tolerance: 1.0
+max_regions: 50
