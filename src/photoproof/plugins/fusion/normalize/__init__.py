@@ -12,7 +12,7 @@ METADATA = {
     "name": "Detector Output Normalization",
     "description": "Maps each detector's native output scale onto a common [0, 1] "
     "documented scale, producing EvidenceLayer objects for available detectors.",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "api_version": "1.2.0",
     "priority": 90,
     "required": False,
@@ -122,26 +122,27 @@ DETECTOR_NORMALIZATION = {
         "rationale": "8x8 grid misalignment suggests resampling but can arise from "
         "legitimate cropping; weak alone.",
     },
-    # Noise residual: medium evidence; noise inconsistency is a reliable tampering cue.
+    # Raw residuals and absolute levels are context; measured inconsistency is separate.
     "noise.residual": {
         "z0": 2.5,
         "k": 1.0,
-        "strength_class": "medium",
-        "rationale": "Wavelet noise residual reveals local noise inconsistency, a "
-        "reliable splicing indicator.",
+        "strength_class": "weak",
+        "rationale": "Raw residuals, absolute noise levels and summaries do not establish "
+        "spatial noise inconsistency; weak context pending measured consistency evidence.",
     },
     "noise.sigma_global": {
         "z0": 2.5,
         "k": 1.0,
-        "strength_class": "medium",
-        "rationale": "Global noise sigma deviation from expected camera model; "
-        "medium-strength evidence.",
+        "strength_class": "weak",
+        "rationale": "Raw residuals, absolute noise levels and summaries do not establish "
+        "spatial noise inconsistency; weak context pending measured consistency evidence.",
     },
     "noise.residual_summary": {
         "z0": 2.5,
         "k": 1.0,
-        "strength_class": "medium",
-        "rationale": "Scalar noise residual summary; same rationale as noise.residual.",
+        "strength_class": "weak",
+        "rationale": "Raw residuals, absolute noise levels and summaries do not establish "
+        "spatial noise inconsistency; weak context pending measured consistency evidence.",
     },
     # Noise variance: medium evidence; variance maps highlight smoothed regions.
     "noise.sigma_map": {
@@ -160,8 +161,9 @@ DETECTOR_NORMALIZATION = {
     "noise.variance_summary": {
         "z0": 2.5,
         "k": 1.0,
-        "strength_class": "medium",
-        "rationale": "Scalar variance summary; same rationale as noise.sigma_map.",
+        "strength_class": "weak",
+        "rationale": "Raw residuals, absolute noise levels and summaries do not establish "
+        "spatial noise inconsistency; weak context pending measured consistency evidence.",
     },
     # Sharpness: weak evidence; sharpness varies naturally with focus.
     "visual.sharpness_map": {
@@ -194,46 +196,52 @@ DETECTOR_NORMALIZATION = {
     "copymove.keypoints": {
         "z0": 2.0,
         "k": 0.8,
-        "strength_class": "strong",
-        "rationale": "SIFT keypoint matches with geometric verification indicate "
-        "copy-move tampering; strong evidence when verified.",
+        "strength_class": "weak",
+        "rationale": "Unverified features, counts or summary statistics are context only; "
+        "they do not establish geometrically verified copy-move localization.",
     },
     "copymove.keypoint_stats": {
         "z0": 2.0,
         "k": 0.8,
-        "strength_class": "strong",
-        "rationale": "Keypoint statistics summary; same rationale as keypoints.",
+        "strength_class": "weak",
+        "rationale": "Unverified features, counts or summary statistics are context only; "
+        "they do not establish geometrically verified copy-move localization.",
     },
     "copymove.matches": {
         "z0": 2.0,
         "k": 0.8,
-        "strength_class": "strong",
-        "rationale": "Descriptor match clusters are strong copy-move evidence.",
+        "strength_class": "weak",
+        "rationale": "Unverified features, counts or summary statistics are context only; "
+        "they do not establish geometrically verified copy-move localization.",
     },
     "copymove.match_stats": {
         "z0": 2.0,
         "k": 0.8,
-        "strength_class": "strong",
-        "rationale": "Match statistics summary; same rationale as matches.",
+        "strength_class": "weak",
+        "rationale": "Unverified features, counts or summary statistics are context only; "
+        "they do not establish geometrically verified copy-move localization.",
     },
     "copymove.verification": {
         "z0": 1.5,
         "k": 0.5,
         "strength_class": "strong",
-        "rationale": "RANSAC-verified affine transforms are high-confidence copy-move "
-        "evidence; strongest single detector.",
+        "rationale": "Geometrically verified repeated-region correspondences can indicate copying; "
+        "repeated scene structure remains a confounder.",
     },
     "copymove.mask": {
+        "method": "identity",
         "z0": 1.5,
         "k": 0.5,
         "strength_class": "strong",
-        "rationale": "Copy-move region masks localize tampered areas precisely.",
+        "rationale": "Derived localization of geometrically verified candidate copy-move regions; "
+        "inspect repetition and global-processing limitations.",
     },
     "copymove.mask_stats": {
         "z0": 1.5,
         "k": 0.5,
-        "strength_class": "strong",
-        "rationale": "Mask statistics summary; same rationale as mask.",
+        "strength_class": "weak",
+        "rationale": "Unverified features, counts or summary statistics are context only; "
+        "they do not establish geometrically verified copy-move localization.",
     },
 }
 

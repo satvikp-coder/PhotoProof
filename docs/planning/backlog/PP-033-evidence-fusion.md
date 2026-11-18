@@ -2,7 +2,7 @@
 id: PP-033
 title: "feat(plugins): fuse evidence with a documented rule-based scheme"
 milestone: M4
-labels: [type:feature, priority:P1, area:plugins, effort:large, status:blocked]
+labels: [type:feature, priority:P1, area:plugins, effort:large, status:in-progress]
 depends_on: [PP-032]
 ---
 ## Summary

@@ -105,3 +105,19 @@ def test_key_depends_on_the_input_format(make_app: Factory) -> None:
     assert not run("jpeg").cache_hit
     assert run("jpeg").cache_hit
     assert run(None).cache_hit
+
+
+def test_host_execution_contract_change_invalidates_cache(make_app: Factory) -> None:
+    app = make_app()
+    _run(app)
+    assert _run(app).cache_hit
+    major, minor, patch = app.identity.application.plugin_api_version.split(".")
+    changed_api = f"{major}.{int(minor) + 1}.{patch}"
+    app.identity = app.identity.model_copy(
+        update={
+            "application": app.identity.application.model_copy(
+                update={"plugin_api_version": changed_api}
+            )
+        }
+    )
+    assert not _run(app).cache_hit

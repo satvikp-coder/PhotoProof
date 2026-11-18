@@ -13,7 +13,7 @@ METADATA = {
     "name": "Rule-Based Evidence Fusion",
     "description": "Combines normalized evidence layers into a fused suspicion "
     "map and per-region evidence summaries using transparent, documented rules.",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "api_version": "1.2.0",
     "priority": 90,
     "required": False,
@@ -23,7 +23,7 @@ METADATA = {
     "entry_point": "processor:run",
     "inputs": (),
     "optional_inputs": ("fusion.layers", "fusion.unavailable"),
-    "outputs": ("fusion.map", "fusion.evidence"),
+    "outputs": ("fusion.map", "fusion.evidence", "fusion.score_info"),
     "timeout_seconds": 120,
     "supported_formats": (),
     "deterministic": True,
