@@ -35,6 +35,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Add explicit measured-cell score projection that preserves invalid sampling gaps,
+  partial border footprints and EXIF coordinates (Refs #32; integration in progress).
+
 - Expose explicit decoded-to-working pixel transforms and separate reference geometry
   so forensic maps can retain correct EXIF orientation and source traceability (Refs #32).
 
