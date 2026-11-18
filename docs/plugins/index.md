@@ -442,3 +442,18 @@ Structured artifact collections use an explicit logical selector, such as
 `ctx.artifact("fusion.layers", selector=(0, "map"))`. Only references already included
 at that location in the declared producer output are authorized. Selectors contain at
 most eight JSON keys/nonnegative indices and never resolve a filesystem path.
+
+## Bounded numerical artifact parsing
+
+`photoproof.contracts.arrays.decode_npy` parses verified NPY bytes without pickle
+or filesystem access. It accepts plain bool/integer/float arrays in NPY versions
+1 and 2, validates dimensions, element counts, dtype, header size and exact payload
+length before constructing a read-only view. Its default ceiling is 64 MiB and
+16,777,216 elements; callers may impose smaller limits. Invalid, object, structured
+or complex arrays fail visibly. Hash verification remains the byte broker's job;
+this parser does not establish forensic meaning or calibration.
+
+`noise.variance_map` version 1.1.0 requires API 1.4.0 and consumes the actual
+`noise.residual` NPY artifact using this broker/parser. Its output names and
+validity-aware summary remain unchanged. The parser does not make unsupported
+normalization inputs available or resolve the large JSON-map transport limit.

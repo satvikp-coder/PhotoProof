@@ -20,6 +20,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Consume persisted noise residuals in the variance detector through verified bounded
+  numerical reads instead of requiring an in-memory array (Refs #19, #32).
+
 - Restore parsing and bounded execution of dependency-update automation, regenerate all
   lockfiles together, and preserve release-only versioning (Refs #78).
 
