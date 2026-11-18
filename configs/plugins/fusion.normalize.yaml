@@ -42,24 +42,24 @@ mappings:
     z0: 3.0
     k: 1.5
     strength_class: weak
-  # Wavelet noise residual reveals local noise inconsistency, a reliable splicing indicator.
+  # Raw residuals, absolute noise levels and summaries do not establish spatial noise inconsistency; weak context pending measured consistency evidence.
   noise.residual:
     method: robust_z
     z0: 2.5
     k: 1.0
-    strength_class: medium
-  # Global noise sigma deviation from expected camera model; medium-strength evidence.
+    strength_class: weak
+  # Raw residuals, absolute noise levels and summaries do not establish spatial noise inconsistency; weak context pending measured consistency evidence.
   noise.sigma_global:
     method: robust_z
     z0: 2.5
     k: 1.0
-    strength_class: medium
-  # Scalar noise residual summary; same rationale as noise.residual.
+    strength_class: weak
+  # Raw residuals, absolute noise levels and summaries do not establish spatial noise inconsistency; weak context pending measured consistency evidence.
   noise.residual_summary:
     method: robust_z
     z0: 2.5
     k: 1.0
-    strength_class: medium
+    strength_class: weak
   # Local noise variance deviations indicate smoothing or copying; medium-strength evidence.
   noise.sigma_map:
     method: robust_z
@@ -72,12 +72,12 @@ mappings:
     z0: 2.5
     k: 1.0
     strength_class: medium
-  # Scalar variance summary; same rationale as noise.sigma_map.
+  # Raw residuals, absolute noise levels and summaries do not establish spatial noise inconsistency; weak context pending measured consistency evidence.
   noise.variance_summary:
     method: robust_z
     z0: 2.5
     k: 1.0
-    strength_class: medium
+    strength_class: weak
   # Sharpness inconsistencies can indicate copying but also natural focus variation; weak alone.
   visual.sharpness_map:
     method: robust_z
@@ -126,13 +126,13 @@ mappings:
     z0: 2.0
     k: 0.8
     strength_class: weak
-  # RANSAC-verified affine transforms are high-confidence copy-move evidence; strongest single detector.
+  # Geometrically verified repeated-region correspondences can indicate copying; repeated scene structure remains a confounder.
   copymove.verification:
     method: robust_z
     z0: 1.5
     k: 0.5
     strength_class: strong
-  # Copy-move region masks localize tampered areas precisely.
+  # Derived localization of geometrically verified candidate copy-move regions; inspect repetition and global-processing limitations.
   copymove.mask:
     method: identity
     z0: 1.5

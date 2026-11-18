@@ -389,6 +389,11 @@ ignored mapping configuration. Historical manifests remain unchanged; re-analyze
 obtain corrected evidence. Cache fingerprints include the changed plugin version and
 implementation. Consumers must use the unavailable list rather than substitute zeros.
 
+Raw noise residuals, absolute noise levels, feature counts and summaries are weak
+context, not measured spatial inconsistency. Configuration may lower a detector's
+published strength class but cannot promote it (for example, ELA cannot become strong
+through YAML). Any scientific reclassification requires a reviewed, versioned rule change.
+
 ## Safe preview support
 
 `support.preview` (priority 5) consumes `image.working` and produces the

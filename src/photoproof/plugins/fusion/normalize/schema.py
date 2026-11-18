@@ -29,4 +29,14 @@ class Config(BaseModel):
         unknown = set(value) - DETECTOR_NORMALIZATION.keys()
         if unknown:
             raise ValueError(f"unknown detector mappings: {sorted(unknown)}")
+        ranks = {"weak": 0, "medium": 1, "strong": 2}
+        for name, mapping in value.items():
+            default = str(DETECTOR_NORMALIZATION[name]["strength_class"])
+            if (
+                mapping.strength_class is not None
+                and ranks[mapping.strength_class] > ranks[default]
+            ):
+                raise ValueError(
+                    f"{name}: configuration cannot promote the documented {default} class"
+                )
         return value

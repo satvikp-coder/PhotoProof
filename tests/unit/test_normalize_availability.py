@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.contracts.plugins import PluginContext
+from photoproof.plugins.fusion.normalize import DETECTOR_NORMALIZATION
 from photoproof.plugins.fusion.normalize.processor import run
 from photoproof.plugins.fusion.normalize.schema import Config
 
@@ -79,3 +80,31 @@ def test_configured_mapping_is_applied():
 def test_invalid_mapping_rejected(mapping):
     with pytest.raises(ValidationError):
         Config.model_validate({"mappings": mapping})
+
+
+def test_raw_noise_measurements_are_context_not_inconsistency_evidence():
+    for name in [
+        "noise.residual",
+        "noise.sigma_global",
+        "noise.residual_summary",
+        "noise.variance_summary",
+    ]:
+        assert DETECTOR_NORMALIZATION[name]["strength_class"] == "weak"
+
+
+def test_configuration_cannot_promote_a_weak_detector_to_strong():
+    with pytest.raises(ValidationError, match="cannot promote"):
+        Config.model_validate({"mappings": {"compression.ela_map": {"strength_class": "strong"}}})
+
+
+def test_configuration_can_lower_a_documented_class():
+    ctx = PluginContext(
+        run_id="lowered",
+        plugin_id="fusion.normalize",
+        seed=0,
+        config=Config.model_validate({"mappings": {"copymove.mask": {"strength_class": "weak"}}}),
+        inputs={"copymove.mask": [[0.0, 1.0]]},
+        logger=logging.getLogger(__name__),
+        write_artifact=lambda *args: None,
+    )
+    assert run(ctx)["fusion.layers"][0]["strength_class"] == "weak"
