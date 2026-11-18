@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Verify and reuse the winning evidence blob when simultaneous Windows ingests of
+  identical bytes encounter a read-only destination (Refs #82).
+
 - Create runtime coordination files with owner-only POSIX permissions (Refs #81).
 
 - Consume persisted noise residuals in the variance detector through verified bounded

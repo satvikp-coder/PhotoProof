@@ -200,6 +200,16 @@ class RuntimeStorage:
                 clear_file_read_only(str(source))
             return self._existing_blob_is_intact(kind, sha256, target)
         except OSError as error:
+            if (
+                _WINDOWS
+                and error.errno in {errno.EACCES, errno.EPERM}
+                and (target.exists() or target.is_symlink())
+            ):
+                # Windows can report access denied, rather than already exists,
+                # when a competing publisher has installed a read-only winner.
+                # Only our unpublished scratch file may have its attributes cleared.
+                clear_file_read_only(str(source))
+                return self._existing_blob_is_intact(kind, sha256, target)
             if error.errno in _NO_HARD_LINKS:
                 raise StorageError(
                     f"{target.parent}: this filesystem has no hard links, so blobs cannot be "
