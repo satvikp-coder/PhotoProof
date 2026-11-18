@@ -11,6 +11,7 @@ import io
 
 import numpy as np
 
+from photoproof.contracts.arrays import decode_npy
 from photoproof.contracts.exceptions import InputRejectedError, NotApplicableError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.noise.variance_map.algorithm import (
@@ -23,8 +24,8 @@ from photoproof.plugins.noise.variance_map.schema import Config
 def run(ctx: PluginContext) -> dict[str, object]:
     """Run noise variance analysis on the decoded image and residual.
 
-    Reads ``noise.residual`` (float32 array) and ``image.decoded`` (luminance
-    image), and returns ``compression.ela_map`` and ``compression.ela_anomaly``.
+    Reads the verified ``noise.residual`` NPY artifact and ``image.decoded``.
+    Returns sigma/consistency NPY artifacts and the validity-aware summary.
     """
     if "noise.residual" not in ctx.inputs:
         raise NotApplicableError(
@@ -39,10 +40,7 @@ def run(ctx: PluginContext) -> dict[str, object]:
     image = ctx.inputs["image.decoded"]
 
     if not isinstance(residual, np.ndarray):
-        raise InputRejectedError(
-            "noise.variance_map: noise.residual must be a NumPy array, "
-            f"got {type(residual).__name__}"
-        )
+        residual = decode_npy(ctx.artifact("noise.residual"), expected_ndim=2)
     if not isinstance(image, np.ndarray):
         raise InputRejectedError(
             f"noise.variance_map: image.decoded must be a NumPy array, got {type(image).__name__}"

@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Consume persisted noise residuals in the variance detector through verified bounded
+  numerical reads instead of requiring an in-memory array (Refs #19, #32).
+
 - Preserve Unicode issue bodies and milestone names when publishing the backlog from
   Windows locales that do not use UTF-8 (Refs #78).
 
