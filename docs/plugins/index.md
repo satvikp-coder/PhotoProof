@@ -401,6 +401,16 @@ retains all area-filtered components. A full-image region may reflect global
 processing and must be interpreted with the upstream evidence and assessment.
 Invalid/nonfinite maps fail visibly rather than becoming empty evidence.
 
+## Rule-based evidence fusion
+
+`fusion.rules` consumes available normalized maps and valid masks. Its version 2.0.0
+rules apply configured weights, gate weak cues on accepted support and combine each
+family once. `fusion.score_info` explicitly labels the map `heuristic_score` and
+`uncalibrated`. Missing detector entries retain their unavailable reason with a null
+score. Region summaries include effective detector references, raw maximum detector
+scores and weighted contributions. See [ADR-004](../planning/adr-004-rule-based-fusion.md)
+for the complete formula, provisional defaults, limitations and migration from 1.0.0.
+
 ## Normalized evidence availability
 
 `fusion.normalize` version 2.0.0 produces layers only from usable numeric scalar or

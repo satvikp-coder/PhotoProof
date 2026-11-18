@@ -10,11 +10,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from photoproof.contracts.analysis import AnalysisRequest, AnalysisResult
 from photoproof.core.bootstrap import Application
 from photoproof.core.controller import AnalysisController
+from photoproof.plugins.fusion.normalize import processor as normalize
 
 Factory = Callable[..., Application]
 
@@ -55,7 +57,7 @@ def test_fusion_rules_runs_through_controller(make_app: Factory, tmp_path: Path)
     fmap = outputs["fusion.map"]
     if fmap is not None:
         arr = np.array(fmap, dtype=np.float32)
-        assert arr.shape == arr.shape  # 2-D map
+        assert arr.ndim == 2 and arr.size > 0
         assert np.all((arr >= 0.0) & (arr <= 1.0))  # scores in [0, 1]
 
     evidence = outputs["fusion.evidence"]
@@ -75,3 +77,32 @@ def test_fusion_rules_runs_through_controller(make_app: Factory, tmp_path: Path)
 
     outputs_json = json.dumps(outputs)
     assert "probability" not in outputs_json.lower()
+
+
+def test_controller_applies_configured_fusion_weights(
+    make_app: Factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Controlled upstream fixture; actual fusion config loading and persistence."""
+    monkeypatch.setattr(
+        normalize,
+        "run",
+        lambda ctx: {
+            "fusion.layers": [
+                {
+                    "detector_id": "copymove.mask",
+                    "map": [[0.9]],
+                    "strength_class": "strong",
+                    "valid_mask": [[True]],
+                }
+            ],
+            "fusion.unavailable": [],
+        },
+    )
+    app = make_app("photoproof.plugins")
+    config = app.root / "configs" / "plugins" / "fusion.rules.yaml"
+    config.write_text("strength_weights:\n  strong: 0.0\n", encoding="utf-8")
+    result = _analyze_ingested(app, _make_png(tmp_path / "configured.png"))
+    assert {p.plugin_id: p.state for p in result.plugins}["fusion.rules"] == "SUCCESS"
+    assert result.outputs["fusion.map"] == [[0.0]]
+    manifest = app.storage.read_json("manifests", Path(result.manifest_path).name)
+    assert manifest["outputs"]["fusion.map"] == [[0.0]]
