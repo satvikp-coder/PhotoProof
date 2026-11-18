@@ -37,6 +37,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Expose explicit decoded-to-working pixel transforms and separate reference geometry
+  so forensic maps can retain correct EXIF orientation and source traceability (Refs #32).
+
 - Segment fused heuristic maps into cleaned suspicious regions with traceable detector
   references, immutable binary PNG masks, and explicit unavailable/truncation status (#35).
 

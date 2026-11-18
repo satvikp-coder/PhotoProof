@@ -139,9 +139,9 @@ def _unsupported_format(plugin: RegisteredPlugin, run_inputs: Mapping[str, objec
         return None
     declared = [n for n in plugin.metadata.inputs if n in ("input.target", "input.reference")]
     media = set(plugin.metadata.inputs)
-    if media & {"input.original_bytes", "image.decoded", "image.working"}:
+    if media & {"input.original_bytes", "image.decoded", "image.working", "image.geometry"}:
         declared.append("input.target")
-    if media & {"image.reference_decoded", "image.reference_working"}:
+    if media & {"image.reference_decoded", "image.reference_working", "image.reference_geometry"}:
         declared.append("input.reference")
     for name in declared or ["input.target"]:
         descriptor = run_inputs.get(name)
@@ -229,9 +229,12 @@ class SequentialExecutor:
                     FailureCategory.DEPENDENCY_UNAVAILABLE,
                     f"required dependencies did not succeed: {detail}",
                 )
-            elif {"input.reference", "image.reference_decoded", "image.reference_working"} & set(
-                meta.inputs
-            ) and "input.reference" not in run_inputs:
+            elif {
+                "input.reference",
+                "image.reference_decoded",
+                "image.reference_working",
+                "image.reference_geometry",
+            } & set(meta.inputs) and "input.reference" not in run_inputs:
                 self._finish(run_id, ex, S.NOT_APPLICABLE, None, "no reference image supplied")
             elif (unsupported := _unsupported_format(plugin, run_inputs)) is not None:
                 self._finish(run_id, ex, S.NOT_APPLICABLE, None, unsupported)

@@ -503,3 +503,17 @@ this parser does not establish forensic meaning or calibration.
 `noise.residual` NPY artifact using this broker/parser. Its output names and
 validity-aware summary remain unchanged. The parser does not make unsupported
 normalization inputs available or resolve the large JSON-map transport limit.
+
+## Image coordinate contract
+
+API 1.5.0 provides declared `image.geometry` and `image.reference_geometry` JSON
+records, also retained in available run outputs/manifests. Sizes use [width,height];
+the `decoded_to_working` 3x3 matrix maps zero-based decoded pixel centres [x,y,1]
+to normalized working pixel centres. It describes the orientation actually applied,
+including flips, rather than guessing from shape. Records carry source hashes and
+normalization provenance. See [ADR-015](../planning/adr-015-image-coordinate-contract.md).
+
+This does not register two images or define detector block/cell footprints. Consumers
+must retain their sampling grid and valid mask and explicitly project into the working
+space. Optional declared media is resolved when available; missing geometry remains
+unavailable and is never replaced by an assumed identity matrix.
