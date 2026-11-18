@@ -1,4 +1,4 @@
-"""Plugin metadata and execution-context contracts (plugin API 1.0.0).
+"""Plugin metadata and execution-context contracts.
 
 A plugin is a Python package that exposes ``METADATA`` (a plain ``dict``) in its
 ``__init__.py`` and implements ``run(ctx: PluginContext) -> Mapping[str, object]`` in the
@@ -9,7 +9,7 @@ import logging
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -29,7 +29,16 @@ _ENTRY = r"^[a-z_][a-z0-9_]*:[A-Za-z_][A-Za-z0-9_]*$"  # module-in-package:attri
 #: to declaring plugins as read-only NumPy arrays. A run that cannot resolve them skips
 #: the plugins that declared them; missing pixels are never clean evidence.
 RUN_INPUTS = frozenset(
-    {"input.target", "input.reference", "input.original_bytes", "image.decoded", "image.working"}
+    {
+        "input.target",
+        "input.reference",
+        "input.original_bytes",
+        "image.decoded",
+        "image.working",
+        "image.reference_decoded",
+        "image.reference_working",
+        "comparison.preflight",
+    }
 )
 
 
@@ -88,6 +97,26 @@ class PluginMetadata(BaseModel):
 
 
 ArtifactWriter = Callable[[str, bytes, str], ArtifactRef]
+ArtifactSelector = tuple[str | int, ...]
+ArtifactReader = Callable[[str, int, ArtifactSelector], bytes]
+
+
+def validate_artifact_selector(value: object) -> ArtifactSelector:
+    """Validate at most eight logical JSON keys/indices, never a filesystem path."""
+    if (
+        not isinstance(value, tuple)
+        or len(value) > 8
+        or any(
+            isinstance(part, bool)
+            or not isinstance(part, (str, int))
+            or (isinstance(part, int) and part < 0)
+            for part in value
+        )
+    ):
+        raise PolicyError(
+            "artifact selector must contain at most eight string keys or nonnegative indices"
+        )
+    return cast(ArtifactSelector, value)
 
 
 @dataclass(frozen=True)
@@ -97,7 +126,8 @@ class PluginContext:
 
     Plugin context provides access to the run's declared inputs through
     :attr:`inputs`. In addition, :meth:`image` and :meth:`original_bytes` provide
-    convenient access to image data and original bytes respectively.
+    convenient access to image data and original bytes respectively. :meth:`artifact`
+    uses an optional host broker for verified declared artifact bytes.
     """
 
     run_id: str
@@ -107,6 +137,23 @@ class PluginContext:
     seed: int
     write_artifact: ArtifactWriter  # (name, data, media_type) -> ArtifactRef
     logger: logging.Logger
+    read_artifact: ArtifactReader | None = None
+
+    def artifact(
+        self, name: str, *, max_bytes: int = 64 << 20, selector: ArtifactSelector = ()
+    ) -> bytes:
+        """Read a declared artifact input through the host's verified byte broker.
+
+        No path or arbitrary digest is accepted. The host may impose a smaller
+        ceiling. Legacy contexts have no implicit artifact storage capability.
+        """
+        if name not in self.inputs:
+            raise PolicyError(f"plugin {self.plugin_id} did not declare input {name!r}")
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+            raise PolicyError("artifact max_bytes must be a positive integer")
+        if self.read_artifact is None:
+            raise PolicyError("verified artifact reads are not available in this context")
+        return self.read_artifact(name, max_bytes, validate_artifact_selector(selector))
 
     def image(self, name: str) -> np.ndarray:
         """Return the decoded image array for the given input contract.

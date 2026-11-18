@@ -35,6 +35,7 @@ feature flags) must be real YAML booleans: `true`/`false`, not `"yes"`, `1` or
 | `recovery.auto_repair_safe` | `true` | bool | Apply SAFE repairs during preflight. CONTROLLED repairs always need `--repair`. |
 | `resources.max_input_bytes` | `104857600` | ≥ 1 | Inputs larger than this are rejected before being fully read. |
 | `resources.max_image_pixels` | `178956970` | ≥ 1 | Decompression-bomb ceiling for future decoders (`DecodeLimits.max_pixels`). |
+| `resources.max_artifact_read_bytes` | `67108864` | integer 1-2147483648 | Host ceiling per declared derived-artifact read; caller may request a smaller maximum. Bytes are size/hash verified before return. |
 | `resources.min_free_disk_mb` | `1024` | ≥ 0 | Health check threshold for the runtime root. |
 | `security.forbidden_plugins` | `[]` | unique plugin IDs | **Non-bypassable** denial. Not affected by `--ignore-blacklist`. |
 | `security.allow_blacklist_bypass` | `true` | bool | Whether `--ignore-blacklist` is honoured at all. **Must be `false` in production.** |

@@ -53,6 +53,7 @@ resources:
   max_input_bytes: 104857600   # 100 MiB per input file
   max_image_pixels: 178956970  # decompression-bomb ceiling for future decoders
   min_free_disk_mb: 1024
+  max_artifact_read_bytes: 67108864  # 64 MiB per declared derived-artifact read
 
 retention:
   cache_days: 7        # cache entries older than this are disposable
