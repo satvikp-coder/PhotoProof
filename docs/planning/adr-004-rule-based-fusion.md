@@ -24,28 +24,60 @@ into strong claims.
    visual, metadata) counts once toward evidence strength — correlated
    detectors within a family do not double count.
 
-### Fused score per pixel
-```
-fused = max(strong_layer_maps)
-        + weighted_noisy_or(gated_medium_layers, gated_weak_layers, weights)
-```
-where `gated_medium_layers` includes a medium layer only if another family has
-medium/strong support or the layer's score > 0.8, and `gated_weak_layers`
-includes a weak layer only where medium/strong evidence exists.
+### Fused score per pixel (corrected implementation)
 
-Noisy-OR: `1 - prod(1 - w_i * s_i)` for each gated layer with weight `w_i`
-and score `s_i`. Result clamped to `[0, 1]`.
+Weights and thresholds are read from the validated plugin configuration. All defaults
+are provisional until #37, and scores remain uncalibrated heuristics.
+
+1. Multiply strong maps by `strength_weights.strong` (default 1.0); take their maximum S.
+2. Gate each medium map on positive medium/weighted-strong support from another
+   family, or its raw score exceeding `medium_high_score_threshold` (default 0.8).
+   Multiply accepted maps by `strength_weights.medium` (default 0.6).
+3. Gate weak maps on positive **accepted** medium/strong contribution, then multiply
+   by `strength_weights.weak * weak_boost_factor * strongest_accepted_support`
+   (default weight/factor 0.3 * 0.2). Tiny support cannot enable a disproportionate boost.
+   A rejected medium cue cannot enable a weak cue. Weak-only output is exactly zero;
+   the retained `weak_only_max_score` compatibility setting is therefore an upper
+   bound that cannot make weak-only evidence positive.
+4. For each family, take the maximum weighted medium/weak contribution F. Where that
+   family already has positive strong evidence, set F to zero to prevent double counting.
+5. Combine as `fused = 1 - (1 - S) * product(1 - F)` over families. Strong layers
+   alone combine by maximum. Repeated correlated cues cannot increase the score.
+
+Only effective winning contributors (ties retained) reach region attribution. Invalid
+pixels contribute nothing; malformed/nonfinite/out-of-range maps fail visibly. Inputs
+are resampled by nearest neighbour to the smallest common grid without modifying them.
+The heuristic formula has no statistical independence or forensic accuracy guarantee.
+
+Layers tagged `scalar_normalized` are global context. Their one-cell scores are
+broadcast after the spatial common grid is selected; they must not collapse localization
+to one pixel. Region summaries list `global_context_detectors` and mark the corresponding
+rules so global context is not mistaken for a spatial measurement. A scalar tag on a
+multi-cell map is invalid. Other genuine spatial resolutions retain smallest-grid handling.
+
+### Correction and migration
+
+Review found that version 1.0.0 ignored configuration weights, combined correlated
+layers separately and gated weak cues on rejected medium inputs. Three deterministic
+regressions reproduce these behaviours. The corrected rule semantics use plugin version
+2.0.0; implementation/version fingerprints invalidate caches. Historical manifests are
+retained unchanged and must be interpreted using their recorded rule version. Re-run
+analysis to obtain corrected results; do not compare scores across rule versions as
+though calibrated. Unavailable evidence now has `score: null`, never a zero-score cue;
+consumers must branch on `reason: unavailable` before interpreting a score.
 
 ### Outputs
 - `fusion.map`: float32 (H_b, W_b) heuristic suspicion score map ∈ [0, 1].
 - `fusion.evidence`: list of per-region dicts, each listing contributing
-  detectors, their scores, rules fired, and families involved.
+  detectors, their raw maximum scores and effective weighted contributions, rules
+  fired, and families involved. Unavailable entries have null scores.
+- `fusion.score_info`: `{label: heuristic_score, calibration: uncalibrated}`.
 
 ### Contracts
 - Plugin ID: `fusion.rules`
 - Priority: 90 (after `fusion.normalize`)
 - Requires: `fusion.normalize`
-- Outputs: `fusion.map`, `fusion.evidence`
+- Outputs: `fusion.map`, `fusion.evidence`, `fusion.score_info`
 - Reads `fusion.layers` and `fusion.unavailable` as optional inputs.
 
 ### Edge cases
