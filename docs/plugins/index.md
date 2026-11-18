@@ -364,6 +364,15 @@ Options:
 
 After generating, add the docs page to the `mkdocs.yml` nav, write the algorithm, run ruff and mypy, bump the version and update the changelog.
 
+## Conservative evidence assessment
+
+`fusion.assessment` version 2.0.0 consumes actual normalized coverage and accepted fusion
+outputs. It applies configured thresholds, excludes weak/invalid maps from sufficient
+coverage and yields `inconclusive` for unavailable evidence. The fixed categories remain
+separate from pipeline RunStatus. See [ADR-005](../planning/adr-005-evidence-sufficiency.md)
+for coverage states, precedence, provisional limitations, historical migration and the
+remaining measured-comparison integration. No accuracy or calibrated-confidence claim is made.
+
 ## Rule-based evidence fusion
 
 `fusion.rules` consumes available normalized maps and valid masks. Its version 2.0.0

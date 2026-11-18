@@ -42,7 +42,7 @@ def _make_layer(
         "map": map_values,
         "regions": (),
         "strength_class": strength_class,
-        "valid_mask": [[True, True], [True, True]],
+        "valid_mask": np.ones(np.asarray(map_values).shape, dtype=bool).tolist(),
         "calibration": "uncalibrated",
         "notes": (),
     }
@@ -139,6 +139,7 @@ def test_strong_evidence_manipulation_indicated() -> None:
                     _make_layer("copymove.verification", "strong", strong_map.tolist()),
                     _make_layer("noise.sigma_map", "medium", [[0.1, 0.2], [0.3, 0.4]]),
                 ],
+                "fusion.map": strong_map.tolist(),
                 "fusion.evidence": [],
                 "fusion.unavailable": [],
             }
@@ -157,9 +158,10 @@ def test_sufficient_coverage_no_indicators() -> None:
         _make_ctx(
             {
                 "fusion.layers": [
-                    _make_layer("compression.ela_map", "weak", low_map.tolist()),
+                    _make_layer("compression.dq_map", "medium", low_map.tolist()),
                     _make_layer("noise.sigma_map", "medium", low_map.tolist()),
                 ],
+                "fusion.map": low_map.tolist(),
                 "fusion.evidence": [],
                 "fusion.unavailable": [],
             }
