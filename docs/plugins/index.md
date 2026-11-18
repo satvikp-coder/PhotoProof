@@ -372,3 +372,13 @@ label, metadata-removal policy and retained alpha). Missing working pixels skip
 the plugin visibly; no preview substitutes for evidence. Configure `max_edge` in
 `configs/plugins/support.preview.yaml`. The reusable `imaging.preview.make_preview`
 API accepts a normalized `WorkingImage` and an explicit artifact writer.
+
+## Reference comparison media
+
+Plugin API 1.3.0 adds read-only `image.reference_decoded` and
+`image.reference_working`, resolved from verified stored reference evidence once per
+unique content hash. Existing target contracts keep their meaning. A plugin must declare
+these inputs to access them; missing reference media is unavailable, never zero pixels.
+The host persists relationship checks in `comparison.preflight`. See
+[ADR-013](../planning/adr-013-reference-comparison-preflight.md) for shared budgets,
+coordinate conventions, identical-input handling and trust limitations.

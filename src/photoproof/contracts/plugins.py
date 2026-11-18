@@ -29,7 +29,16 @@ _ENTRY = r"^[a-z_][a-z0-9_]*:[A-Za-z_][A-Za-z0-9_]*$"  # module-in-package:attri
 #: to declaring plugins as read-only NumPy arrays. A run that cannot resolve them skips
 #: the plugins that declared them; missing pixels are never clean evidence.
 RUN_INPUTS = frozenset(
-    {"input.target", "input.reference", "input.original_bytes", "image.decoded", "image.working"}
+    {
+        "input.target",
+        "input.reference",
+        "input.original_bytes",
+        "image.decoded",
+        "image.working",
+        "image.reference_decoded",
+        "image.reference_working",
+        "comparison.preflight",
+    }
 )
 
 
