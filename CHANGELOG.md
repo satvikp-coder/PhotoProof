@@ -24,6 +24,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Create runtime coordination files with owner-only POSIX permissions (Refs #81).
+
 - Consume persisted noise residuals in the variance detector through verified bounded
   numerical reads instead of requiring an in-memory array (Refs #19, #32).
 
