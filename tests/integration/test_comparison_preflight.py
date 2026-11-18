@@ -178,3 +178,42 @@ def test_cli_ingests_both_inputs_and_persists_preflight(app_root, tmp_path, caps
     info = manifest["outputs"]["comparison.preflight"]
     assert info["status"] == "ready"
     assert info["reference_statement"] == "reference: user-supplied comparison material"
+
+
+@pytest.mark.parametrize("field,value", [("size", 1), ("media_format", "jpeg")])
+@pytest.mark.parametrize("identical", [False, True])
+def test_reference_descriptor_must_match_verified_evidence(
+    make_app, tmp_path, field, value, identical
+):
+    app = make_app("mockplugins.comparisonprobe")
+    request = _pair(app, tmp_path, identical=identical)
+    reference = request.reference.model_copy(update={field: value})
+    result = AnalysisController(app).analyze(request.model_copy(update={"reference": reference}))
+    assert result.status.value == "INCOMPLETE"
+    assert result.outputs["comparison.preflight"]["status"] == "unavailable"
+    assert "comparison.observation" not in result.outputs
+
+
+def test_target_and_reference_may_use_different_formats(make_app, tmp_path):
+    app = make_app("mockplugins.comparisonprobe")
+    request = _pair(app, tmp_path)
+    path = tmp_path / "reference.jpg"
+    Image.fromarray(np.full((32, 32, 3), 180, dtype=np.uint8)).save(path, format="JPEG")
+    reference = app.ingestion().ingest_path(path, role="reference")[0]
+    result = AnalysisController(app).analyze(request.model_copy(update={"reference": reference}))
+    assert result.status.value == "COMPLETED"
+    assert result.outputs["comparison.preflight"]["status"] == "ready"
+    assert result.outputs["comparison.observation"]["read_only"]
+
+
+def test_unspecified_reference_format_is_resolved_from_evidence(make_app, tmp_path):
+    app = make_app("mockplugins.comparisonprobe")
+    request = _pair(app, tmp_path)
+    reference = request.reference.model_copy(update={"media_format": None})
+    result = AnalysisController(app).analyze(request.model_copy(update={"reference": reference}))
+    assert result.status.value == "COMPLETED"
+    manifest = app.storage.read_json("manifests", Path(result.manifest_path).name)
+    assert (
+        next(row for row in manifest["inputs"] if row["role"] == "reference")["media_format"]
+        == "png"
+    )

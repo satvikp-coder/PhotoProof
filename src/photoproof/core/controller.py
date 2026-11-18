@@ -243,7 +243,11 @@ class AnalysisController:
             status=status.value,
             mode=profile.mode.value,
             profile=profile_name,
-            inputs=[d.model_dump(mode="json") for d in (request.target, request.reference) if d],
+            inputs=[
+                dict(value)
+                for name in ("input.target", "input.reference")
+                if isinstance(value := run_inputs.get(name), Mapping)
+            ],
             pipeline_fingerprint=execution_plan.fingerprint(),
             cache={"key": key, "hit": cache_hit},
             effective_settings=(
@@ -487,10 +491,12 @@ class AnalysisController:
                 data = handle.read(base.max_input_bytes + 1)
             if len(data) > base.max_input_bytes:
                 raise InputRejectedError("target exceeds resources.max_input_bytes")
+            self._check_comparison_descriptor(data, request.target)
             target = self._decode_bytes(
                 data, request.target.sha256, limits=replace(base, max_pixels=pixels_left)
             )
             if request.target.sha256 == reference.sha256:
+                self._check_comparison_descriptor(data, reference)
                 ref = target
             else:
                 pixels_left -= target.width * target.height
@@ -502,6 +508,7 @@ class AnalysisController:
                     ref_data = handle.read(base.max_input_bytes + 1)
                 if len(ref_data) > base.max_input_bytes:
                     raise InputRejectedError("reference exceeds resources.max_input_bytes")
+                self._check_comparison_descriptor(ref_data, reference)
                 ref = self._decode_bytes(
                     ref_data,
                     reference.sha256,
@@ -547,11 +554,29 @@ class AnalysisController:
                     ),
                 }
             )
+            for name, descriptor, decoded in (
+                ("input.target", request.target, target),
+                ("input.reference", reference, ref),
+            ):
+                run_inputs[name] = descriptor.model_copy(
+                    update={"media_format": decoded.media_format}
+                ).model_dump(mode="json")
         except (InputRejectedError, StorageError, DecoderError) as error:
             reason = f"comparison pixels are unavailable: {error}"
             preflight["reason"] = reason
             for name in names:
                 unavailable[name] = reason
+
+    @staticmethod
+    def _check_comparison_descriptor(data: bytes, descriptor: InputDescriptor) -> None:
+        detected = detect_format(data[:HEADER_BYTES])
+        if len(data) != descriptor.size or (
+            descriptor.media_format is not None and detected != descriptor.media_format
+        ):
+            raise InputRejectedError(
+                f"{descriptor.role} descriptor does not match verified evidence size/format; "
+                "re-ingest the file before requesting comparison"
+            )
 
     def _decode_bytes(
         self, data: bytes, sha256: str, *, limits: DecodeLimits | None = None
@@ -623,6 +648,7 @@ class AnalysisController:
                     for pid in execution_plan.order
                 },
                 "application": app.identity.application.version,
+                "host_plugin_api": app.identity.application.plugin_api_version,
                 "python": list(sys.version_info[:2]),
             }
         )

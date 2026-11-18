@@ -49,6 +49,12 @@ zero pixels. A policy-blocked run records the reference statement with status no
 Historical manifests are not rewritten. Cache identity already includes both hashes and
 settings; media-resolution failures cannot create completed cache entries.
 
+Before decoding, descriptor sizes and any claimed formats must match the verified bytes.
+Contradictory descriptors yield unavailable comparison media; an unspecified optional
+format is resolved from the decoded evidence and recorded in the manifest. Run cache
+identity includes the host plugin API so an execution-contract upgrade cannot reuse
+results computed under older media availability semantics.
+
 ## Alternatives
 Treating a reference descriptor as a trusted image or comparing unregistered pixels was
 rejected. Giving each image the full memory budget could retain twice the configured
