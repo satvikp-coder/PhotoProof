@@ -374,6 +374,36 @@ score. Region summaries include effective detector references, raw maximum detec
 scores and weighted contributions. See [ADR-004](../planning/adr-004-rule-based-fusion.md)
 for the complete formula, provisional defaults, limitations and migration from 1.0.0.
 
+## Normalized evidence availability
+
+`fusion.normalize` version 2.0.0 produces layers only from usable numeric scalar or
+nonempty two-dimensional array inputs (including serialized numeric grids). Null,
+unsupported structured values, unread artifact references and empty outputs are
+listed in `fusion.unavailable`; they never become zero-score layers. Artifact references
+are not pixel data: downstream availability remains incomplete until the detector
+integration supplies a readable numerical contract. No filesystem capability is added.
+Nonfinite scores/maps fail visibly. Original detector outputs remain unchanged.
+
+Per-detector `method`, `z0`, positive `k` and `strength_class` are configured in
+`configs/plugins/fusion.normalize.yaml`, with a rationale beside every default.
+Unknown detector names and invalid parameters fail validation. `robust_z` maps via
+median/MAD and logistic squashing. Constant maps have no relative anomaly and yield
+zero; this does not establish a clean image. `identity` preserves already normalized
+unit-interval maps; verified copy-move masks use this method so sparse binary masks
+are not erased by zero MAD. Unverified keypoints, match counts and statistics are
+weak context; they are not verified localization. All outputs explicitly retain
+`calibration: uncalibrated`. These defaults are provisional until #37.
+
+Migration: version 1.0.0 could emit invalid zero layers for unsupported outputs and
+ignored mapping configuration. Historical manifests remain unchanged; re-analyze to
+obtain corrected evidence. Cache fingerprints include the changed plugin version and
+implementation. Consumers must use the unavailable list rather than substitute zeros.
+
+Raw noise residuals, absolute noise levels, feature counts and summaries are weak
+context, not measured spatial inconsistency. Configuration may lower a detector's
+published strength class but cannot promote it (for example, ELA cannot become strong
+through YAML). Any scientific reclassification requires a reviewed, versioned rule change.
+
 ## Safe preview support
 
 `support.preview` (priority 5) consumes `image.working` and produces the
@@ -382,3 +412,13 @@ label, metadata-removal policy and retained alpha). Missing working pixels skip
 the plugin visibly; no preview substitutes for evidence. Configure `max_edge` in
 `configs/plugins/support.preview.yaml`. The reusable `imaging.preview.make_preview`
 API accepts a normalized `WorkingImage` and an explicit artifact writer.
+
+## Reference comparison media
+
+Plugin API 1.3.0 adds read-only `image.reference_decoded` and
+`image.reference_working`, resolved from verified stored reference evidence once per
+unique content hash. Existing target contracts keep their meaning. A plugin must declare
+these inputs to access them; missing reference media is unavailable, never zero pixels.
+The host persists relationship checks in `comparison.preflight`. See
+[ADR-013](../planning/adr-013-reference-comparison-preflight.md) for shared budgets,
+coordinate conventions, identical-input handling and trust limitations.

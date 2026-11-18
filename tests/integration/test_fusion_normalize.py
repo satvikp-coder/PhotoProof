@@ -59,6 +59,9 @@ def test_fusion_normalize_runs_with_available_detectors(make_app: Factory, tmp_p
         assert layer["strength_class"] in {"weak", "medium", "strong"}
         assert "map" in layer
         assert "valid_mask" in layer
+        assert np.asarray(layer["valid_mask"], dtype=bool).any()
+        assert layer["detector_id"] not in outputs["fusion.unavailable"]
+        assert np.isfinite(np.asarray(layer["map"], dtype=float)).all()
     # Unavailable detectors are listed (at least some, since not all detectors
     # produce output for every input format).
     assert "fusion.unavailable" in outputs
