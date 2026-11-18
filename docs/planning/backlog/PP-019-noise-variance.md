@@ -2,9 +2,9 @@
 id: PP-019
 title: "feat(plugins): estimate local noise variance with MAD and build a noise-consistency map"
 milestone: M2
-labels: [type:feature, priority:P1, area:plugins, effort:medium, status:blocked]
+labels: [type:feature, priority:P1, area:plugins, effort:medium, status:in-progress]
 depends_on: [PP-072, PP-013]
-integrates_with: [PP-018, PP-012]
+integrates_with: [PP-018, PP-012, PP-084]
 ---
 ## Summary
 
@@ -89,3 +89,11 @@ mapping, HDR merges, portrait-mode blur).
 ## Priority and Effort
 
 P1, medium.
+
+## Integration progress
+
+The residual and variance algorithms now have a real controller artifact-consumption
+path under active validation. PP-084 supplies verified bounded bytes; numerical NPY
+headers and exact payload sizes are checked before array construction. This does not
+complete dataset evaluation: baseline false-positive statistics on licensed authentic
+images remain required, and no such measurements are claimed here.
