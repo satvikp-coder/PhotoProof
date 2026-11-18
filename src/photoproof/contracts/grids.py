@@ -2,6 +2,7 @@
 
 import math
 from dataclasses import dataclass
+from typing import Self
 
 import numpy as np
 
@@ -22,6 +23,33 @@ class SamplingGrid:
     origin_xy: tuple[float, float]
     stride_xy: tuple[float, float]
     block_xy: tuple[float, float]
+
+    def to_record(self) -> dict[str, object]:
+        """Return compact JSON metadata; array values belong in separate artifacts."""
+        return {
+            "image_size": list(self.image_size),
+            "origin_xy": list(self.origin_xy),
+            "stride_xy": list(self.stride_xy),
+            "block_xy": list(self.block_xy),
+        }
+
+    @classmethod
+    def from_record(cls, value: object) -> Self:
+        """Read only the explicit sampling schema, without guessed dimensions."""
+        if not isinstance(value, dict) or set(value) != {
+            "image_size",
+            "origin_xy",
+            "stride_xy",
+            "block_xy",
+        }:
+            raise InputRejectedError("sampling grid metadata is missing or has unknown fields")
+        image_size = _positive_pair(value["image_size"], name="grid image_size")
+        origin = _sampling_pair(value["origin_xy"], name="grid origin")
+        stride = _sampling_pair(value["stride_xy"], name="grid stride")
+        block = _sampling_pair(value["block_xy"], name="grid block")
+        if min(origin) < 0 or min(stride) <= 0 or min(block) <= 0:
+            raise InputRejectedError("sampling grid origin/stride/block bounds are invalid")
+        return cls(image_size, origin, stride, block)
 
 
 def _positive_pair(value: object, *, name: str) -> tuple[int, int]:

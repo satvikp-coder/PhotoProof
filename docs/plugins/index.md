@@ -462,7 +462,7 @@ length before constructing a read-only view. Its default ceiling is 64 MiB and
 or complex arrays fail visibly. Hash verification remains the byte broker's job;
 this parser does not establish forensic meaning or calibration.
 
-`noise.variance_map` version 1.1.0 requires API 1.4.0 and consumes the actual
+`noise.variance_map` version 1.1.1 requires API 1.5.0 and consumes the actual
 `noise.residual` NPY artifact using this broker/parser. Its output names and
 validity-aware summary remain unchanged. The parser does not make unsupported
 normalization inputs available or resolve the large JSON-map transport limit.
@@ -493,3 +493,8 @@ partial border centres and boolean validity during decoded-to-working projection
 Unsupported points receive an invalid mask, never zero-score evidence. The pure
 projection API is available; production normalization/fusion wiring remains in
 progress. See [ADR-016](../planning/adr-016-spatial-evidence-grids.md).
+
+Binary evidence-layer transport is prototyped in
+[ADR-017](../planning/adr-017-binary-evidence-layer-wire.md). Its score and validity
+artifacts keep explicit source and sampling provenance. Controller transport probes
+work; production normalization/fusion migration remains in progress.
