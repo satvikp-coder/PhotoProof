@@ -128,6 +128,7 @@ Isolation hardening, fuzzing, retention, background jobs, datasets and benchmark
 | [PP-081 (#81)](https://github.com/satvikp-coder/PhotoProof/issues/81) | [security(core): make the audit trail and manifests tamper-evident](https://github.com/satvikp-coder/PhotoProof/issues/81) | ready | P2 | medium | security, core | — | — |
 | [PP-082 (#82)](https://github.com/satvikp-coder/PhotoProof/issues/82) | [test(resilience): verify concurrent processes sharing one runtime environment](https://github.com/satvikp-coder/PhotoProof/issues/82) | ready | P2 | medium | testing, storage, database | — | — |
 | [PP-083 (#83)](https://github.com/satvikp-coder/PhotoProof/issues/83) | [feat(launcher): synchronize the virtual environment exactly with the lockfiles on repair](https://github.com/satvikp-coder/PhotoProof/issues/83) | ready | P3 | small | core | — | — |
+| [PP-084 (#153)](https://github.com/satvikp-coder/PhotoProof/issues/153) | [feat(contracts): provide bounded verified reads of declared artifact inputs](https://github.com/satvikp-coder/PhotoProof/issues/153) | in-progress | P1 | medium | pipeline, plugins | [PP-012 (#12)](https://github.com/satvikp-coder/PhotoProof/issues/12) | [PP-027 (#27)](https://github.com/satvikp-coder/PhotoProof/issues/27), [PP-052 (#52)](https://github.com/satvikp-coder/PhotoProof/issues/52) |
 
 ## M7 · Research Extensions
 

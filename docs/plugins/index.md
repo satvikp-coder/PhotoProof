@@ -412,3 +412,23 @@ these inputs to access them; missing reference media is unavailable, never zero 
 The host persists relationship checks in `comparison.preflight`. See
 [ADR-013](../planning/adr-013-reference-comparison-preflight.md) for shared budgets,
 coordinate conventions, identical-input handling and trust limitations.
+
+## Reading a declared upstream artifact
+
+Plugin API 1.4.0 adds `ctx.artifact("noise.residual", max_bytes=32 << 20)`, returning
+verified immutable bytes only for a resolved declared input. The host checks producer
+identity, current-run writer records, declared/actual size and SHA-256. It rejects
+undeclared, forged, cross-run, missing or corrupt references. No runtime path is supplied.
+The effective ceiling is bounded by `resources.max_artifact_read_bytes` independently of
+raw-image ingestion limits. Legacy contexts without this capability fail visibly.
+
+A verified artifact still requires its documented parser. Numerical consumers must disable
+pickle and check header shapes, dtypes and allocation limits; a matching hash does not make
+an arbitrary format safe. This API is for trusted plugins and does not implement process
+isolation. See [ADR-014](../planning/adr-014-verified-artifact-inputs.md) for authorization,
+cache integration, migration and remaining executor work.
+
+Structured artifact collections use an explicit logical selector, such as
+`ctx.artifact("fusion.layers", selector=(0, "map"))`. Only references already included
+at that location in the declared producer output are authorized. Selectors contain at
+most eight JSON keys/nonnegative indices and never resolve a filesystem path.
