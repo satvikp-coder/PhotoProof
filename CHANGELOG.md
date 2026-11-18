@@ -20,6 +20,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Read declared upstream artifacts through a bounded, size/hash-verified byte capability
+  with current-run producer authorization and a separate configurable read ceiling (#153).
+
 - Resolve verified reference pixels once per unique image, record comparison relationship
   checks and trust limitations, and enforce a shared image-buffer budget. Identical byte
   comparisons produce an informational result without fabricated difference evidence (#27).

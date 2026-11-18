@@ -111,10 +111,12 @@ def test_host_execution_contract_change_invalidates_cache(make_app: Factory) -> 
     app = make_app()
     _run(app)
     assert _run(app).cache_hit
+    major, minor, patch = app.identity.application.plugin_api_version.split(".")
+    changed_api = f"{major}.{int(minor) + 1}.{patch}"
     app.identity = app.identity.model_copy(
         update={
             "application": app.identity.application.model_copy(
-                update={"plugin_api_version": "1.4.0"}
+                update={"plugin_api_version": changed_api}
             )
         }
     )

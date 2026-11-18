@@ -43,6 +43,7 @@ from photoproof.core.config.policy import (
     decide_all,
 )
 from photoproof.core.config.validator import Profile
+from photoproof.core.pipeline.artifact_inputs import make_artifact_reader
 from photoproof.core.pipeline.executor import ExecutionReport, SequentialExecutor, event_for
 from photoproof.core.pipeline.manifest import build_manifest
 from photoproof.core.pipeline.planner import ExecutionPlan, plan
@@ -365,6 +366,11 @@ class AnalysisController:
         # SUCCESS, on this (main) thread. A timed-out plugin that keeps writing in the
         # background therefore never adds artifacts to the run.
         staged: dict[str, list[ArtifactRef]] = {}
+        producers = {
+            output: node.id
+            for node in execution_plan.nodes.values()
+            for output in node.metadata.outputs
+        }
 
         def invoke(plugin: RegisteredPlugin, inputs: Mapping[str, object]) -> Mapping[str, object]:
             entry = plugin.load_entry_point()
@@ -388,6 +394,13 @@ class AnalysisController:
                 seed=app.settings.scheduling.random_seed,
                 write_artifact=write_artifact,
                 logger=logging.getLogger(f"photoproof.plugins.{plugin.id}"),
+                read_artifact=make_artifact_reader(
+                    inputs=inputs,
+                    producers=producers,
+                    staged=staged,
+                    storage=app.storage,
+                    max_bytes=app.settings.resources.max_artifact_read_bytes,
+                ),
             )
             return entry(ctx)
 
