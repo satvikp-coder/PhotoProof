@@ -24,6 +24,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Create runtime coordination files with owner-only POSIX permissions (Refs #81).
+
 - Consume persisted noise residuals in the variance detector through verified bounded
   numerical reads instead of requiring an in-memory array (Refs #19, #32).
 
@@ -42,6 +44,10 @@ All notable changes to this project are documented here. The format follows
 
 - Generate bounded, metadata-free derived PNG previews from normalized working pixels,
   retaining alpha and preserving original evidence (#10).
+
+- Expose explicit decoded-to-working pixel transforms and separate reference geometry
+  so forensic maps can retain correct EXIF orientation and source traceability (Refs #32).
+
 - Segment fused heuristic maps into cleaned suspicious regions with traceable detector
   references, immutable binary PNG masks, and explicit unavailable/truncation status (#35).
 

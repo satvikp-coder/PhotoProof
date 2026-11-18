@@ -43,6 +43,7 @@ from photoproof.core.config.policy import (
     decide_all,
 )
 from photoproof.core.config.validator import Profile
+from photoproof.core.image_geometry import describe_geometry
 from photoproof.core.pipeline.artifact_inputs import make_artifact_reader
 from photoproof.core.pipeline.executor import ExecutionReport, SequentialExecutor, event_for
 from photoproof.core.pipeline.manifest import build_manifest
@@ -57,7 +58,7 @@ from photoproof.imaging.normalization import normalize
 from photoproof.versioning.build import build_info, distribution_version
 
 #: Media run inputs the host resolves from stored evidence when a plan declares them.
-_MEDIA_INPUTS = ("input.original_bytes", "image.decoded", "image.working")
+_MEDIA_INPUTS = ("input.original_bytes", "image.decoded", "image.working", "image.geometry")
 
 
 def _now() -> str:
@@ -222,6 +223,9 @@ class AnalysisController:
                         artifacts=artifacts,
                     )
 
+        for name in ("image.geometry", "image.reference_geometry"):
+            if name in run_inputs:
+                outputs[name] = run_inputs[name]
         if "comparison.preflight" in run_inputs:
             preflight = run_inputs["comparison.preflight"]
             outputs["comparison.preflight"] = preflight
@@ -439,7 +443,11 @@ class AnalysisController:
         with the reason recorded in the manifest, and the run is INCOMPLETE. Missing
         pixels are never evidence of authenticity.
         """
-        declared = {name for node in execution_plan.nodes.values() for name in node.metadata.inputs}
+        declared = {
+            name
+            for node in execution_plan.nodes.values()
+            for name in (*node.metadata.inputs, *node.metadata.optional_inputs)
+        }
         wanted = [name for name in _MEDIA_INPUTS if name in declared]
         if not wanted:
             return
@@ -466,12 +474,17 @@ class AnalysisController:
             return
         if "image.decoded" in image_names:
             run_inputs["image.decoded"] = decoded_to_array(decoded)
-        if "image.working" in image_names:
+        if set(image_names) & {"image.working", "image.geometry"}:
             try:
-                run_inputs["image.working"] = working_to_array(normalize(decoded))
+                normalized = normalize(decoded)
+                if "image.working" in image_names:
+                    run_inputs["image.working"] = working_to_array(normalized)
+                if "image.geometry" in image_names:
+                    run_inputs["image.geometry"] = describe_geometry(decoded, normalized)
             except Exception as error:  # noqa: BLE001 - any normalization failure only skips
                 # the plugins that asked for the working image; it is recorded below.
                 unavailable["image.working"] = f"the working image is unavailable: {error}"
+                unavailable["image.geometry"] = f"image geometry is unavailable: {error}"
 
     def _provide_comparison_media(
         self, run_inputs: dict[str, object], unavailable: dict[str, str], request: AnalysisRequest
@@ -494,7 +507,12 @@ class AnalysisController:
             "identical_bytes": request.target.sha256 == reference.sha256,
         }
         run_inputs["comparison.preflight"] = preflight
-        names = (*_MEDIA_INPUTS, "image.reference_decoded", "image.reference_working")
+        names = (
+            *_MEDIA_INPUTS,
+            "image.reference_decoded",
+            "image.reference_working",
+            "image.reference_geometry",
+        )
         base = self.app.decode_limits()
         pixels_left = min(base.max_pixels, base.max_decoded_bytes // 12)
         try:
@@ -531,8 +549,10 @@ class AnalysisController:
                         max_decoded_bytes=min(base.max_decoded_bytes, pixels_left * 12),
                     ),
                 )
-            working = working_to_array(normalize(target))
-            ref_working = working if ref is target else working_to_array(normalize(ref))
+            target_normalized = normalize(target)
+            reference_normalized = target_normalized if ref is target else normalize(ref)
+            working = working_to_array(target_normalized)
+            ref_working = working if ref is target else working_to_array(reference_normalized)
             decoded_pixels = decoded_to_array(target)
             run_inputs.update(
                 {
@@ -543,6 +563,8 @@ class AnalysisController:
                         decoded_pixels if ref is target else decoded_to_array(ref)
                     ),
                     "image.reference_working": ref_working,
+                    "image.geometry": describe_geometry(target, target_normalized),
+                    "image.reference_geometry": describe_geometry(ref, reference_normalized),
                 }
             )
             th, tw = working.shape[:2]

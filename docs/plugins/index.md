@@ -532,5 +532,18 @@ The plugin uses API 1.4.0 to read the actual declared safe-preview artifact thro
 its verified bounded broker. It checks PNG mode and dimensions against the recorded
 preview metadata before allocating pixels. Missing or corrupt stored previews fail
 visibly and are preserved; they are never regenerated as a substitute. Only those
-verified derived pixels supply image context; original evidence bytes are never opened. The stored preview is
-not read or repaired by this step. All output hashes reach the normal manifest.
+verified derived pixels supply image context; original evidence bytes are never opened. The stored preview is read through the artifact broker and is never repaired by this step. All output hashes reach the normal manifest.
+
+## Image coordinate contract
+
+API 1.5.0 provides declared `image.geometry` and `image.reference_geometry` JSON
+records, also retained in available run outputs/manifests. Sizes use [width,height];
+the `decoded_to_working` 3x3 matrix maps zero-based decoded pixel centres [x,y,1]
+to normalized working pixel centres. It describes the orientation actually applied,
+including flips, rather than guessing from shape. Records carry source hashes and
+normalization provenance. See [ADR-015](../planning/adr-015-image-coordinate-contract.md).
+
+This does not register two images or define detector block/cell footprints. Consumers
+must retain their sampling grid and valid mask and explicitly project into the working
+space. Optional declared media is resolved when available; missing geometry remains
+unavailable and is never replaced by an assumed identity matrix.
