@@ -1,8 +1,8 @@
 # ADR-014: Bounded verified reads of declared artifact inputs
 
 ## Status
-Accepted design for PP-084 (#153). Local implementation currently builds on #27;
-final integration and API allocation must be verified after that prerequisite lands.
+Accepted design for PP-084 (#153), implemented against the merged PP-027
+reference-media contract (API 1.3.0). This addition allocates API 1.4.0.
 
 ## Context
 Pixel producers persist derived arrays as artifacts. Consumers need actual bytes, not
