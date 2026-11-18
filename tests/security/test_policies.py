@@ -24,7 +24,18 @@ def test_configuration_cannot_add_plugin_locations(app_root: Path) -> None:
 
 def test_plugin_context_exposes_no_filesystem_paths() -> None:
     names = {f.name for f in fields(PluginContext)}
-    assert names == {"run_id", "plugin_id", "inputs", "config", "seed", "write_artifact", "logger"}
+    # Reader is a bounded byte broker, never a path/store capability. Its provenance,
+    # size and mutation boundaries are exercised in test_artifact_input_reads.py.
+    assert names == {
+        "run_id",
+        "plugin_id",
+        "inputs",
+        "config",
+        "seed",
+        "write_artifact",
+        "logger",
+        "read_artifact",
+    }
 
 
 @pytest.mark.parametrize("run_id", ["../../app", "..%2f..%2fsettings", "/etc/passwd"])

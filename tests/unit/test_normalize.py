@@ -162,7 +162,7 @@ def test_processor_map_values_in_unit_interval() -> None:
     """Every normalized map value is in [0, 1]."""
     rng = np.random.default_rng(42)
     for name in DETECTOR_NORMALIZATION:
-        if name not in ("compression.jpeg_tables", "copymove.verification"):
+        if name not in ("compression.jpeg_tables", "copymove.verification", "copymove.mask"):
             # Use a map-type output.
             values = rng.normal(0, 1, (6, 6)).astype(np.float32)
             result = run(_make_ctx({name: values}))

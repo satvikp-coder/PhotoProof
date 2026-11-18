@@ -12,12 +12,24 @@ All notable changes to this project are documented here. The format follows
   configured thresholds, excludes weak/invalid coverage and reports missing evidence
   as inconclusive. Historical categories retain their old semantics; see ADR-005 (#34).
 
+- **Breaking:** normalization version 2.0.0 reports unusable outputs as unavailable,
+  accepts serialized numeric maps, applies validated per-detector configuration and
+  preserves verified unit-interval masks. Unverified feature/count cues are weak context;
+  historical manifests retain old semantics and require re-analysis (#32).
+
 ### Fixed
 
 - Restore parsing and bounded execution of dependency-update automation, regenerate all
   lockfiles together, and preserve release-only versioning (Refs #78).
 
 ### Added
+
+- Read declared upstream artifacts through a bounded, size/hash-verified byte capability
+  with current-run producer authorization and a separate configurable read ceiling (#153).
+
+- Resolve verified reference pixels once per unique image, record comparison relationship
+  checks and trust limitations, and enforce a shared image-buffer budget. Identical byte
+  comparisons produce an informational result without fabricated difference evidence (#27).
 
 - Generate bounded, metadata-free derived PNG previews from normalized working pixels,
   retaining alpha and preserving original evidence (#10).

@@ -10,6 +10,7 @@ import logging
 import sys
 import uuid
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -42,13 +43,14 @@ from photoproof.core.config.policy import (
     decide_all,
 )
 from photoproof.core.config.validator import Profile
+from photoproof.core.pipeline.artifact_inputs import make_artifact_reader
 from photoproof.core.pipeline.executor import ExecutionReport, SequentialExecutor, event_for
 from photoproof.core.pipeline.manifest import build_manifest
 from photoproof.core.pipeline.planner import ExecutionPlan, plan
 from photoproof.core.pipeline.registry import RegisteredPlugin
 from photoproof.core.storage.store import sha256_bytes, sha256_file
 from photoproof.imaging.arrays import decoded_to_array, working_to_array
-from photoproof.imaging.decoder import DecodedImage
+from photoproof.imaging.decoder import DecodedImage, DecodeLimits
 from photoproof.imaging.formats import HEADER_BYTES, detect_format
 from photoproof.imaging.isolation import IsolatedDecoder
 from photoproof.imaging.normalization import normalize
@@ -122,9 +124,16 @@ class AnalysisController:
         run_inputs: dict[str, object] = {"input.target": request.target.model_dump(mode="json")}
         if request.reference is not None:
             run_inputs["input.reference"] = request.reference.model_dump(mode="json")
+            run_inputs["comparison.preflight"] = {
+                "status": "not_run",
+                "reference_statement": "reference: user-supplied comparison material",
+            }
         unavailable: dict[str, str] = {}
         if not execution_plan.blocked:
-            self._provide_run_media(execution_plan, run_inputs, unavailable, request.target)
+            if request.reference is None:
+                self._provide_run_media(execution_plan, run_inputs, unavailable, request.target)
+            else:
+                self._provide_comparison_media(run_inputs, unavailable, request)
 
         use_cache = bool(
             app.settings.cache.enabled
@@ -132,6 +141,7 @@ class AnalysisController:
             and request.use_cache
             and not execution_plan.blocked
             and execution_plan.order
+            and not unavailable
         )
         key = (
             self._cache_key(request, profile_name, execution_plan, decisions) if use_cache else None
@@ -212,6 +222,16 @@ class AnalysisController:
                         artifacts=artifacts,
                     )
 
+        if "comparison.preflight" in run_inputs:
+            preflight = run_inputs["comparison.preflight"]
+            outputs["comparison.preflight"] = preflight
+            if (
+                isinstance(preflight, dict)
+                and preflight.get("status") == "unavailable"
+                and status not in {RunStatus.BLOCKED, RunStatus.ABORTED}
+            ):
+                status = RunStatus.INCOMPLETE
+
         manifest = build_manifest(
             run_id=run_id,
             created_at=created_at,
@@ -224,7 +244,11 @@ class AnalysisController:
             status=status.value,
             mode=profile.mode.value,
             profile=profile_name,
-            inputs=[d.model_dump(mode="json") for d in (request.target, request.reference) if d],
+            inputs=[
+                dict(value)
+                for name in ("input.target", "input.reference")
+                if isinstance(value := run_inputs.get(name), Mapping)
+            ],
             pipeline_fingerprint=execution_plan.fingerprint(),
             cache={"key": key, "hit": cache_hit},
             effective_settings=(
@@ -342,6 +366,11 @@ class AnalysisController:
         # SUCCESS, on this (main) thread. A timed-out plugin that keeps writing in the
         # background therefore never adds artifacts to the run.
         staged: dict[str, list[ArtifactRef]] = {}
+        producers = {
+            output: node.id
+            for node in execution_plan.nodes.values()
+            for output in node.metadata.outputs
+        }
 
         def invoke(plugin: RegisteredPlugin, inputs: Mapping[str, object]) -> Mapping[str, object]:
             entry = plugin.load_entry_point()
@@ -365,6 +394,13 @@ class AnalysisController:
                 seed=app.settings.scheduling.random_seed,
                 write_artifact=write_artifact,
                 logger=logging.getLogger(f"photoproof.plugins.{plugin.id}"),
+                read_artifact=make_artifact_reader(
+                    inputs=inputs,
+                    producers=producers,
+                    staged=staged,
+                    storage=app.storage,
+                    max_bytes=app.settings.resources.max_artifact_read_bytes,
+                ),
             )
             return entry(ctx)
 
@@ -437,12 +473,132 @@ class AnalysisController:
                 # the plugins that asked for the working image; it is recorded below.
                 unavailable["image.working"] = f"the working image is unavailable: {error}"
 
-    def _decode_bytes(self, data: bytes, sha256: str) -> DecodedImage:
+    def _provide_comparison_media(
+        self, run_inputs: dict[str, object], unavailable: dict[str, str], request: AnalysisRequest
+    ) -> None:
+        """Resolve each unique evidence image once under a combined pixel-buffer budget.
+
+        Reserve 12 bytes per unique pixel: up to eight decoded bytes (16-bit RGBA)
+        and four working bytes. This bounds retained image buffers, not whole-process
+        RSS or transient codec/normalization allocations. Decoder header checks use
+        the remaining budget before allocating reference pixels.
+        """
+        reference = request.reference
+        if reference is None:
+            raise InputRejectedError("comparison preflight requires a reference descriptor")
+        preflight: dict[str, object] = {
+            "status": "unavailable",
+            "reference_statement": "reference: user-supplied comparison material",
+            "target_sha256": request.target.sha256,
+            "reference_sha256": reference.sha256,
+            "identical_bytes": request.target.sha256 == reference.sha256,
+        }
+        run_inputs["comparison.preflight"] = preflight
+        names = (*_MEDIA_INPUTS, "image.reference_decoded", "image.reference_working")
+        base = self.app.decode_limits()
+        pixels_left = min(base.max_pixels, base.max_decoded_bytes // 12)
+        try:
+            if pixels_left < 1:
+                raise InputRejectedError("combined image budget has no room for pixels")
+            with self.app.evidence().open(request.target.sha256) as handle:
+                data = handle.read(base.max_input_bytes + 1)
+            if len(data) > base.max_input_bytes:
+                raise InputRejectedError("target exceeds resources.max_input_bytes")
+            self._check_comparison_descriptor(data, request.target)
+            target = self._decode_bytes(
+                data, request.target.sha256, limits=replace(base, max_pixels=pixels_left)
+            )
+            if request.target.sha256 == reference.sha256:
+                self._check_comparison_descriptor(data, reference)
+                ref = target
+            else:
+                pixels_left -= target.width * target.height
+                if pixels_left < 1:
+                    raise InputRejectedError(
+                        "combined image pixel budget is exhausted before reference"
+                    )
+                with self.app.evidence().open(reference.sha256) as handle:
+                    ref_data = handle.read(base.max_input_bytes + 1)
+                if len(ref_data) > base.max_input_bytes:
+                    raise InputRejectedError("reference exceeds resources.max_input_bytes")
+                self._check_comparison_descriptor(ref_data, reference)
+                ref = self._decode_bytes(
+                    ref_data,
+                    reference.sha256,
+                    limits=replace(
+                        base,
+                        max_pixels=pixels_left,
+                        max_decoded_bytes=min(base.max_decoded_bytes, pixels_left * 12),
+                    ),
+                )
+            working = working_to_array(normalize(target))
+            ref_working = working if ref is target else working_to_array(normalize(ref))
+            decoded_pixels = decoded_to_array(target)
+            run_inputs.update(
+                {
+                    "input.original_bytes": data,
+                    "image.decoded": decoded_pixels,
+                    "image.working": working,
+                    "image.reference_decoded": (
+                        decoded_pixels if ref is target else decoded_to_array(ref)
+                    ),
+                    "image.reference_working": ref_working,
+                }
+            )
+            th, tw = working.shape[:2]
+            rh, rw = ref_working.shape[:2]
+            area_ratio = (tw * th) / (rw * rh)
+            preflight.update(
+                {
+                    "status": "identical_inputs" if ref is target else "ready",
+                    "message": "inputs are identical"
+                    if ref is target
+                    else "comparison inputs resolved",
+                    "identical_pixels": bool(np.array_equal(working, ref_working)),
+                    "coordinate_space": "normalized_working_images",
+                    "dimension_ratio": {"width": tw / rw, "height": th / rh, "area": area_ratio},
+                    "aspect_ratio_delta": abs(tw / th - rw / rh),
+                    "target_shape": list(working.shape),
+                    "reference_shape": list(ref_working.shape),
+                    "warnings": (
+                        ["input areas differ by more than eight times"]
+                        if max(area_ratio, 1 / area_ratio) > 8
+                        else []
+                    ),
+                }
+            )
+            for name, descriptor, decoded in (
+                ("input.target", request.target, target),
+                ("input.reference", reference, ref),
+            ):
+                run_inputs[name] = descriptor.model_copy(
+                    update={"media_format": decoded.media_format}
+                ).model_dump(mode="json")
+        except (InputRejectedError, StorageError, DecoderError) as error:
+            reason = f"comparison pixels are unavailable: {error}"
+            preflight["reason"] = reason
+            for name in names:
+                unavailable[name] = reason
+
+    @staticmethod
+    def _check_comparison_descriptor(data: bytes, descriptor: InputDescriptor) -> None:
+        detected = detect_format(data[:HEADER_BYTES])
+        if len(data) != descriptor.size or (
+            descriptor.media_format is not None and detected != descriptor.media_format
+        ):
+            raise InputRejectedError(
+                f"{descriptor.role} descriptor does not match verified evidence size/format; "
+                "re-ingest the file before requesting comparison"
+            )
+
+    def _decode_bytes(
+        self, data: bytes, sha256: str, *, limits: DecodeLimits | None = None
+    ) -> DecodedImage:
         app = self.app
         media_format = detect_format(data[:HEADER_BYTES])
         if media_format is None:
             raise InputRejectedError(
-                "the stored target is not a recognised image format, so no decoder can read it"
+                "the stored image is not a recognised image format, so no decoder can read it"
             )
         decoder = app.decoders.for_format(media_format)
         # Production decoding runs in an isolated child process. In-process decoding is a
@@ -453,7 +609,7 @@ class AnalysisController:
             return isolated.decode(
                 data,
                 source_sha256=sha256,
-                limits=app.decode_limits(),
+                limits=limits or app.decode_limits(),
             )
         finally:
             isolated.close()
@@ -505,6 +661,7 @@ class AnalysisController:
                     for pid in execution_plan.order
                 },
                 "application": app.identity.application.version,
+                "host_plugin_api": app.identity.application.plugin_api_version,
                 "python": list(sys.version_info[:2]),
             }
         )

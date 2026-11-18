@@ -59,6 +59,7 @@ class ExecutionReport:
     executions: dict[str, PluginExecution]
     outputs: dict[str, object] = field(default_factory=dict)
     aborted: bool = False
+    preflight_satisfied: set[str] = field(default_factory=set)
 
     def status(self, required: frozenset[str]) -> RunStatus:
         if self.aborted:
@@ -66,7 +67,9 @@ class ExecutionReport:
         for pid, ex in self.executions.items():
             if ex.state is S.SUCCESS:
                 continue
-            if ex.state is S.NOT_APPLICABLE and pid not in required:
+            if ex.state is S.NOT_APPLICABLE and (
+                pid not in required or pid in self.preflight_satisfied
+            ):
                 continue
             return RunStatus.INCOMPLETE
         return RunStatus.COMPLETED
@@ -135,6 +138,11 @@ def _unsupported_format(plugin: RegisteredPlugin, run_inputs: Mapping[str, objec
     if not supported:
         return None
     declared = [n for n in plugin.metadata.inputs if n in ("input.target", "input.reference")]
+    media = set(plugin.metadata.inputs)
+    if media & {"input.original_bytes", "image.decoded", "image.working"}:
+        declared.append("input.target")
+    if media & {"image.reference_decoded", "image.reference_working"}:
+        declared.append("input.reference")
     for name in declared or ["input.target"]:
         descriptor = run_inputs.get(name)
         found = descriptor.get("media_format") if isinstance(descriptor, Mapping) else None
@@ -201,6 +209,16 @@ class SequentialExecutor:
             if abort_category is not None:
                 self._finish(run_id, ex, S.ABORTED, abort_category, "run aborted before start")
                 continue
+            preflight = run_inputs.get("comparison.preflight")
+            if (
+                pid.startswith("comparison.")
+                and isinstance(preflight, Mapping)
+                and preflight.get("status") == "identical_inputs"
+                and preflight.get("identical_bytes") is True
+            ):
+                self._finish(run_id, ex, S.NOT_APPLICABLE, None, "inputs are identical")
+                report.preflight_satisfied.add(pid)
+                continue
             failed_deps = [d for d in meta.requires if ex.dependency_status[d] != S.SUCCESS.value]
             if failed_deps:
                 detail = ", ".join(f"{d}={ex.dependency_status[d]}" for d in failed_deps)
@@ -211,7 +229,9 @@ class SequentialExecutor:
                     FailureCategory.DEPENDENCY_UNAVAILABLE,
                     f"required dependencies did not succeed: {detail}",
                 )
-            elif "input.reference" in meta.inputs and "input.reference" not in run_inputs:
+            elif {"input.reference", "image.reference_decoded", "image.reference_working"} & set(
+                meta.inputs
+            ) and "input.reference" not in run_inputs:
                 self._finish(run_id, ex, S.NOT_APPLICABLE, None, "no reference image supplied")
             elif (unsupported := _unsupported_format(plugin, run_inputs)) is not None:
                 self._finish(run_id, ex, S.NOT_APPLICABLE, None, unsupported)

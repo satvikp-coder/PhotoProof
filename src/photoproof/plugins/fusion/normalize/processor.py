@@ -12,11 +12,13 @@ from typing import Any, cast
 
 import numpy as np
 
+from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.fusion.normalize import (
     DETECTOR_NORMALIZATION,
     UNCALIBRATED,
 )
+from photoproof.plugins.fusion.normalize.schema import Config
 
 #: Output contracts that carry a spatial map suitable for normalization to [0, 1].
 _MAP_OUTPUTS = frozenset(
@@ -69,6 +71,7 @@ def run(ctx: PluginContext) -> dict[str, object]:
     Detectors that are not present in the run are recorded as ``unavailable``
     with no layer produced (never a zero-score layer).
     """
+    config = ctx.config if isinstance(ctx.config, Config) else Config.model_validate(ctx.config)
     layers: list[dict[str, object]] = []
     unavailable: list[str] = []
 
@@ -80,8 +83,14 @@ def run(ctx: PluginContext) -> dict[str, object]:
             # Known output but no normalization config: skip with a note.
             continue
 
-        layer = _layer_for_output(name, value, cfg)
-        layers.append(layer)
+        params = dict(cfg)
+        if name in config.mappings:
+            params.update(config.mappings[name].model_dump(exclude_none=True))
+        layer = _layer_for_output(name, value, params)
+        if layer is None:
+            unavailable.append(name)
+        else:
+            layers.append(layer)
 
     # Any known detector output not in ctx.inputs is absent/unavailable.
     for name in DETECTOR_NORMALIZATION:
@@ -94,35 +103,55 @@ def run(ctx: PluginContext) -> dict[str, object]:
     }
 
 
-def _layer_for_output(name: str, value: Any, cfg: dict[str, object]) -> dict[str, object]:
+def _layer_for_output(name: str, value: Any, cfg: dict[str, object]) -> dict[str, object] | None:
     """Build one EvidenceLayer dict for a detector output."""
     z0 = float(cast(float, cfg["z0"]))
     k = float(cast(float, cfg["k"]))
     strength_class = cast(str, cfg["strength_class"])
 
-    if isinstance(value, np.ndarray):
-        map_arr = _normalize_map(value, z0, k)
-        regions: tuple[tuple[int, int, int, int], ...] = ()
+    regions: tuple[tuple[int, int, int, int], ...] = ()
+    if isinstance(value, (np.ndarray, list, tuple)):
+        try:
+            values = np.asarray(value, dtype=np.float32)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if values.ndim != 2 or not values.size:
+            return None
+        if not np.isfinite(values).all():
+            raise InputRejectedError(
+                f"fusion.normalize: nonfinite map for {name}; inspect the detector output"
+            )
+        if cfg.get("method") == "identity":
+            if np.any((values < 0) | (values > 1)):
+                raise InputRejectedError(
+                    f"fusion.normalize: invalid unit-interval map for {name}; inspect the detector"
+                )
+            map_arr = values.copy()
+        else:
+            map_arr = _normalize_map(values, z0, k)
         valid_mask = np.ones(map_arr.shape, dtype=bool)
         notes = ("map_normalized",)
-    elif isinstance(value, (int, float)):
-        # Scalar summary output: single-cell map.
-        s = _logistic_squash(np.array([float(value)]), z0, k)[0]
-        map_arr = np.array([[s]], dtype=np.float32)
-        regions = ()
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not np.isfinite(value):
+            raise InputRejectedError(
+                f"fusion.normalize: nonfinite score for {name}; inspect the detector output"
+            )
+        if cfg.get("method") == "identity":
+            if not 0 <= value <= 1:
+                raise InputRejectedError(
+                    f"fusion.normalize: invalid unit-interval score for {name}; "
+                    "inspect the detector"
+                )
+            score = float(value)
+        else:
+            score = float(_logistic_squash(np.array([float(value)]), z0, k)[0])
+        map_arr = np.array([[score]], dtype=np.float32)
         valid_mask = np.ones((1, 1), dtype=bool)
         notes = ("scalar_normalized",)
-    elif isinstance(value, dict):
-        # ArtifactRef or structured output: cannot normalize directly.
-        map_arr = np.zeros((1, 1), dtype=np.float32)
-        regions = ()
-        valid_mask = np.zeros((1, 1), dtype=bool)
-        notes = ("artifact_reference",)
     else:
-        map_arr = np.zeros((1, 1), dtype=np.float32)
-        regions = ()
-        valid_mask = np.zeros((1, 1), dtype=bool)
-        notes = ("unrecognized_output",)
+        # An unread artifact reference, null or unsupported structured output is
+        # unavailable. No filesystem read or fabricated zero-score layer is allowed.
+        return None
 
     return {
         "detector_id": name,
@@ -133,11 +162,3 @@ def _layer_for_output(name: str, value: Any, cfg: dict[str, object]) -> dict[str
         "calibration": UNCALIBRATED,
         "notes": notes,
     }
-
-
-def _schema_default() -> dict[str, object]:
-    return {}
-
-
-# Expose Config for schema resolution (config_schema = "schema:Config").
-Config = dict  # placeholder; no config fields beyond DETECTOR_NORMALIZATION
