@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** corrected fusion rule version 2.0.0 applies configured weights, counts
+  each detector family once, and prevents rejected medium cues from enabling weak
+  boosts. Unavailable evidence uses a null score. Historical results retain their old
+  semantics; see ADR-004 for migration and re-analysis guidance (#33).
+
 - **Breaking:** normalization version 2.0.0 reports unusable outputs as unavailable,
   accepts serialized numeric maps, applies validated per-detector configuration and
   preserves verified unit-interval masks. Unverified feature/count cues are weak context;
