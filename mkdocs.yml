@@ -99,3 +99,4 @@ nav:
       - ADR-005 Evidence Sufficiency: planning/adr-005-evidence-sufficiency.md
       - ADR-013 Reference Comparison: planning/adr-013-reference-comparison-preflight.md
       - ADR-014 Verified Artifact Inputs: planning/adr-014-verified-artifact-inputs.md
+      - ADR-015 Image Coordinates: planning/adr-015-image-coordinate-contract.md

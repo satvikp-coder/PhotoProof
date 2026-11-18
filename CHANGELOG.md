@@ -35,6 +35,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Expose explicit decoded-to-working pixel transforms and separate reference geometry
+  so forensic maps can retain correct EXIF orientation and source traceability (Refs #32).
+
 - Read declared upstream artifacts through a bounded, size/hash-verified byte capability
   with current-run producer authorization and a separate configurable read ceiling (#153).
 

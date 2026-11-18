@@ -37,6 +37,8 @@ RUN_INPUTS = frozenset(
         "image.working",
         "image.reference_decoded",
         "image.reference_working",
+        "image.geometry",
+        "image.reference_geometry",
         "comparison.preflight",
     }
 )
