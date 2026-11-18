@@ -85,6 +85,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Add a native robust-z anomaly adapter preserving detector sampling and validity;
+  coordinated production normalization wiring remains in progress (Refs #32).
+
 - Provide declared upstream execution-state snapshots separately from missing optional
   measurements, preserving failure/applicability distinctions (Refs #32, #34).
 

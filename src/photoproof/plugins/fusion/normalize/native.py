@@ -1,0 +1,140 @@
+"""Normalize actual regional anomaly records without guessing their pixel footprint.
+
+This adapter is a prerequisite for the coordinated version-3 producer/consumer
+migration. The current production processor does not yet enable it.
+"""
+
+import math
+from typing import Literal
+
+import numpy as np
+
+from photoproof.contracts.evidence import EvidenceLayer
+from photoproof.contracts.evidence_io import SpatialEvidence
+from photoproof.contracts.exceptions import InputRejectedError
+from photoproof.contracts.grids import SamplingGrid
+
+
+def _pair(value: object, *, name: str) -> tuple[int, int]:
+    if isinstance(value, int) and not isinstance(value, bool):
+        value = [value, value]
+    if (
+        not isinstance(value, (tuple, list))
+        or len(value) != 2
+        or any(isinstance(n, bool) or not isinstance(n, int) or n <= 0 for n in value)
+    ):
+        raise InputRejectedError(f"anomaly {name} must contain positive integer [height,width]")
+    return value[1], value[0]  # Producer metadata uses y/x; SamplingGrid uses x/y.
+
+
+def normalize_anomaly(
+    record: object,
+    *,
+    detector_id: str,
+    source_sha256: str,
+    image_size: tuple[int, int],
+    strength_class: Literal["weak", "medium"],
+    z0: float,
+    k: float,
+    tail: Literal["upper", "two_sided"],
+) -> SpatialEvidence | None:
+    """Map measured robust-z values monotonically to uncalibrated unit scores.
+
+    Return None for an empty/all-invalid measurement. Invalid cells have zero fill
+    with validity=false, distinguishable from a measured zero anomaly. Native
+    robust-z values are not robust-standardized a second time. Two-sided scoring
+    must be selected explicitly for detectors where either sign is meaningful.
+    """
+    if (
+        not math.isfinite(z0)
+        or z0 < 0
+        or not math.isfinite(k)
+        or k <= 0
+        or tail not in {"upper", "two_sided"}
+    ):
+        raise InputRejectedError(
+            "anomaly normalization needs finite z0>=0, k>0 and an explicit tail"
+        )
+    if not isinstance(record, dict) or not {
+        "values",
+        "valid_mask",
+        "block",
+        "stride",
+        "scale",
+        "notes",
+    }.issubset(record):
+        raise InputRejectedError(
+            "anomaly record lacks explicit values, validity or sampling metadata"
+        )
+    if record["scale"] != "robust_z":
+        raise InputRejectedError(
+            "anomaly scale must be robust_z; raw statistics need their own mapping"
+        )
+    try:
+        values = np.asarray(record["values"])
+        valid = np.asarray(record["valid_mask"])
+    except (ValueError, TypeError, OverflowError) as error:
+        raise InputRejectedError(
+            "anomaly values and validity must be rectangular arrays"
+        ) from error
+    if values.size == valid.size == 0:
+        return None
+    if (
+        values.ndim != 2
+        or values.dtype.kind not in "iuf"
+        or values.size > 16_777_216
+        or valid.dtype != np.bool_
+        or valid.shape != values.shape
+    ):
+        raise InputRejectedError(
+            "anomaly needs bounded 2D numeric values and matching boolean validity"
+        )
+    block, stride = _pair(record["block"], name="block"), _pair(record["stride"], name="stride")
+    grid = SamplingGrid.from_record(
+        {
+            "image_size": list(image_size),
+            "origin_xy": [0, 0],
+            "block_xy": list(block),
+            "stride_xy": list(stride),
+        }
+    )
+    if any(
+        (count - 1) * step >= size
+        for count, step, size in zip(
+            (values.shape[1], values.shape[0]), grid.stride_xy, grid.image_size, strict=True
+        )
+    ):
+        raise InputRejectedError("anomaly sampling cells extend outside their source image")
+    notes = record["notes"]
+    if (
+        not isinstance(notes, (list, tuple))
+        or len(notes) > 12
+        or any(not isinstance(n, str) or len(n) > 256 for n in notes)
+    ):
+        raise InputRejectedError("anomaly notes must be bounded text")
+    if not valid.any():
+        return None
+    measured = values[valid].astype(np.float64)
+    if not np.isfinite(measured).all():
+        raise InputRejectedError("anomaly contains nonfinite measured values")
+    magnitude = np.abs(measured) if tail == "two_sided" else np.maximum(measured, 0)
+    baseline = 1 / (1 + math.exp(min(z0 / k, 50)))
+    # Finite extremes may overflow the intermediate division; clipping defines
+    # saturation, so suppress only this expected arithmetic warning locally.
+    with np.errstate(over="ignore"):
+        sigmoid = 1 / (1 + np.exp(np.clip(-(magnitude - z0) / k, -50, 50)))
+    scores = np.zeros(values.shape, dtype=np.float32)
+    scores[valid] = np.clip((sigmoid - baseline) / (1 - baseline), 0, 1)
+    return SpatialEvidence(
+        EvidenceLayer(
+            detector_id=detector_id,
+            map=scores,
+            regions=(),
+            strength_class=strength_class,
+            valid_mask=valid.copy(),
+            calibration="uncalibrated",
+            notes=(*notes, f"native_robust_z_{tail}", "zero_anchored_logistic"),
+        ),
+        source_sha256,
+        grid,
+    )
