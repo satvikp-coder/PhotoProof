@@ -154,6 +154,8 @@ def test_constructed_arrays_are_read_only_and_do_not_alias_the_callers_buffer():
     assert snapshot.xy[0, 0] == 1
     with pytest.raises(ValueError):
         snapshot.xy[0, 0] = 40
+    with pytest.raises(ValueError):
+        snapshot.xy.flags.writeable = True
 
 
 def test_mask_labels_cannot_wrap_to_background_and_regions_must_cover_pixels_once():

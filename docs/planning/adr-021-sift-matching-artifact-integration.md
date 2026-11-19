@@ -3,7 +3,8 @@
 ## Decision
 
 Read the actual declared `copymove.keypoints` artifact through the host broker.
-Decode only the exact numeric NPZ member schema (`keypoints`, `descriptors`),
+Decode only the exact version-2 numeric NPZ schema documented in the
+[copy-move interchange](../plugins/copymove-contracts.md),
 with ZIP member count/names, compression, expanded bytes, NPY headers and array
 sizes checked. Never extract files or load object/pickled arrays. Numeric feature
 archives may explicitly contain zero-row arrays; missing/empty score evidence
@@ -26,11 +27,11 @@ valid localization and benchmark evaluation remain separate requirements.
 
 ## Compatibility and scope
 
-The existing runtime packed arrays remain float32[N,5] keypoint rows
-[x,y,scale,angle,response] in normalized working coordinates and float32[N,128]
-descriptors. Matches remain int32[M,2] pairs plus float32[M] distances. Do not silently
-interpret the separate typed contract-model serialization as this packed wire format;
-that reconciliation remains explicit integration work.
+The canonical shared models now define the actual extraction and matching wire
+format, with explicit original source identity, working dimensions and parent row
+counts. Version 1 and historical packed arrays are incompatible. Preserve their
+artifacts; use explicit migration or reanalysis rather than changing version labels.
+Clustering, verification and mask processors still require their own integration.
 
 Plugin version 2 removes duplicated bulk arrays from extraction/matching summaries
 and replaces incorrect matching artifact aliases with `matches_artifact`. Consumers

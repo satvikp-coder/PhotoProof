@@ -224,8 +224,9 @@ constraints and symmetric deduplication.
 * Uses OpenCV FLANN or brute-force matching depending on descriptor count
 
 Version 2 reads the actual stored keypoint NPZ through the verified artifact broker.
-The runtime packed keypoints use float32 `[x,y,scale,angle,response]` rows in working
-pixel coordinates; descriptors have 128 columns. Empty feature sets produce successful
+The canonical version-2 [copy-move models](copymove-contracts.md) bind coordinates
+to the working frame and original source hash; descriptors have 128 columns.
+Empty feature sets produce successful
 empty matches, without an authenticity verdict. Archive names, expanded bytes and
 numeric NPY headers are bounded; pickle/object arrays and unexpected members are rejected.
 
@@ -242,8 +243,8 @@ incorrect `keypoints_artifact`/`descriptors_artifact` aliases. Historical manife
 retain their recorded fields. Host API 1.7 adds bounded numeric NPZ reads and explicit
 empty-array support; empty score maps remain rejected by default. This validates
 extraction-to-matching controller wiring, not the remaining clustering/verification/
-mask integration or forensic accuracy. The separate typed models in the copy-move
-contracts module must not be assumed wire-compatible with the packed runtime NPZ.
+mask integration or forensic accuracy. Historical version-1 and packed runtime
+NPZ files require explicit migration or reanalysis, not silent reinterpretation.
 
 The `copymove.clustering` plugin groups matched keypoint pairs into clusters using
 hierarchical clustering (Ward linkage) or DBSCAN on displacement vectors.

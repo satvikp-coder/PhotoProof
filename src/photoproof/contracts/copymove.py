@@ -67,11 +67,12 @@ def _array(value: object, *, dtype: str, ndim: int) -> np.ndarray:
             "copy-move integer values cannot be truncated, wrapped or negative"
         )
     with np.errstate(over="ignore"):
-        result = np.array(value, dtype=target, order="C", copy=True)
+        result = np.asarray(value, dtype=target, order="C")
     if not np.isfinite(result).all():
         raise InputRejectedError("copy-move array exceeds its canonical numeric range")
-    result.flags.writeable = False
-    return result
+    # Back with immutable bytes, not merely an owned array whose writeable flag
+    # could be re-enabled after validation.
+    return np.frombuffer(result.tobytes(order="C"), dtype=target).reshape(result.shape)
 
 
 def _no_constant(value: str) -> None:
