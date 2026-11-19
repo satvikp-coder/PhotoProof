@@ -47,6 +47,10 @@ anomaly record, and the persisted noise-consistency NPY plus its companion
 is unavailable; it never licenses a shape-based grid guess. The legacy noise
 summary still duplicates bulk values and must become compact during the coordinated
 producer migration; this adapter does not resolve that producer's output-size limit.
+Noise reliability must also be present. Low-confidence native noise measurements
+are downgraded to weak context, with the reason retained; they cannot establish
+sufficient non-weak coverage. Configured strength is a maximum, with no quality-based
+promotion. Missing reliability is unavailable rather than presumed usable.
 
 ## Verification and migration
 

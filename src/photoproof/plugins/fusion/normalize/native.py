@@ -5,6 +5,7 @@ migration. The current production processor does not yet enable it.
 """
 
 import math
+from dataclasses import replace
 from typing import Literal
 
 import numpy as np
@@ -42,6 +43,7 @@ def read_native_anomaly(
     if name not in ctx.inputs:
         return None
     record = ctx.inputs[name]
+    low_confidence = False
     if name == "compression.dq_map":
         if not isinstance(record, dict) or "anomaly" not in record:
             raise InputRejectedError("compression.dq_map lacks its explicit anomaly record")
@@ -54,6 +56,12 @@ def read_native_anomaly(
             raise InputRejectedError(
                 "noise consistency lacks its native sampling/validity metadata"
             )
+        confidence = summary.get("confidence")
+        if confidence is None:
+            return None
+        if not isinstance(confidence, str) or confidence not in {"high", "medium", "low"}:
+            raise InputRejectedError("noise consistency has invalid reliability metadata")
+        low_confidence = confidence == "low"
         record = dict(summary["consistency_map"])
         # Read only the declared score artifact through the verified broker. The
         # duplicated legacy JSON score values are not the authoritative payload.
@@ -61,7 +69,7 @@ def read_native_anomaly(
     size = geometry["decoded_size"]
     if len(size) != 2:
         raise InputRejectedError("native anomaly geometry needs decoded [width,height]")
-    return normalize_anomaly(
+    result = normalize_anomaly(
         record,
         detector_id=name,
         source_sha256=geometry["source_sha256"],
@@ -71,6 +79,16 @@ def read_native_anomaly(
         k=k,
         tail="two_sided" if name == "noise.consistency_map" else "upper",
     )
+    if result is not None and low_confidence:
+        # Configured strength is a ceiling, never a license to promote unreliable
+        # measurements into sufficient non-weak coverage.
+        return replace(
+            result,
+            layer=replace(
+                result.layer, strength_class="weak", notes=(*result.layer.notes, "low_confidence")
+            ),
+        )
+    return result
 
 
 def _pair(value: object, *, name: str) -> tuple[int, int]:

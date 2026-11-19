@@ -165,7 +165,7 @@ def test_noise_reads_declared_binary_scores_with_explicit_companion_metadata():
     ctx = SimpleNamespace(
         inputs={
             "noise.consistency_map": {"artifact": "declared reference"},
-            "noise.variance_summary": {"consistency_map": record},
+            "noise.variance_summary": {"consistency_map": record, "confidence": "high"},
         },
         artifact=artifact,
     )
@@ -181,6 +181,17 @@ def test_noise_reads_declared_binary_scores_with_explicit_companion_metadata():
     assert result.layer.map[0, 0] == result.layer.map[0, 2] > 0
     assert result.layer.map[0, 1] == 0
     assert result.layer.calibration == "uncalibrated"
+    ctx.inputs["noise.variance_summary"]["confidence"] = "low"
+    low = read_native_anomaly(
+        ctx,
+        "noise.consistency_map",
+        geometry={"decoded_size": [112, 80], "source_sha256": "a" * 64},
+        strength_class="medium",
+        z0=3,
+        k=1.5,
+    )
+    assert low.layer.strength_class == "weak" and "low_confidence" in low.layer.notes
+    np.testing.assert_array_equal(low.layer.map, result.layer.map)
 
 
 def test_noise_without_sampling_metadata_is_unavailable_without_a_guessed_grid():
