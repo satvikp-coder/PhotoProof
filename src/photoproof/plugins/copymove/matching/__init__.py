@@ -14,7 +14,7 @@ METADATA = {
     "requires": ("copymove.sift_keypoints",),
     "after": (),
     "entry_point": "processor:run",
-    "inputs": ("copymove.keypoints",),
+    "inputs": ("copymove.keypoints", "image.geometry"),
     "outputs": ("copymove.matches", "copymove.match_stats"),
     "timeout_seconds": 120,
     "supported_formats": (),

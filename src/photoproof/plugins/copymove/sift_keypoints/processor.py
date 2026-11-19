@@ -11,6 +11,7 @@ import io
 
 import numpy as np
 
+from photoproof.contracts.copymove import Keypoints
 from photoproof.contracts.exceptions import InputRejectedError, NotApplicableError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.copymove.sift_keypoints.algorithm import (
@@ -54,15 +55,26 @@ def run(ctx: PluginContext) -> dict[str, object]:
         max_edge=max_edge,
     )
 
-    # Write keypoints as NPZ artifact
-    buffer = io.BytesIO()
-    np.savez(
-        buffer,
-        keypoints=result["keypoints"],
-        descriptors=result["descriptors"],
+    geometry = ctx.inputs.get("image.geometry")
+    if not isinstance(geometry, dict) or geometry.get("working_size") != [
+        image.shape[1],
+        image.shape[0],
+    ]:
+        raise InputRejectedError(
+            "SIFT needs source-bound geometry matching its actual working pixels"
+        )
+    packed = result["keypoints"]
+    features = Keypoints(
+        source_sha256=geometry["source_sha256"],
+        image_size=(image.shape[1], image.shape[0]),
+        xy=packed[:, :2],
+        scale=packed[:, 2],
+        angle=packed[:, 3],
+        response=packed[:, 4],
+        desc=result["descriptors"],
     )
     keypoints_artifact_ref = ctx.write_artifact(
-        "keypoints.npz", buffer.getvalue(), "application/x-npz"
+        "keypoints.npz", features.to_npz(), "application/x-npz"
     )
 
     # Write descriptors as separate NPZ artifact for large datasets
@@ -76,6 +88,9 @@ def run(ctx: PluginContext) -> dict[str, object]:
         key: result[key] for key in ("num_keypoints", "density_per_mp", "confidence", "config")
     }
     summary["coordinate_space"] = "working_pixels"
+    summary["contract_version"] = features.contract_version
+    summary["source_sha256"] = features.source_sha256
+    summary["image_size"] = list(features.image_size)
     summary["keypoints_artifact"] = keypoints_artifact_ref
     summary["descriptors_artifact"] = descriptors_artifact_ref
 

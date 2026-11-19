@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 
 from photoproof.contracts.analysis import AnalysisRequest
-from photoproof.contracts.arrays import decode_npz_numeric
+from photoproof.contracts.copymove import Keypoints, Matches
 from photoproof.core.controller import AnalysisController
 from photoproof.plugins.copymove.matching.algorithm import analyze_sift_matching
 
@@ -41,18 +41,20 @@ def test_real_sift_artifact_drives_configured_matching(make_app, app_root, tmp_p
     assert refs["copymove.keypoints"]["artifact"]["media_type"] == "application/x-npz"
     assert refs["copymove.matches"]["artifact"]["media_type"] == "application/x-npz"
 
-    def read(name, names):
+    def read(name):
         ref = refs[name]["artifact"]
-        return decode_npz_numeric(
-            app.storage.blob_path("artifacts", ref["sha256"]).read_bytes(), names=frozenset(names)
-        )
+        return app.storage.blob_path("artifacts", ref["sha256"]).read_bytes()
 
-    features = read("copymove.keypoints", {"keypoints", "descriptors"})
-    matches = read("copymove.matches", {"pairs", "distances"})
-    pairs = matches["pairs"]
+    features = Keypoints.from_npz(read("copymove.keypoints"), source_sha256=target.sha256)
+    matches = Matches.from_npz(read("copymove.matches"), source_sha256=target.sha256)
+    assert features.image_size == matches.image_size == (512, 384)
+    assert matches.num_keypoints == len(features.xy)
+    assert features.contract_version == matches.contract_version == "2.0.0"
+    assert not features.desc.flags.writeable and not matches.pairs.flags.writeable
+    pairs = matches.pairs
     assert len(pairs) > 0
     assert np.all(pairs[:, 0] != pairs[:, 1])
-    deltas = features["keypoints"][pairs[:, 1], :2] - features["keypoints"][pairs[:, 0], :2]
+    deltas = features.xy[pairs[:, 1]] - features.xy[pairs[:, 0]]
     assert np.all(np.linalg.norm(deltas, axis=1) >= 12)
     deltas = np.where((deltas[:, :1] < 0), -deltas, deltas)
     planted = np.array([[168, 168], [318, 168], [150, 0]])
@@ -60,15 +62,15 @@ def test_real_sift_artifact_drives_configured_matching(make_app, app_root, tmp_p
     assert float(close.any(axis=1).mean()) >= 0.8
     assert close[:, 0].any() and close[:, 1].any()  # Both pasted copies are recovered.
     repeated = analyze_sift_matching(
-        features["keypoints"],
-        features["descriptors"],
+        np.column_stack((features.xy, features.scale, features.angle, features.response)),
+        features.desc,
         k=5,
         ratio=0.7,
         min_spatial_distance=12,
         max_pairs=1000,
     )
     np.testing.assert_array_equal(repeated["pairs"], pairs)
-    np.testing.assert_array_equal(repeated["distances"], matches["distances"])
+    np.testing.assert_array_equal(repeated["distances"], matches.distance)
     assert len({tuple(sorted(pair)) for pair in pairs.tolist()}) == len(pairs)
     assert app.storage.blob_path("objects", target.sha256).read_bytes() == original
 
