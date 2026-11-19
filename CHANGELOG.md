@@ -24,6 +24,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Release the application database and log handlers even when a critical stop-event
+  subscriber fails; retry outstanding cleanup without redelivering the event, and
+  keep startup-failing test applications owned by their fixture (Refs #51, #82).
+- Report a failed SQLite close and retain ownership until actual cleanup succeeds,
+  including wrong-thread shutdown, instead of silently marking a live connection
+  closed (Refs #51, #82).
+
 - Apply requested signed copy-move fixture translations and label identity copies as
   unchanged; reject unrepresentable ground truth instead of silently relocating it (Refs #72).
 

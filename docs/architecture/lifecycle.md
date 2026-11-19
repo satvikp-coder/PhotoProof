@@ -1,5 +1,21 @@
 # Execution lifecycle and failure handling
 
+## Application teardown
+
+The owner calls `Application.stop()` in a `finally` block. The stop event is emitted
+once; a critical subscriber failure still reaches the caller, while database and
+file-log cleanup run deterministically. A failed database close retains ownership
+for an explicit retry, and does not prevent log cleanup. Once closed, the database
+and its cached queue reference are released. Repeated stop calls do not redeliver
+the terminal event. Construct a new application instance for a new service lifetime.
+Test application fixtures register ownership before startup so partial startup
+failures also receive teardown. Garbage collection and interpreter-exit handlers
+are fallback measures, not the normal resource lifecycle.
+SQLite connections remain owned by their creating thread. A failed `Database.close()`
+raises `DatabaseError` and retains the connection in ownership tracking; cleanup
+must be retried on the owning thread. Tracking is removed only after a successful
+close, so leak checks cannot silently lose a still-live connection.
+
 ## Planning
 
 The planner (`core/pipeline/planner.py`) works in two stages.
