@@ -7,11 +7,9 @@ matching ``METADATA.outputs``.
 
 from __future__ import annotations
 
-import io
-
 import numpy as np
 
-from photoproof.contracts.arrays import decode_npy
+from photoproof.contracts.arrays import decode_npy, encode_npy
 from photoproof.contracts.exceptions import InputRejectedError, NotApplicableError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.noise.variance_map.algorithm import (
@@ -64,17 +62,13 @@ def run(ctx: PluginContext) -> dict[str, object]:
     )
 
     # Write sigma map as NPZ artifact
-    buffer = io.BytesIO()
-    np.save(buffer, result["sigma_map"])
     sigma_artifact_ref = ctx.write_artifact(
-        "noise_sigma_map.npy", buffer.getvalue(), "application/x-npy"
+        "noise_sigma_map.npy", encode_npy(result["sigma_map"]), "application/x-npy"
     )
 
     # Write consistency map as NPZ artifact
-    buffer = io.BytesIO()
-    np.save(buffer, result["consistency_map"])
     consistency_artifact_ref = ctx.write_artifact(
-        "noise_consistency_map.npy", buffer.getvalue(), "application/x-npy"
+        "noise_consistency_map.npy", encode_npy(result["consistency_map"]), "application/x-npy"
     )
 
     summary = variance_result_to_dict(result)

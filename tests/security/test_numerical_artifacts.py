@@ -5,7 +5,7 @@ import io
 import numpy as np
 import pytest
 
-from photoproof.contracts.arrays import decode_npy
+from photoproof.contracts.arrays import decode_npy, encode_npy
 from photoproof.contracts.exceptions import InputRejectedError
 
 
@@ -71,3 +71,33 @@ def test_dimensions_and_ceilings_are_enforced():
         decode_npy(data, max_bytes=len(data) - 1)
     with pytest.raises(InputRejectedError, match="allocation ceiling"):
         decode_npy(data, max_elements=5)
+
+
+def test_encoding_size_limit_is_checked_before_serialization(monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail("oversized array reached serialization")
+
+    monkeypatch.setattr(np, "save", forbidden)
+    with pytest.raises(InputRejectedError, match="ceiling"):
+        encode_npy(np.ones((8, 8), dtype=np.float32), max_bytes=32)
+
+
+@pytest.mark.parametrize(
+    "array", [np.array([object()], dtype=object), np.zeros(0), np.zeros(1, "c8")]
+)
+def test_encoding_cannot_create_unsafe_or_unsupported_arrays(array):
+    with pytest.raises(InputRejectedError, match="plain numerical"):
+        encode_npy(array)
+
+
+def test_encoding_header_is_included_in_the_byte_ceiling():
+    array = np.ones((2, 3), dtype=np.float32)
+    with pytest.raises(InputRejectedError, match="including header"):
+        encode_npy(array, max_bytes=array.nbytes)
+
+
+def test_bounded_encoding_roundtrips_deterministically():
+    array = np.asfortranarray(np.arange(12, dtype=np.float32).reshape(3, 4))
+    first = encode_npy(array)
+    assert first == encode_npy(array)
+    np.testing.assert_array_equal(decode_npy(first), array)

@@ -24,7 +24,7 @@ mappings:
     z0: 2.5
     k: 1.0
     strength_class: medium
-  # DQ map deviations indicate double compression; a well-understood forensic signal with low false-positive rate.
+  # DQ deviations may indicate recompression, including benign re-saving; provisional medium strength is not a validated false-positive guarantee.
   compression.dq_map:
     method: robust_z
     z0: 2.5

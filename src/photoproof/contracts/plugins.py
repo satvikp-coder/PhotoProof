@@ -40,6 +40,7 @@ RUN_INPUTS = frozenset(
         "image.geometry",
         "image.reference_geometry",
         "comparison.preflight",
+        "pipeline.upstream_status",
     }
 )
 

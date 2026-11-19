@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Apply requested signed copy-move fixture translations and label identity copies as
+  unchanged; reject unrepresentable ground truth instead of silently relocating it (Refs #72).
+
 - Recheck existing Windows evidence blobs after bounded transient sharing denials;
   persistent denial and hash mismatches still fail without changing evidence (Refs #82).
 
@@ -43,7 +46,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Provide declared upstream execution-state snapshots separately from missing optional
+  measurements, preserving failure/applicability distinctions (Refs #32, #34).
 
+- Add explicit measured-cell score projection that preserves invalid sampling gaps,
+  partial border footprints and EXIF coordinates (Refs #32; integration in progress).
 
 - Render deterministic cividis heuristic heatmaps, safe-preview overlays and region
   outlines with uncalibrated legends and explicit unavailable-evidence messaging (#36).
