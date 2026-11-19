@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Apply requested signed copy-move fixture translations and label identity copies as
+  unchanged; reject unrepresentable ground truth instead of silently relocating it (Refs #72).
+
 - Recheck existing Windows evidence blobs after bounded transient sharing denials;
   persistent denial and hash mismatches still fail without changing evidence (Refs #82).
 
