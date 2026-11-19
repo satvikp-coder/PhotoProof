@@ -46,13 +46,14 @@ class KeypointResult:
 def _to_grayscale(img: np.ndarray) -> np.ndarray:
     """Convert image to grayscale uint8."""
     if img.ndim == 2:
-        return img.astype(np.uint8)
+        gray_2d: np.ndarray = np.clip(img, 0, 255).astype(np.uint8)
+        return gray_2d
     if img.shape[2] == 1:
-        return img[:, :, 0].astype(np.uint8)
+        gray_1c: np.ndarray = np.clip(img[:, :, 0], 0, 255).astype(np.uint8)
+        return gray_1c
     if img.shape[2] >= 3:
-        rgb = img[:, :, :3].astype(np.float32)
-        lum: np.ndarray = 0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]
-        result: np.ndarray = np.clip(lum, 0, 255).astype(np.uint8)
+        rgb = np.ascontiguousarray(np.clip(img[:, :, :3], 0, 255), dtype=np.uint8)
+        result: np.ndarray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
         return result
     raise InputRejectedError(f"unsupported channel count: {img.shape[2]}")
 
@@ -64,8 +65,8 @@ def _resize_for_detection(img: np.ndarray, max_edge: int) -> tuple[np.ndarray, f
     if max_dim <= max_edge:
         return img, 1.0
     scale = max_edge / max_dim
-    new_w = int(w * scale)
-    new_h = int(h * scale)
+    new_w = max(1, int(w * scale))
+    new_h = max(1, int(h * scale))
     resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
     return resized, scale
 
@@ -78,6 +79,8 @@ def _extract_sift(
     use_rootsift: bool,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Extract SIFT keypoints and descriptors using OpenCV."""
+    # Fix native scheduling for same-platform reproducibility.
+    cv2.setNumThreads(1)
     # Create SIFT detector
     sift = cv2.SIFT_create(  # type: ignore[attr-defined]
         nfeatures=max_keypoints,
@@ -142,6 +145,16 @@ def analyze_sift_keypoints(
     if image.size == 0:
         raise InputRejectedError("image array is empty")
 
+    if image.dtype.kind not in "iuf" or not np.isfinite(image).all():
+        raise InputRejectedError("SIFT requires finite numeric working pixels")
+    if isinstance(max_edge, bool) or not isinstance(max_edge, int) or not 1 <= max_edge <= 100000:
+        raise InputRejectedError("SIFT max_edge must be a bounded positive integer")
+    if (
+        isinstance(max_keypoints, bool)
+        or not isinstance(max_keypoints, int)
+        or not 1 <= max_keypoints <= 100000
+    ):
+        raise InputRejectedError("SIFT max_keypoints must be a bounded positive integer")
     # Convert to grayscale
     gray = _to_grayscale(image)
 
@@ -154,11 +167,19 @@ def analyze_sift_keypoints(
         resized, max_keypoints, contrast_threshold, edge_threshold, rootsift
     )
 
-    # Scale keypoints back to original image coordinates
+    # Map detection pixel centres with the actual per-axis resize ratios.
+    # Integer dimension rounding can make those ratios slightly different.
+    sy, sx = resized.shape[0] / orig_h, resized.shape[1] / orig_w
     if scale != 1.0:
-        keypoints[:, 0] /= scale  # x
-        keypoints[:, 1] /= scale  # y
-        keypoints[:, 2] /= scale  # scale
+        keypoints[:, 0] = (keypoints[:, 0] + 0.5) / sx - 0.5
+        keypoints[:, 1] = (keypoints[:, 1] + 0.5) / sy - 0.5
+        keypoints[:, 2] /= np.sqrt(sx * sy)  # Area-equivalent diameter for the mapped ellipse.
+        radians = np.deg2rad(keypoints[:, 3].astype(np.float64))
+        keypoints[:, 3] = np.rad2deg(np.arctan2(np.sin(radians) / sy, np.cos(radians) / sx)) % 360
+    order = np.lexsort(
+        (keypoints[:, 3], keypoints[:, 2], keypoints[:, 1], keypoints[:, 0], -keypoints[:, 4])
+    )
+    keypoints, descriptors = keypoints[order], descriptors[order]
 
     n_keypoints = keypoints.shape[0]
 
@@ -175,7 +196,7 @@ def analyze_sift_keypoints(
     # Determine confidence based on keypoint count
     if n_keypoints >= 100:
         confidence = "high"
-    elif n_keypoints >= 20:
+    elif n_keypoints >= 50:
         confidence = "medium"
     else:
         confidence = "low"
@@ -187,6 +208,15 @@ def analyze_sift_keypoints(
         "rootsift": rootsift,
         "max_edge": max_edge,
         "opencv_version": cv2.__version__,
+        "opencv_threads": 1,
+        "detection_size": [resized.shape[1], resized.shape[0]],
+        "detection_to_working": [
+            [1 / sx, 0, 0.5 / sx - 0.5],
+            [0, 1 / sy, 0.5 / sy - 0.5],
+            [0, 0, 1],
+        ],
+        "size_mapping": "area_equivalent_diameter",
+        "intensity_policy": "clip_0_255_rgb2gray",
     }
 
     return {

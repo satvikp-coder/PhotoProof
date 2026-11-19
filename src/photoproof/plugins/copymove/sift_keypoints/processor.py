@@ -11,11 +11,11 @@ import io
 
 import numpy as np
 
+from photoproof.contracts.copymove import Keypoints
 from photoproof.contracts.exceptions import InputRejectedError, NotApplicableError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.copymove.sift_keypoints.algorithm import (
     analyze_sift_keypoints,
-    keypoints_result_to_dict,
 )
 from photoproof.plugins.copymove.sift_keypoints.schema import Config
 
@@ -55,25 +55,42 @@ def run(ctx: PluginContext) -> dict[str, object]:
         max_edge=max_edge,
     )
 
-    # Write keypoints as NPZ artifact
-    buffer = io.BytesIO()
-    np.savez(
-        buffer,
-        keypoints=result["keypoints"],
-        descriptors=result["descriptors"],
+    geometry = ctx.inputs.get("image.geometry")
+    if not isinstance(geometry, dict) or geometry.get("working_size") != [
+        image.shape[1],
+        image.shape[0],
+    ]:
+        raise InputRejectedError(
+            "SIFT needs source-bound geometry matching its actual working pixels"
+        )
+    packed = result["keypoints"]
+    features = Keypoints(
+        source_sha256=geometry["source_sha256"],
+        image_size=(image.shape[1], image.shape[0]),
+        xy=packed[:, :2],
+        scale=packed[:, 2],
+        angle=packed[:, 3],
+        response=packed[:, 4],
+        desc=result["descriptors"],
     )
     keypoints_artifact_ref = ctx.write_artifact(
-        "keypoints.npz", buffer.getvalue(), "application/x-npy"
+        "keypoints.npz", features.to_npz(), "application/x-npz"
     )
 
     # Write descriptors as separate NPZ artifact for large datasets
     buffer = io.BytesIO()
-    np.save(buffer, result["descriptors"])
+    np.save(buffer, result["descriptors"], allow_pickle=False)
     descriptors_artifact_ref = ctx.write_artifact(
         "descriptors.npy", buffer.getvalue(), "application/x-npy"
     )
 
-    summary = keypoints_result_to_dict(result)
+    summary = {
+        key: result[key] for key in ("num_keypoints", "density_per_mp", "confidence", "config")
+    }
+    summary["coordinate_space"] = "working_pixels"
+    summary["contract_version"] = features.contract_version
+    summary["source_sha256"] = features.source_sha256
+    summary["image_size"] = list(features.image_size)
     summary["keypoints_artifact"] = keypoints_artifact_ref
     summary["descriptors_artifact"] = descriptors_artifact_ref
 

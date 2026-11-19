@@ -1,0 +1,137 @@
+"""Actual image decoding, SIFT artifacts and candidate matching through the controller."""
+
+import json
+
+import numpy as np
+import pytest
+from PIL import Image
+
+from photoproof.contracts.analysis import AnalysisRequest
+from photoproof.contracts.copymove import Keypoints, Matches
+from photoproof.core.controller import AnalysisController
+from photoproof.plugins.copymove.matching.algorithm import analyze_sift_matching
+
+
+def test_real_sift_artifact_drives_configured_matching(make_app, app_root, tmp_path):
+    config = app_root / "configs" / "plugins" / "copymove.matching.yaml"
+    config.write_text(
+        "k: 5\nratio: 0.7\nmin_spatial_distance: 12\nmax_pairs: 1000\n", encoding="utf-8"
+    )
+    rng = np.random.default_rng(21)
+    pixels = np.full((384, 512, 3), 120, dtype=np.uint8)
+    patch = rng.integers(0, 256, (96, 96, 3), dtype=np.uint8)
+    pixels[32:128, 32:128] = patch
+    pixels[200:296, 200:296] = patch
+    pixels[200:296, 350:446] = patch
+    path = tmp_path / "synthetic-copies.png"
+    Image.fromarray(pixels).save(path)
+    original = path.read_bytes()
+    app = make_app("photoproof.plugins")
+    target = app.ingestion().ingest_path(path, role="target")[0]
+    result = AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
+    states = {p.plugin_id: p.state for p in result.plugins}
+    assert states["copymove.sift_keypoints"] == "SUCCESS", result.plugins
+    assert states["copymove.matching"] == "SUCCESS", result.plugins
+    summary = result.outputs["copymove.match_stats"]
+    assert summary["config"]["k"] == 5
+    assert summary["config"]["ratio"] == 0.7
+    assert summary["config"]["min_spatial_distance"] == 12
+    assert len(json.dumps(summary)) < 4096
+    assert len(json.dumps(result.outputs["copymove.keypoint_stats"])) < 4096
+    refs = result.outputs
+    assert refs["copymove.keypoints"]["artifact"]["media_type"] == "application/x-npz"
+    assert refs["copymove.matches"]["artifact"]["media_type"] == "application/x-npz"
+
+    def read(name):
+        ref = refs[name]["artifact"]
+        return app.storage.blob_path("artifacts", ref["sha256"]).read_bytes()
+
+    features = Keypoints.from_npz(read("copymove.keypoints"), source_sha256=target.sha256)
+    matches = Matches.from_npz(read("copymove.matches"), source_sha256=target.sha256)
+    assert features.image_size == matches.image_size == (512, 384)
+    assert matches.num_keypoints == len(features.xy)
+    assert features.contract_version == matches.contract_version == "2.0.0"
+    assert not features.desc.flags.writeable and not matches.pairs.flags.writeable
+    pairs = matches.pairs
+    assert len(pairs) > 0
+    assert np.all(pairs[:, 0] != pairs[:, 1])
+    deltas = features.xy[pairs[:, 1]] - features.xy[pairs[:, 0]]
+    assert np.all(np.linalg.norm(deltas, axis=1) >= 12)
+    deltas = np.where((deltas[:, :1] < 0), -deltas, deltas)
+    planted = np.array([[168, 168], [318, 168], [150, 0]])
+    close = np.max(np.abs(deltas[:, None, :] - planted[None, :, :]), axis=2) <= 2
+    assert float(close.any(axis=1).mean()) >= 0.8
+    assert close[:, 0].any() and close[:, 1].any()  # Both pasted copies are recovered.
+    repeated = analyze_sift_matching(
+        np.column_stack((features.xy, features.scale, features.angle, features.response)),
+        features.desc,
+        k=5,
+        ratio=0.7,
+        min_spatial_distance=12,
+        max_pairs=1000,
+    )
+    np.testing.assert_array_equal(repeated["pairs"], pairs)
+    np.testing.assert_array_equal(repeated["distances"], matches.distance)
+    assert len({tuple(sorted(pair)) for pair in pairs.tolist()}) == len(pairs)
+    second = AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
+    for name in ("copymove.keypoints", "copymove.matches"):
+        assert second.outputs[name]["artifact"]["sha256"] == refs[name]["artifact"]["sha256"]
+    assert app.storage.blob_path("objects", target.sha256).read_bytes() == original
+
+
+def test_no_keypoints_is_successful_empty_matching_not_a_forgery_verdict(make_app, tmp_path):
+    path = tmp_path / "flat-fixture.png"
+    Image.fromarray(np.full((64, 64, 3), 120, dtype=np.uint8)).save(path)
+    app = make_app("photoproof.plugins")
+    target = app.ingestion().ingest_path(path, role="target")[0]
+    result = AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
+    states = {p.plugin_id: p.state for p in result.plugins}
+    assert states["copymove.sift_keypoints"] == states["copymove.matching"] == "SUCCESS"
+    assert result.outputs["copymove.match_stats"]["num_matches"] == 0
+    assert "verdict" not in result.outputs["copymove.match_stats"]
+
+
+@pytest.mark.parametrize("field,value", [("source_sha256", "b" * 64), ("image_size", (193, 128))])
+def test_wrong_source_or_frame_cannot_become_candidate_matches(
+    make_app, tmp_path, monkeypatch, field, value
+):
+    original_writer = Keypoints.to_npz
+
+    def wrong_metadata(self):
+        return original_writer(self.model_copy(update={field: value}))
+
+    monkeypatch.setattr(Keypoints, "to_npz", wrong_metadata)
+    pixels = np.random.default_rng(77).integers(0, 256, (128, 192, 3), np.uint8)
+    path = tmp_path / "provenance-fixture.png"
+    Image.fromarray(pixels).save(path)
+    original = path.read_bytes()
+    app = make_app("photoproof.plugins")
+    target = app.ingestion().ingest_path(path, role="target")[0]
+    result = AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
+    states = {p.plugin_id: p.state for p in result.plugins}
+    assert states["copymove.sift_keypoints"] == "SUCCESS"
+    assert states["copymove.matching"] == "FAILED"
+    assert "copymove.matches" not in result.outputs
+    assert app.storage.blob_path("objects", target.sha256).read_bytes() == original
+
+
+def test_actual_exif_normalization_retains_working_coordinates_and_original_identity(
+    make_app, tmp_path
+):
+    path = tmp_path / "oriented-fixture.jpg"
+    pixels = np.random.default_rng(20).integers(0, 256, (128, 192, 3), np.uint8)
+    exif = Image.Exif()
+    exif[274] = 6
+    Image.fromarray(pixels).save(path, format="JPEG", quality=95, exif=exif)
+    app = make_app("photoproof.plugins")
+    target = app.ingestion().ingest_path(path, role="target")[0]
+    result = AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
+    states = {p.plugin_id: p.state for p in result.plugins}
+    assert states["copymove.sift_keypoints"] == states["copymove.matching"] == "SUCCESS"
+    ref = result.outputs["copymove.keypoints"]["artifact"]
+    features = Keypoints.from_npz(
+        app.storage.blob_path("artifacts", ref["sha256"]).read_bytes(), source_sha256=target.sha256
+    )
+    assert features.image_size == (128, 192)
+    assert result.outputs["image.geometry"]["applied_orientation"] == 6
+    assert features.coordinate_space == "working_pixels"

@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** copy-move interchange version 2 binds all five stage models to the
+  original source hash and working frame, validates parent references, and uses one
+  canonical extraction/matching wire format. Preserve historical artifacts and
+  reanalyse or migrate explicitly; see the copy-move interchange guide (Refs #77).
+
+- **Breaking:** copy-move extraction/matching summaries are compact; bulk keypoints,
+  descriptors, pairs and distances stay in their artifacts. Read the matching summary's
+  `matches_artifact` reference instead of its incorrect legacy aliases (Refs #20, #21).
+
 - **Breaking:** assessment version 2.0.0 consumes actual coverage inputs, applies
   configured thresholds, excludes weak/invalid coverage and reports missing evidence
   as inconclusive. Historical categories retain their old semantics; see ADR-005 (#34).
@@ -23,6 +32,14 @@ All notable changes to this project are documented here. The format follows
   historical manifests retain old semantics and require re-analysis (#32).
 
 ### Fixed
+
+- Map resized SIFT pixel centres, angles and diameters using actual detection
+  dimensions, retain the strongest features, and report LOW feature availability
+  below 50 keypoints (Refs #20).
+
+- Connect SIFT matching to verified stored keypoints, honor validated matching parameters,
+  exclude self/nearby structures before ratio testing, and recover multiple copies from
+  a separated neighbor group (Refs #21). Candidate matches are not forgery proof.
 
 - Apply requested signed copy-move fixture translations and label identity copies as
   unchanged; reject unrepresentable ground truth instead of silently relocating it (Refs #72).

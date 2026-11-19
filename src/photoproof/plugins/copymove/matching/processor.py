@@ -7,17 +7,15 @@ matching ``METADATA.outputs``.
 
 from __future__ import annotations
 
-import io
-
 import numpy as np
 
+from photoproof.contracts.copymove import Keypoints, Matches
 from photoproof.contracts.exceptions import InputRejectedError, NotApplicableError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.copymove.matching.algorithm import (
     analyze_sift_matching,
-    sift_matching_result_to_dict,
 )
-from photoproof.plugins.copymove.sift_keypoints.schema import Config
+from photoproof.plugins.copymove.matching.schema import Config
 
 
 def run(ctx: PluginContext) -> dict[str, object]:
@@ -32,48 +30,54 @@ def run(ctx: PluginContext) -> dict[str, object]:
             "copymove.matching requires copymove.keypoints; not declared in inputs"
         )
 
-    keypoints_data = ctx.inputs["copymove.keypoints"]
-    if not isinstance(keypoints_data, dict):
+    geometry = ctx.inputs.get("image.geometry")
+    if not isinstance(geometry, dict) or not isinstance(geometry.get("source_sha256"), str):
+        raise InputRejectedError("matching requires authoritative source-bound image geometry")
+    features = Keypoints.from_npz(
+        ctx.artifact("copymove.keypoints"), source_sha256=geometry["source_sha256"]
+    )
+    if list(features.image_size) != geometry.get("working_size"):
         raise InputRejectedError(
-            "copymove.matching: copymove.keypoints must be a dict, "
-            f"got {type(keypoints_data).__name__}"
+            "matching keypoints disagree with current working image dimensions"
         )
+    keypoints = np.column_stack((features.xy, features.scale, features.angle, features.response))
+    descriptors = features.desc
 
-    if "keypoints" not in keypoints_data or "descriptors" not in keypoints_data:
-        raise InputRejectedError(
-            "copymove.matching: copymove.keypoints must contain 'keypoints' and 'descriptors' keys"
-        )
-
-    keypoints = np.array(keypoints_data["keypoints"], dtype=np.float32)
-    descriptors = np.array(keypoints_data["descriptors"], dtype=np.float32)
-
-    config = ctx.config if isinstance(ctx.config, Config) else None
-    max_keypoints = getattr(config, "max_keypoints", 20000) if config else 20000
-    ratio = getattr(config, "ratio", 0.5) if config else 0.5
-    min_spatial_distance = getattr(config, "min_spatial_distance", 10.0) if config else 10.0
-    max_pairs = getattr(config, "max_pairs", 50000) if config else 50000
+    if not np.isfinite(keypoints).all() or not np.isfinite(descriptors).all():
+        raise InputRejectedError("copymove.matching: keypoint/descriptor values must be finite")
+    config = (
+        ctx.config
+        if isinstance(ctx.config, Config)
+        else Config.model_validate({} if ctx.config is None else ctx.config)
+    )
 
     result = analyze_sift_matching(
         keypoints,
         descriptors,
-        k=max_keypoints,
-        ratio=ratio,
-        min_spatial_distance=min_spatial_distance,
-        max_pairs=max_pairs,
+        k=config.k,
+        ratio=config.ratio,
+        min_spatial_distance=config.min_spatial_distance,
+        max_pairs=config.max_pairs,
     )
 
     # Write matches as NPZ artifact
-    buffer = io.BytesIO()
-    np.savez(
-        buffer,
+    matches = Matches(
+        source_sha256=features.source_sha256,
+        image_size=features.image_size,
+        num_keypoints=len(features.xy),
         pairs=result["pairs"],
-        distances=result["distances"],
+        distance=result["distances"],
     )
-    matches_artifact_ref = ctx.write_artifact("matches.npz", buffer.getvalue(), "application/x-npy")
+    matches_artifact_ref = ctx.write_artifact("matches.npz", matches.to_npz(), "application/x-npz")
 
-    summary = sift_matching_result_to_dict(result)
-    summary["keypoints_artifact"] = matches_artifact_ref
-    summary["descriptors_artifact"] = matches_artifact_ref
+    summary = {
+        key: result[key] for key in ("num_keypoints", "num_matches", "matcher_used", "config")
+    }
+    summary["matches_artifact"] = matches_artifact_ref
+    summary["contract_version"] = matches.contract_version
+    summary["source_sha256"] = matches.source_sha256
+    summary["image_size"] = list(matches.image_size)
+    summary["coordinate_space"] = matches.coordinate_space
 
     return {
         "copymove.matches": matches_artifact_ref,

@@ -203,7 +203,7 @@ level is inconsistent with the rest of the image.
 ## Copy-Move Forgery
 
 The `copymove.sift_keypoints` plugin detects SIFT keypoints and computes descriptors
-on the decoded image. This is the first stage of the copy-move detection chain:
+on the normalized working image. This is the first stage of the copy-move detection chain:
 keypoints → matches → clusters → verified transforms → masks.
 
 * Outputs: `copymove.keypoints` (NPZ artifact with keypoints and descriptors) and
@@ -223,6 +223,29 @@ constraints and symmetric deduplication.
   (default 10), `max_pairs` (default 50000)
 * Uses OpenCV FLANN or brute-force matching depending on descriptor count
 
+Version 2 reads the actual stored keypoint NPZ through the verified artifact broker.
+The canonical version-2 [copy-move models](copymove-contracts.md) bind coordinates
+to the working frame and original source hash; descriptors have 128 columns.
+Empty feature sets produce successful
+empty matches, without an authenticity verdict. Archive names, expanded bytes and
+numeric NPY headers are bounded; pickle/object arrays and unexpected members are rejected.
+
+Self/nearby structures are removed before ratio testing. A positive separating
+distance gap selects the preceding neighbor group, including multiple identical
+copies; symmetric pairs are counted once. Results are deterministic for fixed
+configuration/OpenCV on a platform, not guaranteed identical across OpenCV versions.
+These are candidate correspondences, never proof of forgery.
+
+**Migration:** extraction/matching summaries no longer duplicate bulk arrays. Read
+keypoints/descriptors from `copymove.keypoints` and pairs/distances from
+`copymove.matches`; the matching summary's reference is `matches_artifact`, replacing
+incorrect `keypoints_artifact`/`descriptors_artifact` aliases. Historical manifests
+retain their recorded fields. Host API 1.7 adds bounded numeric NPZ reads and explicit
+empty-array support; empty score maps remain rejected by default. This validates
+extraction-to-matching controller wiring, not the remaining clustering/verification/
+mask integration or forensic accuracy. Historical version-1 and packed runtime
+NPZ files require explicit migration or reanalysis, not silent reinterpretation.
+
 The `copymove.clustering` plugin groups matched keypoint pairs into clusters using
 hierarchical clustering (Ward linkage) or DBSCAN on displacement vectors.
 
@@ -231,8 +254,9 @@ hierarchical clustering (Ward linkage) or DBSCAN on displacement vectors.
 * Config: `method` (default `hierarchical`), `cut_threshold` (default 0.5),
   `eps` (default 0.5), `min_matches_per_cluster` (default 4)
 
-The `copymove.mask` plugin generates pixel-level source/target masks from
-verified copy-move matches using bounded ZNCC correlation.
+The copy-move mask algorithm generates source/target masks using bounded ZNCC correlation.
+The production processor still needs artifact and verified-inlier integration (#24);
+its present raw-match wiring must not be described as verified localization.
 
 * Outputs: `copymove.mask` (NPZ artifact with mask, source_mask, target_mask)
   and `copymove.mask_stats` (summary statistics)

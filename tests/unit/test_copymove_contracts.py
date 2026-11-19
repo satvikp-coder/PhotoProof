@@ -15,9 +15,13 @@ from photoproof.plugins.copymove.contracts import (
     VerifiedTransform,
 )
 
+SOURCE = "a" * 64
+
 
 def _keypoints(n: int = 4) -> Keypoints:
     return Keypoints(
+        source_sha256=SOURCE,
+        image_size=(128, 128),
         xy=np.ascontiguousarray(np.zeros((n, 2), dtype=np.float32)),
         scale=np.full(n, 1.0, dtype=np.float32),
         angle=np.zeros(n, dtype=np.float32),
@@ -28,6 +32,9 @@ def _keypoints(n: int = 4) -> Keypoints:
 
 def _matches(m: int = 3) -> Matches:
     return Matches(
+        source_sha256=SOURCE,
+        image_size=(128, 128),
+        num_keypoints=64,
         pairs=np.ascontiguousarray(np.zeros((m, 2), dtype=np.int32)),
         distance=np.full(m, 1.0, dtype=np.float32),
     )
@@ -83,6 +90,8 @@ def test_keypoints_round_trip() -> None:
 def test_keypoints_rejects_bad_shapes() -> None:
     with pytest.raises(InputRejectedError):
         Keypoints(
+            source_sha256=SOURCE,
+            image_size=(128, 128),
             xy=np.zeros((3, 3), dtype=np.float32),
             scale=np.zeros(3, dtype=np.float32),
             angle=np.zeros(3, dtype=np.float32),
@@ -94,6 +103,8 @@ def test_keypoints_rejects_bad_shapes() -> None:
 def test_keypoints_rejects_mismatched_lengths() -> None:
     with pytest.raises(InputRejectedError):
         Keypoints(
+            source_sha256=SOURCE,
+            image_size=(128, 128),
             xy=np.zeros((4, 2), dtype=np.float32),
             scale=np.zeros(5, dtype=np.float32),
             angle=np.zeros(4, dtype=np.float32),
@@ -112,6 +123,9 @@ def test_matches_round_trip() -> None:
 def test_matches_rejects_bad_shapes() -> None:
     with pytest.raises(InputRejectedError):
         Matches(
+            source_sha256=SOURCE,
+            image_size=(128, 128),
+            num_keypoints=64,
             pairs=np.zeros((3, 3), dtype=np.int32),
             distance=np.zeros(3, dtype=np.float32),
         )
@@ -125,7 +139,13 @@ def test_clusters_round_trip() -> None:
         target_bbox=(60, 70, 100, 110),
         mean_displacement=(50.0, 60.0),
     )
-    clusters = Clusters(contract_version="1.0.0", clusters=(cl,))
+    clusters = Clusters(
+        source_sha256=SOURCE,
+        image_size=(128, 128),
+        num_matches=64,
+        contract_version="2.0.0",
+        clusters=(cl,),
+    )
     text = clusters.to_json()
     clusters2 = Clusters.from_json(text)
     assert clusters2 == clusters
@@ -144,7 +164,13 @@ def test_verified_round_trip() -> None:
         score=0.9,
         flags=("ransac_verified",),
     )
-    verified = Verified(contract_version="1.0.0", transforms=(vt,))
+    verified = Verified(
+        source_sha256=SOURCE,
+        image_size=(128, 128),
+        cluster_ids=(0,),
+        contract_version="2.0.0",
+        transforms=(vt,),
+    )
     data = verified.to_npz()
     verified2 = Verified.from_npz(data)
     assert len(verified2.transforms) == 1
@@ -159,7 +185,13 @@ def test_mask_round_trip() -> None:
         Region(kind="source", bbox=(0, 2, 2, 4), area=4),
         Region(kind="target", bbox=(2, 0, 4, 2), area=4),
     )
-    m = Mask(contract_version="1.0.0", mask=mask, regions=regions)
+    m = Mask(
+        source_sha256=SOURCE,
+        image_size=(mask.shape[1], mask.shape[0]),
+        contract_version="2.0.0",
+        mask=mask,
+        regions=regions,
+    )
     data = m.to_npz()
     m2 = Mask.from_npz(data)
     assert _mask_equal(m2, m)
@@ -168,13 +200,21 @@ def test_mask_round_trip() -> None:
 def test_mask_rejects_invalid_values() -> None:
     mask = np.ascontiguousarray(np.array([[0, 3], [0, 0]], dtype=np.uint8))
     with pytest.raises(InputRejectedError):
-        Mask(contract_version="1.0.0", mask=mask, regions=())
+        Mask(
+            source_sha256=SOURCE,
+            image_size=(mask.shape[1], mask.shape[0]),
+            contract_version="2.0.0",
+            mask=mask,
+            regions=(),
+        )
 
 
 def test_golden_chain_round_trip() -> None:
     """Build a minimal copy-move contract chain and verify all round-trips."""
     # Keypoints: 4 keypoints on a source region
     kp = Keypoints(
+        source_sha256=SOURCE,
+        image_size=(64, 64),
         xy=np.ascontiguousarray(
             np.array([[10, 10], [10, 20], [20, 10], [20, 20]], dtype=np.float32)
         ),
@@ -189,6 +229,9 @@ def test_golden_chain_round_trip() -> None:
 
     # Matches: each source keypoint matches a target keypoint
     mt = Matches(
+        source_sha256=SOURCE,
+        image_size=(64, 64),
+        num_keypoints=len(kp.xy),
         pairs=np.ascontiguousarray(np.array([[0, 1], [1, 2], [2, 3], [3, 0]], dtype=np.int32)),
         distance=np.full(4, 50.0, dtype=np.float32),
     )
@@ -202,7 +245,13 @@ def test_golden_chain_round_trip() -> None:
         target_bbox=(40, 50, 51, 61),
         mean_displacement=(30.0, 40.0),
     )
-    clusters = Clusters(contract_version="1.0.0", clusters=(cl,))
+    clusters = Clusters(
+        source_sha256=SOURCE,
+        image_size=(64, 64),
+        num_matches=len(mt.pairs),
+        contract_version="2.0.0",
+        clusters=(cl,),
+    )
     assert Clusters.from_json(clusters.to_json()) == clusters
 
     # Verified: one RANSAC-verified transform
@@ -217,7 +266,13 @@ def test_golden_chain_round_trip() -> None:
         score=0.95,
         flags=("ransac_verified",),
     )
-    verified = Verified(contract_version="1.0.0", transforms=(vt,))
+    verified = Verified(
+        source_sha256=SOURCE,
+        image_size=(64, 64),
+        cluster_ids=(0,),
+        contract_version="2.0.0",
+        transforms=(vt,),
+    )
     vf2 = Verified.from_npz(verified.to_npz())
     assert _verified_equal(vf2.transforms[0], vt)
 
@@ -229,6 +284,12 @@ def test_golden_chain_round_trip() -> None:
         Region(kind="source", bbox=(10, 10, 21, 21), area=121),
         Region(kind="target", bbox=(40, 50, 51, 61), area=121),
     )
-    m = Mask(contract_version="1.0.0", mask=mask, regions=regions)
+    m = Mask(
+        source_sha256=SOURCE,
+        image_size=(mask.shape[1], mask.shape[0]),
+        contract_version="2.0.0",
+        mask=mask,
+        regions=regions,
+    )
     assert _mask_equal(Mask.from_npz(m.to_npz()), m)
     assert set(np.unique(mask).tolist()) <= {0, 1, 2}
