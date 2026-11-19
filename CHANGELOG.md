@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** copy-move verification now consumes canonical source-bound artifacts
+  and publishes typed transforms, exact original-row inliers, hash bindings and
+  explicit diagnostics. Host API 1.8 adds the binding contract; preserve historical
+  results and reanalyse rather than relabelling prototype outputs (Refs #23, #77).
+
 - **Breaking:** register copy-move candidate clustering over actual source-bound
   artifacts, publishing typed `copymove.clusters` with working-pixel boxes and
   original match references; historical inline payloads require reanalysis (Refs #22).
@@ -36,6 +41,10 @@ All notable changes to this project are documented here. The format follows
   historical manifests retain old semantics and require re-analysis (#32).
 
 ### Fixed
+
+- Apply seeded bounded RANSAC with distinct geometric support, actual inlier masks,
+  scale/shear guards and actual-pixel repetitive-texture cautions. Geometric scores
+  remain uncalibrated and do not establish manipulation or authenticity (Refs #23).
 
 - Use actual bounded Ward linkage and displacement-density fallback, record resource
   limits, and reject incoherent candidate groups without claiming RANSAC verification

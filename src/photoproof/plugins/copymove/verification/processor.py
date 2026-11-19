@@ -1,105 +1,103 @@
-"""Processor wiring for the verification plugin.
-
-Calls the pure algorithm in
-:mod:`photoproof.plugins.copymove.clustering.algorithm` and returns typed outputs
-matching ``METADATA.outputs``.
-"""
-
-from __future__ import annotations
+"""Verify actual artifact-backed hypotheses and publish traceable inlier identities."""
 
 import json
+from hashlib import sha256
 
-import numpy as np
-
-from photoproof.contracts.exceptions import InputRejectedError, NotApplicableError
+from photoproof.contracts.copymove import Clusters, Keypoints, Matches, VerificationBindings
+from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.contracts.plugins import PluginContext
-from photoproof.plugins.copymove.clustering.algorithm import (
-    analyze_copy_move,
-)
-from photoproof.plugins.copymove.clustering.schema import Config
+from photoproof.plugins.copymove.verification.algorithm import verify_clusters
+from photoproof.plugins.copymove.verification.schema import Config
 
 
 def run(ctx: PluginContext) -> dict[str, object]:
-    """Run copy-move verification on decoded image and keypoints.
-
-    Reads ``copymove.matches`` (NPZ artifact with pairs and distances) and
-    ``copymove.keypoints`` (NPZ artifact with keypoints), and returns
-    ``copymove.verification`` (verification result artifact) and
-    ``copymove.match_stats`` (summary statistics).
-    """
-    if "copymove.matches" not in ctx.inputs:
-        raise NotApplicableError(
-            "copymove.verification requires copymove.matches; not declared in inputs"
-        )
-    if "copymove.keypoints" not in ctx.inputs:
-        raise NotApplicableError(
-            "copymove.verification requires copymove.keypoints; not declared in inputs"
-        )
-
-    matches_data = ctx.inputs["copymove.matches"]
-    keypoints_data = ctx.inputs["copymove.keypoints"]
-
-    if not isinstance(matches_data, dict):
+    """Publish geometry-only verification, not a forgery or authenticity verdict."""
+    geometry = ctx.inputs.get("image.geometry")
+    if not isinstance(geometry, dict) or not isinstance(geometry.get("source_sha256"), str):
         raise InputRejectedError(
-            "copymove.verification: copymove.matches must be a dict, "
-            f"got {type(matches_data).__name__}"
+            "verification requires authoritative source-bound working geometry"
         )
-    if not isinstance(keypoints_data, dict):
-        raise InputRejectedError(
-            "copymove.verification: copymove.keypoints must be a dict, "
-            f"got {type(keypoints_data).__name__}"
-        )
-
-    if "pairs" not in matches_data or "distances" not in matches_data:
-        raise InputRejectedError(
-            "copymove.verification: copymove.matches must contain 'pairs' and 'distances' keys"
-        )
-
-    pairs = np.array(matches_data["pairs"], dtype=np.int32)
-    _distances = np.array(matches_data["distances"], dtype=np.float32)
-    keypoints = np.array(keypoints_data["keypoints"], dtype=np.float32)
-
-    config = ctx.config if isinstance(ctx.config, Config) else None
-    model = getattr(config, "model", "similarity") if config else "similarity"
-    reproj_threshold = getattr(config, "reproj_threshold", 3.0) if config else 3.0
-    min_inliers = getattr(config, "min_inliers", 6) if config else 6
-    max_iterations = getattr(config, "max_iterations", 1000) if config else 1000
-    scale_min = getattr(config, "scale_min", 0.5) if config else 0.5
-    scale_max = getattr(config, "scale_max", 2.0) if config else 2.0
-    max_shear_deg = getattr(config, "max_shear_deg", 45.0) if config else 45.0
-
-    result = analyze_copy_move(
-        keypoints,
-        pairs,
-        model=model,
-        reproj_threshold=reproj_threshold,
-        min_inliers=min_inliers,
-        max_iterations=max_iterations,
-        scale_min=scale_min,
-        scale_max=scale_max,
-        max_shear_deg=max_shear_deg,
+    source = geometry["source_sha256"]
+    payload = ctx.artifact("copymove.keypoints")
+    keypoints_sha = sha256(payload).hexdigest()
+    features = Keypoints.from_npz(payload, source_sha256=source)
+    payload = ctx.artifact("copymove.matches")
+    matches_sha = sha256(payload).hexdigest()
+    matches = Matches.from_npz(payload, source_sha256=source)
+    payload = ctx.artifact("copymove.clusters", max_bytes=1 << 20)
+    clusters_sha = sha256(payload).hexdigest()
+    try:
+        cluster_text = payload.decode("utf-8")
+    except UnicodeError as error:
+        raise InputRejectedError("verification cluster artifact is not UTF-8 JSON") from error
+    clusters = Clusters.from_json(cluster_text, source_sha256=source)
+    del payload
+    if list(features.image_size) != geometry.get("working_size"):
+        raise InputRejectedError("verification features differ from the host working frame")
+    config = (
+        ctx.config
+        if isinstance(ctx.config, Config)
+        else Config.model_validate({} if ctx.config is None else ctx.config)
     )
-
-    # Write verification result as JSON artifact
-    verification_json = json.dumps(
+    result = verify_clusters(
+        features, matches, clusters, image=ctx.image("image.working"), seed=ctx.seed, config=config
+    )
+    verified_bytes = result.verified.to_npz()
+    inlier_bytes = result.inliers.to_json().encode("utf-8")
+    bindings = VerificationBindings(
+        source_sha256=source,
+        image_size=features.image_size,
+        keypoints_sha256=keypoints_sha,
+        matches_sha256=matches_sha,
+        clusters_sha256=clusters_sha,
+        verified_sha256=sha256(verified_bytes).hexdigest(),
+        inliers_sha256=sha256(inlier_bytes).hexdigest(),
+        geometric_model=config.model,
+        reproj_threshold=config.reproj_threshold,
+        min_inliers=config.min_inliers,
+        seed=ctx.seed,
+        ransac_stop_confidence=config.ransac_stop_confidence,
+    )
+    binding_bytes = bindings.to_json().encode("utf-8")
+    detail_bytes = json.dumps(
         {
-            "cluster_id": result["cluster_id"],
-            "matrix": result["matrix"].tolist(),
-            "inliers": result["inliers"],
-            "inlier_ratio": result["inlier_ratio"],
-            "rmse": result["rmse"],
-            "scale": result["scale"],
-            "rotation_deg": result["rotation_deg"],
-            "score": result["score"],
-            "model": result["model"],
-            "reason": result["reason"],
+            "schema": "photoproof.copymove.verification-details",
+            "format_version": 1,
+            "source_sha256": source,
+            "image_size": list(features.image_size),
+            "coordinate_space": "working_pixels",
+            "calibration": "uncalibrated",
+            "seed": ctx.seed,
+            "bindings_sha256": sha256(binding_bytes).hexdigest(),
+            "clusters": result.details,
         },
-        indent=2,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    if len(detail_bytes) > 1 << 20:
+        raise InputRejectedError("verification details exceed the one-MiB metadata ceiling")
+    verified = ctx.write_artifact("verified.npz", verified_bytes, "application/x-npz")
+    inliers = ctx.write_artifact("verified-inliers.json", inlier_bytes, "application/json")
+    details = ctx.write_artifact("verification-details.json", detail_bytes, "application/json")
+    binding_ref = ctx.write_artifact(
+        "verification-bindings.json", binding_bytes, "application/json"
     )
-    verification_artifact_ref = ctx.write_artifact(
-        "verification.json", verification_json.encode("utf-8"), "application/json"
-    )
-
+    summary = {
+        **result.summary,
+        "source_sha256": source,
+        "image_size": list(features.image_size),
+        "coordinate_space": "working_pixels",
+        "contract_version": result.verified.contract_version,
+        "verified_artifact": verified,
+        "inliers_artifact": inliers,
+        "details_artifact": details,
+        "bindings_artifact": binding_ref,
+    }
     return {
-        "copymove.verification": verification_artifact_ref,
+        "copymove.verified": verified,
+        "copymove.verified_inliers": inliers,
+        "copymove.verification_bindings": binding_ref,
+        "copymove.verification_details": details,
+        "copymove.verification_stats": summary,
     }

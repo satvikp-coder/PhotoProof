@@ -4,8 +4,9 @@ The canonical models are in `photoproof.contracts.copymove`. The historical
 `photoproof.plugins.copymove.contracts` module re-exports these models. Importing
 that module does not select a legacy wire format. Extraction and matching use the
 version-2 models through the actual controller. Clustering now consumes their
-artifacts and emits candidate hypotheses. Verification and mask processors still
-require migration; their presence alone does not establish a
+artifacts and emits candidate hypotheses. Verification now publishes seeded
+geometrically consistent transforms and exact inlier rows. The mask processor still
+requires migration; their presence alone does not establish a
 working verified copy-move chain.
 
 ## Common fields and coordinates
@@ -141,3 +142,49 @@ On the same stack, an unmodified seed-21 uniform RGB noise image at 512×384
 produced 599 SIFT features and zero candidate matches with defaults (`k=10`,
 `ratio=0.5`, minimum distance 10, maximum pairs 50,000). This is one synthetic
 negative baseline; it does not estimate false-positive rates on real photographs.
+
+
+## Geometric verification and bindings
+
+`copymove.verified` is canonical `Verified` NPZ. `copymove.verified_inliers` is
+canonical `Clusters` JSON with actual original match-row indices retained by
+native RANSAC and the final residual check. Identical oriented coordinate pairs
+count once. Counts equal selected rows; source/frame/parent agreement is mandatory.
+No accepted model means empty typed diagnostics and a null maximum heuristic score.
+
+`copymove.verification_bindings` uses frozen `VerificationBindings` (API 1.8),
+inheriting all common fields and adding:
+
+| Field | Meaning |
+|---|---|
+| `kind` | Literal `verification_bindings`. |
+| `keypoints_sha256`, `matches_sha256`, `clusters_sha256` | Exact upstream-byte hashes, not reserialized-model hashes. |
+| `verified_sha256`, `inliers_sha256` | Exact resulting artifact-byte hashes. |
+| `geometric_model` | `similarity` or `affine`. |
+| `reproj_threshold` | Final residual limit in working pixels. |
+| `min_inliers` | Minimum distinct coordinate-pair support. |
+| `seed` | Host context seed; details record effective native seeds. |
+| `ransac_stop_confidence` | Native sampling termination, not an image probability. |
+| `algorithm` | Literal `opencv_ransac`. |
+| `correspondence_policy` | Literal `distinct_oriented_xy_pairs`. |
+| `score_kind` | Literal `geometric_heuristic`; calibration remains `uncalibrated`. |
+
+Use `verify_payload(kind,bytes)` before interpreting a referenced payload, then
+validate its typed source/frame/count/geometry semantics. JSON is bounded to 1 MiB,
+numeric archives to 64 MiB. Hashes establish byte consistency, not authentication.
+`copymove.verification_details` is bounded JSON (`schema` identifies verification
+details, `format_version=1`), binding the binding-artifact digest and recording
+per-cluster results or rejection reasons. `copymove.verification_stats` holds
+compact counts, work, actual configuration/seed/version and artifact references.
+
+The score is distinct inliers divided by original candidate rows, times
+`exp(-rmse/reproj_threshold)`. It is not calibrated. Actual-pixel autocorrelation
+can flag translation-aligned repetitive structure and cap score; missing texture
+or check coverage is explicit. Naturally repeated content can still match.
+Rotation follows working image axes, positive clockwise. Configuration supports
+`model`, `reproj_threshold`, `min_inliers`, `max_iterations`, `scale_min/scale_max`
+(or the mutually exclusive `scale_range: [minimum,maximum]` alias),
+`max_shear_deg`, sampling confidence, texture controls and work budgets.
+See [ADR-024](../planning/adr-024-geometric-inlier-provenance.md) for exact limits
+and caveats. Dense verified masks, independent fusion and real-image evaluation
+remain separate requirements. Historical prototype outputs require reanalysis.
