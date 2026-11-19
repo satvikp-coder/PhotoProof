@@ -51,7 +51,7 @@ def test_textured_scene_valid_image() -> None:
 
 def test_copy_move_returns_source_and_target_masks() -> None:
     img = textured_scene(64, 64, seed=5)
-    fixture = copy_move(img, translate=(20, 20), rotate_deg=0.0, scale=1.0)
+    fixture = copy_move(img, translate=(24, 24), rotate_deg=0.0, scale=1.0)
     _check_image(fixture.image)
     _check_mask(fixture.mask, 64, 64)
     assert 1 in fixture.mask  # source present
@@ -60,7 +60,7 @@ def test_copy_move_returns_source_and_target_masks() -> None:
 
 def test_copy_move_target_matches_source() -> None:
     img = textured_scene(64, 64, seed=9)
-    fixture = copy_move(img, translate=(0, 0), rotate_deg=0.0, scale=1.0)
+    fixture = copy_move(img, translate=(24, 24), rotate_deg=0.0, scale=1.0)
     source_mask = fixture.mask == 1
     target_mask = fixture.mask == 2
     assert source_mask.any()
@@ -152,7 +152,7 @@ def test_with_exif_attaches_tags() -> None:
 def test_all_generators_return_contiguous() -> None:
     img = textured_scene(48, 48, seed=37)
     generators = [
-        lambda: copy_move(img, translate=(0, 0), rotate_deg=0.0, scale=1.0),
+        lambda: copy_move(img, translate=(18, 0), rotate_deg=0.0, scale=1.0),
         lambda: splice(img, img[8:16, 8:16], region=(20, 20, 28, 28)),
         lambda: noise_splice(img, sigma_in=0.0, sigma_out=0.3),
         lambda: blur_patch(img, sigma=1.5),

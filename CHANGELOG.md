@@ -32,6 +32,9 @@ All notable changes to this project are documented here. The format follows
   exclude self/nearby structures before ratio testing, and recover multiple copies from
   a separated neighbor group (Refs #21). Candidate matches are not forgery proof.
 
+- Apply requested signed copy-move fixture translations and label identity copies as
+  unchanged; reject unrepresentable ground truth instead of silently relocating it (Refs #72).
+
 - Recheck existing Windows evidence blobs after bounded transient sharing denials;
   persistent denial and hash mismatches still fail without changing evidence (Refs #82).
 
