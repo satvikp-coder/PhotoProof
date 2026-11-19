@@ -499,7 +499,7 @@ length before constructing a read-only view. Its default ceiling is 64 MiB and
 or complex arrays fail visibly. Hash verification remains the byte broker's job;
 this parser does not establish forensic meaning or calibration.
 
-`noise.variance_map` version 1.1.0 requires API 1.4.0 and consumes the actual
+`noise.variance_map` version 1.1.1 requires API 1.6.0 and consumes the actual
 `noise.residual` NPY artifact using this broker/parser. Its output names and
 validity-aware summary remain unchanged. The parser does not make unsupported
 normalization inputs available or resolve the large JSON-map transport limit.
@@ -547,3 +547,27 @@ This does not register two images or define detector block/cell footprints. Cons
 must retain their sampling grid and valid mask and explicitly project into the working
 space. Optional declared media is resolved when available; missing geometry remains
 unavailable and is never replaced by an assumed identity matrix.
+
+## Numerical encoding and spatial grid projection
+
+`encode_npy` pairs with `decode_npy`: it serializes plain numerical arrays with
+pickle disabled and enforces element/byte ceilings, including the NPY header,
+before the artifact writer is called. The noise variance producer uses this
+encoder. Encoding bounds do not constrain the upstream algorithm's total RSS.
+
+`SamplingGrid` and `project_scores` preserve explicit measured cell footprints,
+partial border centres and boolean validity during decoded-to-working projection.
+Unsupported points receive an invalid mask, never zero-score evidence. The pure
+projection API is available; production normalization/fusion wiring remains in
+progress. See [ADR-016](../planning/adr-016-spatial-evidence-grids.md).
+
+Binary evidence-layer transport is prototyped in
+[ADR-017](../planning/adr-017-binary-evidence-layer-wire.md). Its score and validity
+artifacts keep explicit source and sampling provenance. Controller transport probes
+work; production normalization/fusion migration remains in progress.
+
+API1.6.0 also adds the declared host input `pipeline.upstream_status`, a versioned
+snapshot of planned producers and their actual scheduler states. It does not add
+missing numerical values. It distinguishes inapplicability/failure from measured
+zeros without exposing exception text or runtime handles. See
+[ADR-018](../planning/adr-018-upstream-execution-status.md).
