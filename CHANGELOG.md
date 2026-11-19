@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Recheck existing Windows evidence blobs after bounded transient sharing denials;
+  persistent denial and hash mismatches still fail without changing evidence (Refs #82).
+
 - Verify and reuse the winning evidence blob when simultaneous Windows ingests of
   identical bytes encounter a read-only destination (Refs #82).
 
