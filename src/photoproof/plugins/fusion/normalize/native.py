@@ -9,10 +9,68 @@ from typing import Literal
 
 import numpy as np
 
+from photoproof.contracts.arrays import decode_npy
 from photoproof.contracts.evidence import EvidenceLayer
 from photoproof.contracts.evidence_io import SpatialEvidence
 from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.contracts.grids import SamplingGrid
+from photoproof.contracts.images import ImageGeometry
+from photoproof.contracts.plugins import PluginContext
+
+
+def read_native_anomaly(
+    ctx: PluginContext,
+    name: str,
+    *,
+    geometry: ImageGeometry,
+    strength_class: Literal["weak", "medium"],
+    z0: float,
+    k: float,
+) -> SpatialEvidence | None:
+    """Read existing producer records/artifacts, preserving their explicit scale.
+
+    Missing companion sampling metadata is unavailable, never inferred from shape.
+    This does not enable production v3 output or migrate downstream consumers.
+    """
+    if name not in {
+        "compression.ela_anomaly",
+        "compression.dq_map",
+        "compression.grid_map",
+        "noise.consistency_map",
+    }:
+        raise InputRejectedError(f"{name}: no native regional anomaly adapter is defined")
+    if name not in ctx.inputs:
+        return None
+    record = ctx.inputs[name]
+    if name == "compression.dq_map":
+        if not isinstance(record, dict) or "anomaly" not in record:
+            raise InputRejectedError("compression.dq_map lacks its explicit anomaly record")
+        record = record["anomaly"]
+    elif name == "noise.consistency_map":
+        summary = ctx.inputs.get("noise.variance_summary")
+        if summary is None:
+            return None
+        if not isinstance(summary, dict) or not isinstance(summary.get("consistency_map"), dict):
+            raise InputRejectedError(
+                "noise consistency lacks its native sampling/validity metadata"
+            )
+        record = dict(summary["consistency_map"])
+        # Read only the declared score artifact through the verified broker. The
+        # duplicated legacy JSON score values are not the authoritative payload.
+        record["values"] = decode_npy(ctx.artifact(name), expected_ndim=2)
+    size = geometry["decoded_size"]
+    if len(size) != 2:
+        raise InputRejectedError("native anomaly geometry needs decoded [width,height]")
+    return normalize_anomaly(
+        record,
+        detector_id=name,
+        source_sha256=geometry["source_sha256"],
+        image_size=(size[0], size[1]),
+        strength_class=strength_class,
+        z0=z0,
+        k=k,
+        tail="two_sided" if name == "noise.consistency_map" else "upper",
+    )
 
 
 def _pair(value: object, *, name: str) -> tuple[int, int]:

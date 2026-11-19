@@ -40,12 +40,23 @@ strength and reliability will be documented per actual producer before activatio
 Raw sigma, JPEG tables and keypoint arrays require separate contextual treatment;
 they are not accepted by this robust-z adapter.
 
+The native-input reader recognizes actual ELA/grid records, the nested JPEG-DCT
+anomaly record, and the persisted noise-consistency NPY plus its companion
+`noise.variance_summary` sampling/validity metadata. Noise scores come through
+`ctx.artifact`, not the duplicated legacy JSON values. Missing companion metadata
+is unavailable; it never licenses a shape-based grid guess. The legacy noise
+summary still duplicates bulk values and must become compact during the coordinated
+producer migration; this adapter does not resolve that producer's output-size limit.
+
 ## Verification and migration
 
 Unit checks consume actual ELA, JPEG-DCT and JPEG-grid algorithm records generated
 from deterministic synthetic pixels/JPEG bytes. Additional checks establish native
 score independence from unrelated blocks, monotonicity, signed behavior, measured
 zero versus unavailable data, malformed records and finite saturation. These tests
+also verify exact declared artifact selection and unavailable companion metadata.
+The artifact-reader unit tests use a controlled context; they do not establish new
+controller integration or replace the existing host broker security checks. These tests
 do not measure forensic accuracy. Actual controller artifact transport, reliability
 and source-coordinate integration must be completed before the coordinated v3
 normalizer/rules/assessment/regions/heatmap migration. Historical scores retain

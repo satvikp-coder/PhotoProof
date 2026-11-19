@@ -1,11 +1,13 @@
 """Actual detector records retain their measured sampling/validity and native scale."""
 
 import io
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from PIL import Image
 
+from photoproof.contracts.arrays import encode_npy
 from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.plugins.compression.ela.algorithm import analyze_ela, ela_result_to_dict
 from photoproof.plugins.compression.jpeg_dct.algorithm import analyze_jpeg_dct
@@ -13,7 +15,7 @@ from photoproof.plugins.compression.jpeg_grid.algorithm import (
     analyze_jpeg_grid,
     grid_result_to_dict,
 )
-from photoproof.plugins.fusion.normalize.native import normalize_anomaly
+from photoproof.plugins.fusion.normalize.native import normalize_anomaly, read_native_anomaly
 
 
 def _record(values, valid=None):
@@ -134,3 +136,78 @@ def test_real_compression_algorithm_records_are_consumed(name):
     np.testing.assert_array_equal(result.layer.valid_mask, record["valid_mask"])
     assert np.isfinite(result.layer.map).all()
     assert result.source_sha256 == "a" * 64
+    contract = {
+        "ela": "compression.ela_anomaly",
+        "dq": "compression.dq_map",
+        "grid": "compression.grid_map",
+    }[name]
+    ctx = SimpleNamespace(inputs={contract: {"anomaly": record} if name == "dq" else record})
+    actual = read_native_anomaly(
+        ctx,
+        contract,
+        geometry={"decoded_size": [112, 80], "source_sha256": "a" * 64},
+        strength_class="weak",
+        z0=3,
+        k=1.5,
+    )
+    np.testing.assert_array_equal(actual.layer.map, result.layer.map)
+    assert actual.layer.detector_id == contract
+
+
+def test_noise_reads_declared_binary_scores_with_explicit_companion_metadata():
+    calls = []
+    record = _record([[999, 999, 999]])  # Legacy duplicated values are not authoritative.
+
+    def artifact(name):
+        calls.append(name)
+        return encode_npy(np.array([[-4, 0, 4]], dtype=np.float32))
+
+    ctx = SimpleNamespace(
+        inputs={
+            "noise.consistency_map": {"artifact": "declared reference"},
+            "noise.variance_summary": {"consistency_map": record},
+        },
+        artifact=artifact,
+    )
+    result = read_native_anomaly(
+        ctx,
+        "noise.consistency_map",
+        geometry={"decoded_size": [112, 80], "source_sha256": "a" * 64},
+        strength_class="medium",
+        z0=3,
+        k=1.5,
+    )
+    assert calls == ["noise.consistency_map"]
+    assert result.layer.map[0, 0] == result.layer.map[0, 2] > 0
+    assert result.layer.map[0, 1] == 0
+    assert result.layer.calibration == "uncalibrated"
+
+
+def test_noise_without_sampling_metadata_is_unavailable_without_a_guessed_grid():
+    def forbidden(name):
+        pytest.fail("missing companion metadata must not trigger a speculative artifact read")
+
+    ctx = SimpleNamespace(inputs={"noise.consistency_map": {}}, artifact=forbidden)
+    assert (
+        read_native_anomaly(
+            ctx,
+            "noise.consistency_map",
+            geometry={"decoded_size": [112, 80], "source_sha256": "a" * 64},
+            strength_class="medium",
+            z0=3,
+            k=1.5,
+        )
+        is None
+    )
+
+
+def test_raw_sigma_is_not_misrepresented_as_a_regional_anomaly():
+    with pytest.raises(InputRejectedError, match="no native regional"):
+        read_native_anomaly(
+            SimpleNamespace(inputs={"noise.sigma_map": [[8]]}),
+            "noise.sigma_map",
+            geometry={"decoded_size": [112, 80], "source_sha256": "a" * 64},
+            strength_class="medium",
+            z0=3,
+            k=1.5,
+        )
