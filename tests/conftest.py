@@ -49,10 +49,11 @@ def make_app(app_root: Path) -> Iterator[Callable[..., Application]]:
 
     def factory(package: str = "mockplugins.demo", *, start: bool = True) -> Application:
         app = bootstrap(app_root, plugin_package=package, environ={})
+        # Register ownership before startup can open a connection and then fail.
+        apps.append(app)
         if start:
             app.storage.ensure_layout()
             app.start()
-        apps.append(app)
         return app
 
     yield factory

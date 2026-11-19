@@ -112,12 +112,23 @@ class Application:
         )
 
     def stop(self) -> None:
-        if self.started:
-            self.bus.emit(EventType.APPLICATION_STOPPED)
-        if self._db is not None:
-            self._db.close()
-            self._db = None
-        shutdown_logging()
+        """Release owned resources even when a critical stop subscriber fails.
+
+        Delivery failures remain visible to the caller. A repeated stop retries
+        outstanding cleanup without redelivering the terminal lifecycle event.
+        """
+        try:
+            if self.started:
+                self.started = False
+                self.bus.emit(EventType.APPLICATION_STOPPED)
+        finally:
+            try:
+                if self._db is not None:
+                    self._db.close()
+                    self._db = None
+                    self._job_queue = None
+            finally:
+                shutdown_logging()
 
 
 def validate_package_layout(identity: AppIdentity) -> None:

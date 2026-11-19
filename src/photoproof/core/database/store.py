@@ -221,10 +221,16 @@ class Database:
     def close(self) -> None:
         if self._closed:
             return
-        if self._conn in _open_connections:
-            _open_connections.discard(self._conn)
-        with suppress(Exception):  # already-closed connections must not raise
+        try:
             self._conn.close()
+        except sqlite3.Error as error:
+            # Retain ownership and tracking until the connection actually closes.
+            # In particular, SQLite rejects closing from a different thread.
+            raise DatabaseError(
+                f"{self.path}: could not close database; retry cleanup on its owning thread: "
+                f"{error}"
+            ) from error
+        _open_connections.discard(self._conn)
         self._closed = True
 
     def schema_version(self) -> int:
