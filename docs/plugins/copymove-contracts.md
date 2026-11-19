@@ -3,8 +3,9 @@
 The canonical models are in `photoproof.contracts.copymove`. The historical
 `photoproof.plugins.copymove.contracts` module re-exports these models. Importing
 that module does not select a legacy wire format. Extraction and matching use the
-version-2 models through the actual controller. Clustering, verification and mask
-processors still require migration; their presence alone does not establish a
+version-2 models through the actual controller. Clustering now consumes their
+artifacts and emits candidate hypotheses. Verification and mask processors still
+require migration; their presence alone does not establish a
 working verified copy-move chain.
 
 ## Common fields and coordinates
@@ -68,6 +69,16 @@ indices into the actual matches), `source_bbox`, `target_bbox`, and
 `mean_displacement` (finite `[dy,dx]`). Boxes stay within the working frame and
 displacements must fit its dimensions. Collections are limited to 1,000 clusters.
 An empty collection is valid.
+
+The registered clustering stage reads actual keypoint/match artifacts and checks
+the host source/frame. It uses bounded Ward linkage in normalized source, target
+and displacement space, with an all-member affine coherence screen. Larger inputs
+fall back to bounded displacement DBSCAN and record that limitation. Configuration,
+fallback, rejected-group counts and per-cluster `{id,size}` are in
+`copymove.cluster_stats`; size is derived from authoritative `pair_indices`.
+See [ADR-023](../planning/adr-023-candidate-clustering.md) for thresholds, resource
+budgets, direction conventions and recall limitations. These clusters have not
+undergone robust RANSAC verification and are not strong forensic evidence.
 
 ## Verified transforms
 

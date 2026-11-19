@@ -246,13 +246,24 @@ extraction-to-matching controller wiring, not the remaining clustering/verificat
 mask integration or forensic accuracy. Historical version-1 and packed runtime
 NPZ files require explicit migration or reanalysis, not silent reinterpretation.
 
-The `copymove.clustering` plugin groups matched keypoint pairs into clusters using
-hierarchical clustering (Ward linkage) or DBSCAN on displacement vectors.
+The registered `copymove.clustering` stage reads actual source-bound artifacts.
+It uses bounded Ward linkage on normalized source, target and displacement
+features, or working-pixel displacement DBSCAN. An all-member affine coherence
+screen rejects inconsistent groups; it does not replace robust RANSAC verification.
+Boxes are candidate source point envelopes and their affine-projected target
+envelopes, clamped to the working frame. They are not dense localization masks.
 
-* Outputs: `copymove.clusters` (cluster list with source/target bounding boxes,
-  displacement, size) and `copymove.match_stats` (summary statistics)
+* Outputs: `copymove.clusters` (canonical JSON with original match references,
+  working boxes and displacement) and `copymove.cluster_stats` (including derived sizes).
 * Config: `method` (default `hierarchical`), `cut_threshold` (default 0.5),
-  `eps` (default 0.5), `min_matches_per_cluster` (default 4)
+  `eps` (default 0.5 working pixels), `min_matches_per_cluster` (default 4),
+  `coherence_rmse_px` (default 3), `ward_limit` (default 512), `max_input_pairs`
+  (maximum/default 50,000), `max_neighbor_work` (default 5 million).
+  Adjacent fragments can merge within `merge_gap_px` (default 16) only if their
+  combined geometry remains coherent; distant regions stay separate.
+* Large Ward inputs fall back explicitly to translation-oriented DBSCAN; resource
+  exhaustion fails instead of returning empty success. See
+  [ADR-023](../planning/adr-023-candidate-clustering.md) for limitations and migration.
 
 The copy-move mask algorithm generates source/target masks using bounded ZNCC correlation.
 The production processor still needs artifact and verified-inlier integration (#24);

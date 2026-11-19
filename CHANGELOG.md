@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** register copy-move candidate clustering over actual source-bound
+  artifacts, publishing typed `copymove.clusters` with working-pixel boxes and
+  original match references; historical inline payloads require reanalysis (Refs #22).
+
 - **Breaking:** copy-move interchange version 2 binds all five stage models to the
   original source hash and working frame, validates parent references, and uses one
   canonical extraction/matching wire format. Preserve historical artifacts and
@@ -32,6 +36,10 @@ All notable changes to this project are documented here. The format follows
   historical manifests retain old semantics and require re-analysis (#32).
 
 ### Fixed
+
+- Use actual bounded Ward linkage and displacement-density fallback, record resource
+  limits, and reject incoherent candidate groups without claiming RANSAC verification
+  or a forensic verdict (Refs #22).
 
 - Map resized SIFT pixel centres, angles and diameters using actual detection
   dimensions, retain the strongest features, and report LOW feature availability
