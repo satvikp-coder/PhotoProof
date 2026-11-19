@@ -1,5 +1,6 @@
 """Source-bound version-2 copy-move interchange, with bounded numeric transport."""
 
+import hashlib
 import io
 import json
 import math
@@ -11,7 +12,7 @@ from typing import Literal, Self
 
 import numpy as np
 from PIL import Image
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from photoproof.contracts.arrays import decode_npz_numeric
 from photoproof.contracts.exceptions import InputRejectedError
@@ -416,6 +417,8 @@ class Verified(_Contract):
     def _consistent(self) -> Self:
         if len(self.transforms) > 1000 or len(self.cluster_ids) > 1000:
             raise InputRejectedError("verified collection exceeds its transform/cluster bound")
+        if len({t.cluster_id for t in self.transforms}) != len(self.transforms):
+            raise InputRejectedError("verified transforms repeat a cluster id")
         for cluster_id in self.cluster_ids:
             _integer(cluster_id, label="known cluster id")
         if any(t.cluster_id not in self.cluster_ids for t in self.transforms):
@@ -448,6 +451,79 @@ class Verified(_Contract):
         except (TypeError, ValueError) as error:
             raise InputRejectedError("invalid verified transform fields") from error
         return cls._read(meta, source_sha256=source_sha256)
+
+
+class VerificationBindings(_Contract):
+    """Exact artifact-byte bindings for geometric transforms and original-row inliers.
+
+    Hash consistency is not authentication or proof that an algorithm ran. Readers
+    must also validate typed source/frame/count/geometry semantics after byte checks.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, arbitrary_types_allowed=True, allow_inf_nan=False
+    )
+    kind: Literal["verification_bindings"] = "verification_bindings"
+    keypoints_sha256: str
+    matches_sha256: str
+    clusters_sha256: str
+    verified_sha256: str
+    inliers_sha256: str
+    geometric_model: Literal["affine", "similarity"]
+    reproj_threshold: float = Field(ge=0.5, le=100, strict=True)
+    min_inliers: int = Field(ge=3, le=1000, strict=True)
+    seed: int = Field(ge=0, strict=True)
+    ransac_stop_confidence: float = Field(gt=0, lt=1, strict=True)
+    algorithm: Literal["opencv_ransac"] = "opencv_ransac"
+    correspondence_policy: Literal["distinct_oriented_xy_pairs"] = "distinct_oriented_xy_pairs"
+    score_kind: Literal["geometric_heuristic"] = "geometric_heuristic"
+
+    @field_validator(
+        "keypoints_sha256", "matches_sha256", "clusters_sha256", "verified_sha256", "inliers_sha256"
+    )
+    @classmethod
+    def _digests(cls, value: str) -> str:
+        return cls._source(value)
+
+    def to_json(self) -> str:
+        try:
+            text = json.dumps(
+                self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), allow_nan=False
+            )
+        except (ValueError, OverflowError) as error:
+            raise InputRejectedError(
+                "verification bindings exceed their numeric encoding bounds"
+            ) from error
+        if len(text.encode("utf-8")) > _MAX_META:
+            raise InputRejectedError("verification bindings exceed their UTF-8 metadata ceiling")
+        return text
+
+    @classmethod
+    def from_json(cls, text: str, *, source_sha256: str | None = None) -> Self:
+        return cls._read(_json(text), source_sha256=source_sha256)
+
+    def verify_payload(
+        self,
+        kind: Literal["keypoints", "matches", "clusters", "verified", "inliers"],
+        payload: bytes,
+    ) -> None:
+        """Check one broker-obtained payload without retaining all archives in memory."""
+        hashes = {
+            "keypoints": self.keypoints_sha256,
+            "matches": self.matches_sha256,
+            "clusters": self.clusters_sha256,
+            "verified": self.verified_sha256,
+            "inliers": self.inliers_sha256,
+        }
+        if not isinstance(kind, str) or kind not in hashes:
+            raise InputRejectedError(
+                "unknown verification binding kind; no filesystem path is accepted"
+            )
+        ceiling = _MAX_META if kind in {"clusters", "inliers"} else _MAX_BYTES
+        if not isinstance(payload, bytes) or len(payload) > ceiling:
+            raise InputRejectedError(f"verification {kind} payload exceeds its byte ceiling")
+        if hashlib.sha256(payload).hexdigest() != hashes[kind]:
+            raise InputRejectedError(f"verification {kind} bytes differ from the bound artifact")
 
 
 @dataclass(frozen=True)

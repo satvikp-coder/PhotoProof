@@ -265,6 +265,14 @@ envelopes, clamped to the working frame. They are not dense localization masks.
   exhaustion fails instead of returning empty success. See
   [ADR-023](../planning/adr-023-candidate-clustering.md) for limitations and migration.
 
+The registered `copymove.verification` stage consumes the canonical candidate
+artifacts and runs seeded bounded RANSAC. It publishes `copymove.verified`, actual
+original-row `copymove.verified_inliers`, typed `copymove.verification_bindings`,
+details and compact statistics. Distinct geometric support, source/frame agreement,
+scale/shear checks and actual-pixel repetitive-texture cautions are enforced.
+Scores are uncalibrated geometric heuristics; verified geometry is not proof of
+manipulation. See [ADR-024](../planning/adr-024-geometric-inlier-provenance.md).
+
 The copy-move mask algorithm generates source/target masks using bounded ZNCC correlation.
 The production processor still needs artifact and verified-inlier integration (#24);
 its present raw-match wiring must not be described as verified localization.
