@@ -53,6 +53,9 @@ mismatch. No consumer receives unverified bytes.
   reusing it, including when Windows reports access denied for a read-only destination.
   A different or unverifiable winner remains an error and stays in place for investigation.
   Permission errors without an existing destination remain errors.
+  On Windows, verifying a competing publisher's blob retries transient read-permission
+  denials with at most 150 ms of total waiting. Each attempt still verifies its hash;
+  persistent denial and hash mismatches fail without modifying the existing blob.
 - **Hard links are required on POSIX.** `runtime.root` cannot be on a filesystem without them
   (exFAT, for example). Storing fails with an error instead of risking an overwrite.
 - **Metadata only.** The submitted file name is stored in the database and never used to
