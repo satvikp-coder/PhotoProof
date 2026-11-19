@@ -48,9 +48,11 @@ mismatch. No consumer receives unverified bytes.
 
 - **One copy.** The storage key is the SHA-256 of the content, so identical bytes are stored
   once and each submission adds a record.
-- **Never overwritten.** A new blob is published with a hard link, which fails if the target
-  exists, so even a race between processes cannot write to an existing object. A blob that
-  fails verification stays in place for investigation.
+- **Never overwritten.** POSIX publishes a new blob with a hard link; Windows uses a
+  non-overwriting rename. Concurrent publishers verify the winning blob's hash before
+  reusing it, including when Windows reports access denied for a read-only destination.
+  A different or unverifiable winner remains an error and stays in place for investigation.
+  Permission errors without an existing destination remain errors.
 - **Hard links are required on POSIX.** `runtime.root` cannot be on a filesystem without them
   (exFAT, for example). Storing fails with an error instead of risking an overwrite.
 - **Metadata only.** The submitted file name is stored in the database and never used to

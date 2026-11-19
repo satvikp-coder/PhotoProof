@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Verify and reuse the winning evidence blob when simultaneous Windows ingests of
+  identical bytes encounter a read-only destination (Refs #82).
+
 - Create runtime coordination files with owner-only POSIX permissions (Refs #81).
 
 - Consume persisted noise residuals in the variance detector through verified bounded
@@ -43,6 +46,12 @@ All notable changes to this project are documented here. The format follows
 - Add explicit measured-cell score projection that preserves invalid sampling gaps,
   partial border footprints and EXIF coordinates (Refs #32; integration in progress).
 
+- Render deterministic cividis heuristic heatmaps, safe-preview overlays and region
+  outlines with uncalibrated legends and explicit unavailable-evidence messaging (#36).
+
+- Generate bounded, metadata-free derived PNG previews from normalized working pixels,
+  retaining alpha and preserving original evidence (#10).
+
 - Expose explicit decoded-to-working pixel transforms and separate reference geometry
   so forensic maps can retain correct EXIF orientation and source traceability (Refs #32).
 
@@ -56,8 +65,6 @@ All notable changes to this project are documented here. The format follows
   checks and trust limitations, and enforce a shared image-buffer budget. Identical byte
   comparisons produce an informational result without fabricated difference evidence (#27).
 
-- Generate bounded, metadata-free derived PNG previews from normalized working pixels,
-  retaining alpha and preserving original evidence (#10).
 
 - A run resolves its media contracts from stored evidence, once per run, and hands them to
   plugins that declare them in `inputs`: `input.original_bytes` (the stored original),
