@@ -6,7 +6,7 @@ METADATA = {
     "id": "copymove.sift_keypoints",
     "name": "SIFT Keypoint Extraction",
     "description": "Extracts SIFT keypoints and descriptors for copy-move detection.",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "api_version": "1.0.0",
     "priority": 10,
     "required": False,

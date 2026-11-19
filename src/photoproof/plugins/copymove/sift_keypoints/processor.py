@@ -15,7 +15,6 @@ from photoproof.contracts.exceptions import InputRejectedError, NotApplicableErr
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.copymove.sift_keypoints.algorithm import (
     analyze_sift_keypoints,
-    keypoints_result_to_dict,
 )
 from photoproof.plugins.copymove.sift_keypoints.schema import Config
 
@@ -63,17 +62,20 @@ def run(ctx: PluginContext) -> dict[str, object]:
         descriptors=result["descriptors"],
     )
     keypoints_artifact_ref = ctx.write_artifact(
-        "keypoints.npz", buffer.getvalue(), "application/x-npy"
+        "keypoints.npz", buffer.getvalue(), "application/x-npz"
     )
 
     # Write descriptors as separate NPZ artifact for large datasets
     buffer = io.BytesIO()
-    np.save(buffer, result["descriptors"])
+    np.save(buffer, result["descriptors"], allow_pickle=False)
     descriptors_artifact_ref = ctx.write_artifact(
         "descriptors.npy", buffer.getvalue(), "application/x-npy"
     )
 
-    summary = keypoints_result_to_dict(result)
+    summary = {
+        key: result[key] for key in ("num_keypoints", "density_per_mp", "confidence", "config")
+    }
+    summary["coordinate_space"] = "working_pixels"
     summary["keypoints_artifact"] = keypoints_artifact_ref
     summary["descriptors_artifact"] = descriptors_artifact_ref
 

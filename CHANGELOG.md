@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** copy-move extraction/matching summaries are compact; bulk keypoints,
+  descriptors, pairs and distances stay in their artifacts. Read the matching summary's
+  `matches_artifact` reference instead of its incorrect legacy aliases (Refs #20, #21).
+
 - **Breaking:** assessment version 2.0.0 consumes actual coverage inputs, applies
   configured thresholds, excludes weak/invalid coverage and reports missing evidence
   as inconclusive. Historical categories retain their old semantics; see ADR-005 (#34).
@@ -23,6 +27,10 @@ All notable changes to this project are documented here. The format follows
   historical manifests retain old semantics and require re-analysis (#32).
 
 ### Fixed
+
+- Connect SIFT matching to verified stored keypoints, honor validated matching parameters,
+  exclude self/nearby structures before ratio testing, and recover multiple copies from
+  a separated neighbor group (Refs #21). Candidate matches are not forgery proof.
 
 - Recheck existing Windows evidence blobs after bounded transient sharing denials;
   persistent denial and hash mismatches still fail without changing evidence (Refs #82).

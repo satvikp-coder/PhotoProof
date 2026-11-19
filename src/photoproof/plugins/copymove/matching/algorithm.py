@@ -10,6 +10,7 @@ symmetric deduplication.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -49,6 +50,7 @@ def _compute_spatial_distance(kpts: np.ndarray, i: int, j: int) -> float:
 
 
 def _match_keypoints(
+    keypoints: np.ndarray,
     descriptors: np.ndarray,
     k: int,
     ratio: float,
@@ -79,40 +81,26 @@ def _match_keypoints(
         if len(mlist) < 2:
             continue
 
-        # Sort matches by distance (ascending)
-        sorted_matches = sorted(mlist, key=lambda m: m.distance)
-
-        # g2NN: accept matches d_i while d_i / d_{i+1} < ratio
-        k_valid = 0
-        for i in range(len(sorted_matches) - 1):
-            d_i = sorted_matches[i].distance
-            d_i1 = sorted_matches[i + 1].distance
-            if d_i1 <= 0:
-                continue
-            if d_i / d_i1 < ratio:
-                k_valid = i + 1
-            else:
+        # Remove self/adjacent structures before the ratio test. Repeated
+        # descriptors can include several zero-distance copies: require a
+        # positive separating gap, then retain the complete preceding group.
+        neighbors = sorted(
+            (
+                m
+                for m in mlist
+                if m.queryIdx != m.trainIdx
+                and _compute_spatial_distance(keypoints, int(m.queryIdx), int(m.trainIdx))
+                >= min_spatial_distance
+            ),
+            key=lambda m: (m.distance, m.trainIdx),
+        )
+        for index in range(len(neighbors) - 1):
+            left, right = neighbors[index], neighbors[index + 1]
+            if right.distance > 0 and left.distance < ratio * right.distance:
+                for candidate in neighbors[: index + 1]:
+                    pairs_list.append((int(candidate.queryIdx), int(candidate.trainIdx)))
+                    distances_list.append(float(candidate.distance))
                 break
-
-        if k_valid == 0:
-            continue
-
-        # Take the best match (first one) from valid matches
-        best_match = sorted_matches[0]
-        query_idx = int(best_match.queryIdx)
-        train_idx = int(best_match.trainIdx)
-        distance = float(best_match.distance)
-
-        # Exclude self matches
-        if query_idx == train_idx:
-            continue
-
-        # Exclude pairs closer than min_spatial_distance
-        # We need keypoint coordinates for this check, but they're not available here
-        # The spatial check will be done after keypoints are available
-
-        pairs_list.append((query_idx, train_idx))
-        distances_list.append(distance)
 
     if not pairs_list:
         return np.zeros((0, 2), dtype=np.int32), np.zeros((0,), dtype=np.float32)
@@ -121,7 +109,7 @@ def _match_keypoints(
     distances = np.array(distances_list, dtype=np.float32)
 
     # Sort by distance (ascending)
-    sort_idx = np.argsort(distances)
+    sort_idx = np.lexsort((pairs[:, 1], pairs[:, 0], distances))
     pairs = pairs[sort_idx]
     distances = distances[sort_idx]
 
@@ -154,7 +142,7 @@ def _match_keypoints(
 def _brute_force_knn_match(descriptors: np.ndarray, k: int) -> DMatchList:
     """Brute-force KNN descriptor matching using OpenCV BFMatcher."""
     matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
-    knn_matches = matcher.knnMatch(descriptors, k=k)
+    knn_matches = matcher.knnMatch(descriptors, descriptors, k=min(k + 1, len(descriptors)))
     return cast(DMatchList, knn_matches)
 
 
@@ -166,8 +154,9 @@ def _flann_knn_match(descriptors: np.ndarray, k: int) -> DMatchList:
         trees=4,
     )
     search_params: dict[str, bool | int | float | str] = dict(checks=_DEFAULT_FLANN_CHECKS)
+    cv2.setRNGSeed(_DEFAULT_RANDOM_SEED)
     matcher = cv2.FlannBasedMatcher(index_params, search_params)
-    knn_matches = matcher.knnMatch(descriptors, k=k)
+    knn_matches = matcher.knnMatch(descriptors, descriptors, k=min(k + 1, len(descriptors)))
     return cast(DMatchList, knn_matches)
 
 
@@ -192,6 +181,21 @@ def analyze_sift_matching(
 
     Raises :exc:`InputRejectedError` for invalid input.
     """
+    if (
+        isinstance(k, bool)
+        or not isinstance(k, int)
+        or not 2 <= k <= 50
+        or isinstance(max_pairs, bool)
+        or not isinstance(max_pairs, int)
+        or not 1 <= max_pairs <= 1_000_000
+        or not math.isfinite(ratio)
+        or not 0 <= ratio <= 1
+        or not math.isfinite(min_spatial_distance)
+        or not 0 <= min_spatial_distance <= 1000
+    ):
+        raise InputRejectedError(
+            "matching parameters exceed the documented k/ratio/distance/pair bounds"
+        )
     if not isinstance(keypoints, np.ndarray) or not isinstance(descriptors, np.ndarray):
         raise InputRejectedError("expected NumPy ndarrays for keypoints and descriptors")
     if keypoints.ndim != 2 or keypoints.shape[1] != 5:
@@ -203,6 +207,13 @@ def analyze_sift_matching(
             f"keypoints ({keypoints.shape[0]}) and descriptors "
             f"({descriptors.shape[0]}) must have same count"
         )
+    if (
+        keypoints.dtype.kind not in "iuf"
+        or descriptors.dtype.kind not in "iuf"
+        or not np.isfinite(keypoints).all()
+        or not np.isfinite(descriptors).all()
+    ):
+        raise InputRejectedError("matching needs finite numeric keypoints and descriptors")
 
     n_keypoints = keypoints.shape[0]
     if n_keypoints < 2:
@@ -221,7 +232,9 @@ def analyze_sift_matching(
             },
         }
 
-    pairs, distances = _match_keypoints(descriptors, k, ratio, min_spatial_distance, max_pairs)
+    pairs, distances = _match_keypoints(
+        keypoints, descriptors, k, ratio, min_spatial_distance, max_pairs
+    )
 
     # Apply spatial distance constraint
     if len(pairs) > 0:
