@@ -504,6 +504,36 @@ this parser does not establish forensic meaning or calibration.
 validity-aware summary remain unchanged. The parser does not make unsupported
 normalization inputs available or resolve the large JSON-map transport limit.
 
+## Fused heuristic visualization
+
+`fusion.heatmap` consumes `fusion.map`, `fusion.regions` and the safe preview
+contracts. It writes `fusion.heatmap` (RGBA PNG), `fusion.overlay` (RGB PNG on
+grayscale preview context), `fusion.outlines` (transparent RGBA region outlines),
+and `fusion.legend`. All PNGs use preview dimensions; nearest-neighbor scaling
+preserves the fused grid's values rather than implying extra spatial precision.
+
+The fixed 256-entry RGB **cividis** lookup is designed for red-green colour vision
+deficiency and perceptually uniform brightness, following
+[Nunez et al. (2018)](https://doi.org/10.1371/journal.pone.0199239).
+The embedded table matches OpenCV's cividis reference and adds no dependency.
+
+The legend says **heuristic suspicion score (uncalibrated)**, carries the preview
+hash, scale, display threshold and blend opacity, and warns that scores are not
+probabilities or authenticity verdicts. Display thresholds are provisional until #37.
+Pixels below `display_threshold` (default 0.3) are transparent in the heatmap and
+outlines. `opacity` (default 0.5) affects display only, not scores or segmentation.
+
+A missing fused map yields no PNG artifacts and an unavailable legend with the
+message **no fused evidence available**. Consumers must show that message and the
+inconclusive assessment, never render a blank clean heatmap. Zero values on a valid
+map also never establish authenticity.
+
+The plugin uses API 1.4.0 to read the actual declared safe-preview artifact through
+its verified bounded broker. It checks PNG mode and dimensions against the recorded
+preview metadata before allocating pixels. Missing or corrupt stored previews fail
+visibly and are preserved; they are never regenerated as a substitute. Only those
+verified derived pixels supply image context; original evidence bytes are never opened. The stored preview is read through the artifact broker and is never repaired by this step. All output hashes reach the normal manifest.
+
 ## Image coordinate contract
 
 API 1.5.0 provides declared `image.geometry` and `image.reference_geometry` JSON
