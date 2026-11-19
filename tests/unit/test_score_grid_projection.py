@@ -156,3 +156,41 @@ def test_valid_zero_measurement_is_distinct_from_unmeasured_fill():
     )
     assert not values.any()
     np.testing.assert_array_equal(valid, [[False, True, False]])
+
+
+@pytest.mark.parametrize("field", ["origin_xy", "stride_xy", "block_xy"])
+def test_oversized_integer_sampling_is_rejected_before_output_allocation(monkeypatch, field):
+    geometry = _geometry(4, 3)
+    grid = replace(SamplingGrid((4, 3), (0, 0), (1, 1), (1, 1)), **{field: (10**1000, 1)})
+
+    def forbidden(*args, **kwargs):
+        pytest.fail(
+            "invalid sampling metadata must be rejected before output coordinate allocation"
+        )
+
+    monkeypatch.setattr(np, "arange", forbidden)
+    with pytest.raises(InputRejectedError, match="32-bit"):
+        project_scores(
+            np.ones((3, 4)),
+            np.ones((3, 4), dtype=bool),
+            grid=grid,
+            geometry=geometry,
+            output_shape=(3, 4),
+        )
+
+
+def test_outside_sampling_cells_are_rejected_before_output_allocation(monkeypatch):
+    geometry = _geometry(4, 3)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("out-of-image cells must be rejected before output coordinate allocation")
+
+    monkeypatch.setattr(np, "arange", forbidden)
+    with pytest.raises(InputRejectedError, match="outside"):
+        project_scores(
+            np.ones((3, 4)),
+            np.ones((3, 4), dtype=bool),
+            grid=SamplingGrid((4, 3), (0, 0), (2, 1), (1, 1)),
+            geometry=geometry,
+            output_shape=(3, 4),
+        )

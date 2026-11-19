@@ -32,9 +32,12 @@ outside the source image, invalid scores/masks and excessive output counts are r
 The implementation uses separable one-dimensional coordinate axes for EXIF transforms,
 avoiding a full floating coordinate mesh. It bounds output elements, not total process
 RSS or concurrent plugin memory. Native array bytes still require broker and NPY limits.
+Sampling coordinates are bounded to finite signed 32-bit magnitudes before conversion.
+Invalid sampling and cells outside the source are rejected before output coordinate
+allocation, including oversized integer metadata that would overflow float conversion.
 
 ## Compatibility and pending integration
-This pure helper currently builds on unmerged ADR015/API1.5 geometry. It is not yet
+This pure helper builds on integrated ADR015/API1.5 geometry. It is not yet
 used by production normalization/fusion. The pending evidence-layer format must retain
 source hash, sampling grid, calibration, strength, map/valid-mask artifacts and their
 producer provenance; downstream projection must preserve these masks through fusion,
@@ -50,6 +53,6 @@ not an acceptable shortcut. Regenerating all upstream algorithms loses direct ev
 consumption and provenance.
 
 ## Verification
-Twenty-one deterministic tests cover all eight EXIF transforms, partial cells, sparse
+Twenty-five deterministic tests cover all eight EXIF transforms, partial cells, sparse
 coverage, invalid masks, sampling failures, output ceilings and malformed transforms.
 These prove geometric behavior, not forensic accuracy or calibration.

@@ -69,11 +69,14 @@ def _sampling_pair(value: object, *, name: str) -> tuple[float, float]:
         not isinstance(value, (tuple, list))
         or len(value) != 2
         or any(
-            isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n)
+            isinstance(n, bool)
+            or not isinstance(n, (int, float))
+            or not -(2**31 - 1) <= n <= 2**31 - 1
+            or not math.isfinite(n)
             for n in value
         )
     ):
-        raise InputRejectedError(f"{name} must contain two finite numbers")
+        raise InputRejectedError(f"{name} must contain two finite 32-bit-bounded numbers")
     return float(value[0]), float(value[1])
 
 
@@ -124,7 +127,8 @@ def project_scores(
         or height * width > max_output_elements
     ):
         raise InputRejectedError("score projection exceeds its output-element ceiling")
-    source_width, source_height = _positive_pair(grid.image_size, name="grid image_size")
+    grid = SamplingGrid.from_record(grid.to_record())
+    source_width, source_height = grid.image_size
     if (
         not isinstance(scores, np.ndarray)
         or scores.ndim != 2
@@ -139,6 +143,12 @@ def project_scores(
         raise InputRejectedError(
             "score projection requires finite unit scores and matching bool mask"
         )
+    origin, stride, block = grid.origin_xy, grid.stride_xy, grid.block_xy
+    if any(
+        origin[axis] + (count - 1) * stride[axis] >= grid.image_size[axis]
+        for axis, count in enumerate((scores.shape[1], scores.shape[0]))
+    ):
+        raise InputRejectedError("score grid has cells outside its source image")
     if (
         not isinstance(geometry, dict)
         or geometry.get("schema_version") != 1
@@ -196,9 +206,6 @@ def project_scores(
         positions.append(
             inverse[native_axis, working_axis] * (axes[working_axis] - matrix[working_axis, 2])
         )
-    origin = _sampling_pair(grid.origin_xy, name="grid origin")
-    stride = _sampling_pair(grid.stride_xy, name="grid stride")
-    block = _sampling_pair(grid.block_xy, name="grid block")
     ix, valid_x = _axis(
         size=source_width,
         count=scores.shape[1],
