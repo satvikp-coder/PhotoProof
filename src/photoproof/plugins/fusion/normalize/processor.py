@@ -1,9 +1,7 @@
-"""Processor wiring for the fusion.normalize plugin.
+"""Production entry point for source-bound binary evidence.
 
-Reads every detector output that is present in the run (declared as optional
-inputs), maps each to an :class:`~photoproof.contracts.evidence.EvidenceLayer`
-with a score in ``[0, 1]``, and marks absent detectors as ``unavailable`` —
-never as zero-score layers.
+The registered run uses the coordinated native implementation. Retained private
+numerical helpers are historical mathematical controls, not alternate wire readers.
 """
 
 from __future__ import annotations
@@ -15,10 +13,9 @@ import numpy as np
 from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.fusion.normalize import (
-    DETECTOR_NORMALIZATION,
     UNCALIBRATED,
 )
-from photoproof.plugins.fusion.normalize.schema import Config
+from photoproof.plugins.fusion.normalize.native_processor import normalize_native
 
 #: Output contracts that carry a spatial map suitable for normalization to [0, 1].
 _MAP_OUTPUTS = frozenset(
@@ -62,45 +59,8 @@ def _normalize_map(values: np.ndarray, z0: float, k: float) -> np.ndarray:
 
 
 def run(ctx: PluginContext) -> dict[str, object]:
-    """Normalize all present detector outputs into EvidenceLayer objects.
-
-    Reads each optional input that is present in ``ctx.inputs``. Map-type outputs
-    are normalized to ``[0, 1]`` via robust z-scoring and logistic squashing.
-    Scalar outputs are passed through as single-element maps.
-
-    Detectors that are not present in the run are recorded as ``unavailable``
-    with no layer produced (never a zero-score layer).
-    """
-    config = ctx.config if isinstance(ctx.config, Config) else Config.model_validate(ctx.config)
-    layers: list[dict[str, object]] = []
-    unavailable: list[str] = []
-
-    # Every key in ctx.inputs is an optional input that the run resolved.
-    for name in sorted(ctx.inputs):
-        value = ctx.inputs[name]
-        cfg = DETECTOR_NORMALIZATION.get(name)
-        if cfg is None:
-            # Known output but no normalization config: skip with a note.
-            continue
-
-        params = dict(cfg)
-        if name in config.mappings:
-            params.update(config.mappings[name].model_dump(exclude_none=True))
-        layer = _layer_for_output(name, value, params)
-        if layer is None:
-            unavailable.append(name)
-        else:
-            layers.append(layer)
-
-    # Any known detector output not in ctx.inputs is absent/unavailable.
-    for name in DETECTOR_NORMALIZATION:
-        if name not in ctx.inputs:
-            unavailable.append(name)
-
-    return {
-        "fusion.layers": layers,
-        "fusion.unavailable": tuple(sorted(unavailable)),
-    }
+    """Run the source-bound binary production pipeline."""
+    return normalize_native(ctx)
 
 
 def _layer_for_output(name: str, value: Any, cfg: dict[str, object]) -> dict[str, object] | None:

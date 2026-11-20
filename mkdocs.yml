@@ -104,6 +104,8 @@ nav:
       - ADR-016 Spatial Evidence Grids: planning/adr-016-spatial-evidence-grids.md
       - ADR-017 Binary Evidence Layers: planning/adr-017-binary-evidence-layer-wire.md
       - ADR-018 Upstream Execution Status: planning/adr-018-upstream-execution-status.md
+      - ADR-019 Native Anomaly Normalization: planning/adr-019-native-anomaly-normalization.md
+      - ADR-020 Binary Fusion Migration: planning/adr-020-binary-fusion-migration.md
       - ADR-021 SIFT Matching Integration: planning/adr-021-sift-matching-artifact-integration.md
       - ADR-022 Source-bound Copy-move Contracts: planning/adr-022-source-bound-copymove.md
       - ADR-023 Candidate Clustering: planning/adr-023-candidate-clustering.md

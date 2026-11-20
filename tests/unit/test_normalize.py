@@ -1,27 +1,26 @@
-"""Tests for fusion.normalize (#32): optional_inputs and EvidenceLayer normalization.
+"""Native normalization contracts, artifact scores, applicability, and context-only diagnostics.
 
-Covers:
-- Plugin with optional_inputs runs even when none are present (absent inputs never
-  cause SKIP).
-- Present optional inputs are included in PluginContext.inputs; absent ones are not.
-- EvidenceLayer normalization maps map-type outputs to [0, 1] and scalar outputs to
-  single-cell maps.
-- All layers carry calibration: uncalibrated.
-- Detector mapping parameters and strength class are documented.
-- Monotonic normalization: higher input z-score => higher normalized score.
+Private numerical helpers retain regression controls; the production entry point
+requires source/sampling metadata and actual host execution facts.
 """
 
 from __future__ import annotations
 
+import hashlib
+import logging
+
 import numpy as np
 import pytest
 
+from photoproof.contracts.arrays import decode_npy, encode_npy
+from photoproof.contracts.artifacts import ArtifactRef
 from photoproof.contracts.evidence import EvidenceLayer
 from photoproof.contracts.exceptions import PolicyError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.fusion.normalize import (
     DETECTOR_NORMALIZATION,
     METADATA,
+    NATIVE_OUTPUTS,
     UNCALIBRATED,
 )
 from photoproof.plugins.fusion.normalize.processor import (
@@ -29,6 +28,7 @@ from photoproof.plugins.fusion.normalize.processor import (
     _normalize_map,
     run,
 )
+from tests.unit.test_score_grid_projection import _geometry
 
 # ------------------------------------------------------------------ contract checks
 
@@ -62,13 +62,14 @@ def test_all_layers_are_uncalibrated() -> None:
 
 
 def test_metadata_api_version_and_optional_inputs() -> None:
-    """METADATA declares api_version 1.2.0 and optional_inputs."""
-    assert METADATA["api_version"] == "1.2.0"
+    """API1.9 declares native measurements and their provenance/status companions."""
+    assert METADATA["api_version"] == "1.9.0"
     assert isinstance(METADATA["optional_inputs"], tuple)
-    assert len(METADATA["optional_inputs"]) > 0
-    # All declared optional_inputs have normalization config.
-    for name in METADATA["optional_inputs"]:
-        assert name in DETECTOR_NORMALIZATION, f"{name} missing normalization config"
+    assert set(NATIVE_OUTPUTS) <= set(METADATA["optional_inputs"])
+    assert set(NATIVE_OUTPUTS) == set(DETECTOR_NORMALIZATION)
+    assert {"image.geometry", "pipeline.upstream_status", "copymove.verification_bindings"} <= set(
+        METADATA["optional_inputs"]
+    )
 
 
 # ------------------------------------------------------------------ normalization mapping
@@ -110,65 +111,112 @@ def test_normalize_map_handles_non_finite() -> None:
 # ------------------------------------------------------------------ processor with optional inputs
 
 
-def _make_ctx(inputs: dict[str, object]) -> PluginContext:
+def _make_ctx(inputs):
+    values = dict(inputs)
+    values.setdefault("image.geometry", _geometry(64, 64))
+    values.setdefault(
+        "pipeline.upstream_status",
+        {
+            "format_version": 1,
+            "required_prior_outputs": [],
+            "outputs": {
+                name: {
+                    "plugin_id": "control.producer",
+                    "state": "SUCCESS",
+                    "failure_category": None,
+                }
+                for name in values
+                if name in NATIVE_OUTPUTS
+            },
+        },
+    )
+    stored = {}
+
+    def writer(name, data, media_type):
+        digest = hashlib.sha256(data).hexdigest()
+        stored[digest] = data
+        return ArtifactRef(
+            name=name,
+            sha256=digest,
+            size=len(data),
+            media_type=media_type,
+            producer="fusion.normalize",
+        )
+
+    def reader(name, max_bytes, selector):
+        node = values[name]
+        for step in selector:
+            node = node[step]
+        ref = (
+            node if isinstance(node, ArtifactRef) else ArtifactRef.model_validate(node["artifact"])
+        )
+        payload = stored[ref.sha256]
+        assert len(payload) <= max_bytes and hashlib.sha256(payload).hexdigest() == ref.sha256
+        return payload
+
     return PluginContext(
         run_id="run-1",
         plugin_id="fusion.normalize",
-        inputs=inputs,
+        inputs=values,
         config={},
         seed=0,
-        write_artifact=lambda name, data, media_type: None,
-        logger=None,  # type: ignore[arg-type]
-    )
+        write_artifact=writer,
+        read_artifact=reader,
+        logger=logging.getLogger(__name__),
+    ), stored
 
 
 def test_processor_runs_with_no_optional_inputs() -> None:
-    """fusion.normalize runs even when no detector outputs are present."""
-    result = run(_make_ctx({}))
-    assert "fusion.layers" in result
+    """No detector measurements produces explicit unavailable entries, never zero layers."""
+    ctx, _ = _make_ctx({})
+    result = run(ctx)
     assert result["fusion.layers"] == []
-    assert set(result["fusion.unavailable"]) == set(DETECTOR_NORMALIZATION.keys())
+    assert set(result["fusion.unavailable"]) == set(NATIVE_OUTPUTS)
+    assert all(
+        f["state"] == "NOT_PLANNED" for f in result["fusion.availability"]["outputs"].values()
+    )
 
 
 def test_processor_includes_present_optional_inputs() -> None:
-    """Present optional inputs appear in ctx.inputs; absent ones do not."""
-    ela_map = np.random.default_rng(0).normal(0, 1, (8, 8)).astype(np.float32)
-    result = run(_make_ctx({"compression.ela_map": ela_map}))
+    values = np.random.default_rng(0).normal(0, 1, (8, 8)).astype(np.float32)
+    ctx, stored = _make_ctx({"compression.ela_anomaly": _record(values)})
+    result = run(ctx)
     assert len(result["fusion.layers"]) == 1
     layer = result["fusion.layers"][0]
-    assert layer["detector_id"] == "compression.ela_map"
-    assert layer["calibration"] == "uncalibrated"
-    assert layer["strength_class"] == "weak"
-    # All map values in [0, 1].
-    arr = np.array(layer["map"], dtype=np.float32)
+    assert layer["detector_id"] == "compression.ela_anomaly"
+    assert layer["calibration"] == "uncalibrated" and layer["strength_class"] == "weak"
+    arr = decode_npy(stored[layer["map"].sha256])
     assert np.all((arr >= 0) & (arr <= 1))
-    # Absent detectors are unavailable.
-    unavailable = set(result["fusion.unavailable"])
-    assert "compression.ela_map" not in unavailable
-    assert "noise.residual" in unavailable
+    assert "compression.ela_anomaly" not in result["fusion.unavailable"]
+    assert "noise.consistency_map" in result["fusion.unavailable"]
 
 
-def test_processor_scalar_output_becomes_single_cell_map() -> None:
-    """Scalar summary output becomes a single-cell map."""
-    result = run(_make_ctx({"compression.ela_summary": 3.5}))
-    assert len(result["fusion.layers"]) == 1
-    layer = result["fusion.layers"][0]
-    arr = np.array(layer["map"], dtype=np.float32)
-    assert arr.shape == (1, 1)
-    assert 0.0 < arr[0, 0] < 1.0
+def test_processor_scalar_output_is_context_not_localized_evidence() -> None:
+    """A diagnostic scalar cannot authorize a one-cell forensic map or coverage."""
+    ctx, stored = _make_ctx({"compression.ela_summary": 3.5})
+    result = run(ctx)
+    assert result["fusion.layers"] == [] and not stored
+    assert "compression.ela_summary" in result["fusion.availability"]["context_only"]
 
 
 def test_processor_map_values_in_unit_interval() -> None:
-    """Every normalized map value is in [0, 1]."""
+    """Actual native records, including binary noise companions, yield finite unit maps."""
     rng = np.random.default_rng(42)
-    for name in DETECTOR_NORMALIZATION:
-        if name not in ("compression.jpeg_tables", "copymove.verification", "copymove.mask"):
-            # Use a map-type output.
-            values = rng.normal(0, 1, (6, 6)).astype(np.float32)
-            result = run(_make_ctx({name: values}))
-            assert len(result["fusion.layers"]) == 1
-            arr = np.array(result["fusion.layers"][0]["map"], dtype=np.float32)
-            assert np.all((arr >= 0) & (arr <= 1))
+    for name in NATIVE_OUTPUTS:
+        if name == "copymove.mask":
+            continue  # Verified mask provenance is covered by adapter/controller tests.
+        values = rng.normal(0, 4, (6, 6)).astype(np.float32)
+        record = _record(values)
+        inputs = {name: {"anomaly": record} if name == "compression.dq_map" else record}
+        ctx, stored = _make_ctx(inputs)
+        if name == "noise.consistency_map":
+            ref = ctx.write_artifact("noise-control.npy", encode_npy(values), "application/x-npy")
+            ctx.inputs[name] = ref
+            ctx.inputs["noise.variance_summary"] = {"consistency_map": record, "confidence": "high"}
+        result = run(ctx)
+        assert len(result["fusion.layers"]) == 1
+        arr = decode_npy(stored[result["fusion.layers"][0]["map"].sha256])
+        assert np.all(np.isfinite(arr)) and np.all((arr >= 0) & (arr <= 1))
 
 
 # -------------------------------------------------------------- PluginContext image()
@@ -176,7 +224,7 @@ def test_processor_map_values_in_unit_interval() -> None:
 
 def test_plugin_context_refuses_undeclared_input() -> None:
     """PluginContext.image() refuses inputs not declared (required or optional)."""
-    ctx = _make_ctx({"compression.ela_map": np.zeros((2, 2), dtype=np.float32)})
+    ctx, _ = _make_ctx({"compression.ela_map": np.zeros((2, 2), dtype=np.float32)})
     # fusion.normalize declares compression.ela_map as optional_input -> present.
     arr = ctx.image("compression.ela_map")
     assert isinstance(arr, np.ndarray)
@@ -188,7 +236,7 @@ def test_plugin_context_refuses_undeclared_input() -> None:
 def test_plugin_context_read_only_array() -> None:
     """Arrays handed to plugins are read-only."""
     arr = np.ones((2, 2), dtype=np.float32)
-    ctx = _make_ctx({"compression.ela_map": arr})
+    ctx, _ = _make_ctx({"compression.ela_map": arr})
     out = ctx.image("compression.ela_map")
     assert not out.flags.writeable
     with pytest.raises(ValueError):
@@ -199,14 +247,20 @@ def test_plugin_context_read_only_array() -> None:
 
 
 def test_normalization_is_monotonic_per_detector() -> None:
-    """Higher input values produce higher normalized scores (monotonic mapping)."""
-    rng = np.random.default_rng(7)
-    base = rng.normal(0, 1, (8, 8)).astype(np.float32)
-    base[3, 3] = 50.0  # strong outlier
-    result = run(_make_ctx({"compression.ela_map": base}))
-    assert len(result["fusion.layers"]) == 1
-    layer = result["fusion.layers"][0]
-    arr = np.array(layer["map"], dtype=np.float32)
-    # The outlier cell should have the highest score.
-    max_idx = np.unravel_index(np.argmax(arr), arr.shape)
-    assert max_idx == (3, 3)
+    values = np.random.default_rng(7).normal(0, 1, (8, 8)).astype(np.float32)
+    values[3, 3] = 50.0
+    ctx, stored = _make_ctx({"compression.ela_anomaly": _record(values)})
+    result = run(ctx)
+    arr = decode_npy(stored[result["fusion.layers"][0]["map"].sha256])
+    assert np.unravel_index(np.argmax(arr), arr.shape) == (3, 3)
+
+
+def _record(values):
+    return {
+        "values": values.tolist(),
+        "valid_mask": np.ones(values.shape, bool).tolist(),
+        "block": [8, 8],
+        "stride": [8, 8],
+        "scale": "robust_z",
+        "notes": [],
+    }

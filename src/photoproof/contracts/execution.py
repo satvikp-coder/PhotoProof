@@ -1,6 +1,6 @@
 """Host-provided execution facts, never inferred from missing numerical outputs."""
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 
 class UpstreamOutputStatus(TypedDict):
@@ -16,3 +16,4 @@ class UpstreamStatus(TypedDict):
 
     format_version: Literal[1]
     outputs: dict[str, UpstreamOutputStatus]
+    required_prior_outputs: NotRequired[list[str]]

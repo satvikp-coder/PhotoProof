@@ -1,9 +1,7 @@
 """Deterministic localization, traceability, artifact and failure checks for #35."""
 
 import copy
-import hashlib
 import io
-import logging
 
 import numpy as np
 import pytest
@@ -12,7 +10,6 @@ from pydantic import ValidationError
 
 from photoproof.contracts.artifacts import ArtifactRef
 from photoproof.contracts.exceptions import InputRejectedError
-from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.fusion.regions.algorithm import fill_holes, hysteresis, segment
 from photoproof.plugins.fusion.regions.processor import run
 from photoproof.plugins.fusion.regions.schema import Config
@@ -137,64 +134,67 @@ def test_invalid_config(config):
         Config(**config)
 
 
+def _binary_context(value, *, contributions=True):
+    from dataclasses import replace
+
+    from photoproof.contracts.contributions import Contribution, write_contributions
+    from photoproof.contracts.fused_maps import FusedScores, write_fused_scores
+    from tests.fixtures.native_fusion import artifact_context
+    from tests.unit.test_score_grid_projection import _geometry
+
+    ctx, put, written = artifact_context("fusion.regions", config=Config())
+    ctx.inputs["image.geometry"] = _geometry(8, 8)
+    if value is None or value == []:
+        ctx.inputs["fusion.map"] = value
+        return ctx, written
+    scores = np.asarray(value, np.float32)
+    fused = FusedScores(scores, np.ones(scores.shape, bool), "a" * 64, (8, 8))
+    preparation = replace(
+        ctx,
+        write_artifact=lambda name, data, media: put(name, data, media, producer="fusion.rules"),
+    )
+    ctx.inputs["fusion.map"] = write_fused_scores(preparation, fused)
+    if contributions:
+        entry = Contribution(
+            "copymove.mask",
+            "geometry",
+            "strong",
+            1.0,
+            "spatial",
+            (),
+            scores.copy(),
+            fused.valid_mask.copy(),
+        )
+        ctx.inputs["fusion.evidence"] = write_contributions(preparation, (entry,), fused=fused)
+    return ctx, written
+
+
 @pytest.mark.parametrize("value", [None, [], [[0.0] * 8] * 8, [[0.9] * 8] * 8])
 def test_processor_artifact_and_empty_status(value):
-    written = []
-
-    def writer(name, data, media_type):
-        written.append(data)
-        return ArtifactRef(
-            name=name,
-            sha256=hashlib.sha256(data).hexdigest(),
-            size=len(data),
-            media_type=media_type,
-            producer="fusion.regions",
-        )
-
-    evidence = [{"reason": "unavailable", "detector_id": "missing"}]
-    if value and value[0][0] > 0.5:
-        evidence.append(
-            {
-                "region": {"rows": [3], "cols": [3]},
-                "contributing_detectors": ["copymove.mask"],
-            }
-        )
-    before = copy.deepcopy(evidence)
-    ctx = PluginContext(
-        run_id="r",
-        plugin_id="fusion.regions",
-        inputs={"fusion.map": value, "fusion.evidence": evidence},
-        config=Config(),
-        seed=0,
-        write_artifact=writer,
-        logger=logging.getLogger("test"),
-    )
+    ctx, written = _binary_context(value)
+    before = copy.deepcopy(ctx.inputs)
+    if value == []:
+        with pytest.raises(InputRejectedError):
+            run(ctx)
+        assert not written
+        return
     result = run(ctx)
     assert set(result) == {"fusion.mask", "fusion.regions", "fusion.segmentation"}
-    assert evidence == before
-    if value is None or value == []:
+    assert ctx.inputs == before
+    if value is None:
         assert result["fusion.mask"] is None and not written
         assert result["fusion.segmentation"]["status"] == "unavailable"
     else:
         assert isinstance(result["fusion.mask"], ArtifactRef)
         with Image.open(io.BytesIO(written[0])) as image:
             pixels = np.array(image)
-        assert pixels.shape == (8, 8)
-        assert set(np.unique(pixels)) <= {0, 255}
+        assert pixels.shape == (8, 8) and set(np.unique(pixels)) <= {0, 255}
         assert pixels.any() == (value[0][0] > 0)
+        assert result["fusion.segmentation"]["source_sha256"] == "a" * 64
 
 
 def test_positive_map_without_contributors_is_rejected_before_artifact_write():
-    written = []
-    ctx = PluginContext(
-        run_id="r",
-        plugin_id="fusion.regions",
-        config=Config(),
-        seed=0,
-        inputs={"fusion.map": [[0.9] * 8] * 8, "fusion.evidence": []},
-        write_artifact=lambda name, data, media: written.append(data),
-        logger=logging.getLogger("test"),
-    )
-    with pytest.raises(InputRejectedError, match="contributing detector"):
+    ctx, written = _binary_context([[0.9] * 8] * 8, contributions=False)
+    with pytest.raises(InputRejectedError, match="contribution"):
         run(ctx)
     assert not written

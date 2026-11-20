@@ -6,7 +6,12 @@ from photoproof.contracts.analysis import AnalysisRequest
 from photoproof.core.controller import AnalysisController
 
 
-def test_consumer_sees_actual_upstream_states_and_missing_values_stay_missing(make_app, tmp_path):
+def test_consumer_sees_actual_upstream_states_and_missing_values_stay_missing(
+    make_app, tmp_path, monkeypatch
+):
+    from mockplugins.statusprobe.available import METADATA
+
+    monkeypatch.setitem(METADATA, "required", True)
     app = make_app("mockplugins.statusprobe")
     path = tmp_path / "source.png"
     Image.new("RGB", (8, 8), "gray").save(path)
@@ -14,6 +19,7 @@ def test_consumer_sees_actual_upstream_states_and_missing_values_stay_missing(ma
     target = app.ingestion().ingest_path(path, role="target")[0]
     result = AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
     assert result.status.value == "INCOMPLETE"
+    assert result.outputs["probe.snapshot"]["required_prior_outputs"] == ["probe.available"]
     states = result.outputs["probe.snapshot"]["outputs"]
     assert states["probe.available"]["state"] == "SUCCESS"
     assert states["probe.failed"]["state"] == "FAILED"

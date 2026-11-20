@@ -1,70 +1,61 @@
-"""Integration tests for fusion.normalize (#32) through the controller.
-
-Proves a normal controller analysis runs fusion.normalize as an optional-input
-plugin: it always runs (never SKIP due to absent detector outputs), normalizes
-available detector outputs to EvidenceLayer objects, and marks absent detectors
-as unavailable.
-"""
-
-from collections.abc import Callable
-from pathlib import Path
+"""Actual registered detectors produce source-bound numerical evidence through the controller."""
 
 import numpy as np
-from PIL import Image
 
-from photoproof.contracts.analysis import AnalysisRequest, AnalysisResult
-from photoproof.core.bootstrap import Application
+from photoproof.contracts.analysis import AnalysisRequest
+from photoproof.contracts.arrays import decode_npy
+from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.core.controller import AnalysisController
-
-Factory = Callable[..., Application]
-
-
-def _make_png(path: Path) -> Path:
-    pixels = np.zeros((16, 16, 3), dtype=np.uint8)
-    pixels[..., 0] = 200
-    pixels[..., 1] = 100
-    Image.fromarray(pixels, "RGB").save(path)
-    return path
+from tests.fixtures.native_images import write_copy_image
 
 
-def _analyze_ingested(app: Application, path: Path) -> AnalysisResult:
-    controller = AnalysisController(app)
-    target, _record = app.ingestion().ingest_path(path, role="target")
-    return controller.analyze(AnalysisRequest(target=target, use_cache=False))
-
-
-def test_fusion_normalize_runs_with_available_detectors(make_app: Factory, tmp_path: Path) -> None:
-    """fusion.normalize always runs and normalizes available detector outputs.
-
-    Even when some detectors fail (e.g. format mismatch), normalize still runs
-    because its inputs are optional. It normalizes available outputs to EvidenceLayer
-    objects and marks absent detectors as unavailable — never as zero-score layers.
-    """
+def test_fusion_normalize_runs_with_available_detectors(make_app, tmp_path):
     app = make_app("photoproof.plugins")
-    png = _make_png(tmp_path / "photo.png")
-    result = _analyze_ingested(app, png)
-
-    # fusion.normalize must have run successfully regardless of other plugin failures.
-    states = {p.plugin_id: p.state for p in result.plugins}
-    assert states["fusion.normalize"] == "SUCCESS"
-
-    outputs = result.outputs
-    assert "fusion.layers" in outputs
-    layers = outputs["fusion.layers"]
-    assert isinstance(layers, list)
-    assert len(layers) > 0  # at least some detectors produced output
-    # Every layer is uncalibrated with a valid strength class.
+    path = write_copy_image(tmp_path / "copy.png")
+    target = app.ingestion().ingest_path(path, role="target")[0]
+    result = AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
+    assert {p.plugin_id: p.state for p in result.plugins}["fusion.normalize"] == "SUCCESS"
+    layers = result.outputs["fusion.layers"]
+    assert layers
     for layer in layers:
-        assert layer["calibration"] == "uncalibrated"
+        assert layer["calibration"] == "uncalibrated" and layer["source_sha256"] == target.sha256
         assert layer["strength_class"] in {"weak", "medium", "strong"}
-        assert "map" in layer
-        assert "valid_mask" in layer
-        assert np.asarray(layer["valid_mask"], dtype=bool).any()
-        assert layer["detector_id"] not in outputs["fusion.unavailable"]
-        assert np.isfinite(np.asarray(layer["map"], dtype=float)).all()
-    # Unavailable detectors are listed (at least some, since not all detectors
-    # produce output for every input format).
-    assert "fusion.unavailable" in outputs
-    unavailable = outputs["fusion.unavailable"]
-    assert isinstance(unavailable, list)
-    assert len(unavailable) > 0
+        for field in ("map", "valid_mask"):
+            ref = layer[field]["artifact"]
+            values = decode_npy(app.storage.blob_path("artifacts", ref["sha256"]).read_bytes())
+            assert values.ndim == 2
+            if field == "valid_mask":
+                assert values.dtype == bool and values.any()
+            else:
+                assert values.dtype == np.float32 and np.isfinite(values).all()
+        assert layer["detector_id"] not in result.outputs["fusion.unavailable"]
+    assert "compression.dq_map" in result.outputs["fusion.unavailable"]
+    assert (
+        result.outputs["fusion.availability"]["outputs"]["compression.dq_map"]["state"]
+        == "NOT_APPLICABLE"
+    )
+
+
+def test_failed_optional_detector_remains_unavailable_without_blocking_other_measurements(
+    make_app, tmp_path, monkeypatch
+):
+    from photoproof.plugins.compression.jpeg_grid import processor
+
+    def controlled_failure(ctx):
+        raise InputRejectedError("controlled detector failure")
+
+    monkeypatch.setattr(processor, "run", controlled_failure)
+    app = make_app("photoproof.plugins")
+    target = app.ingestion().ingest_path(write_copy_image(tmp_path / "copy.png"), role="target")[0]
+    result = AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
+    assert result.status.value == "INCOMPLETE"
+    assert {p.plugin_id: p.state for p in result.plugins}["fusion.normalize"] == "SUCCESS"
+    assert "compression.grid_map" in result.outputs["fusion.unavailable"]
+    assert not any(
+        layer["detector_id"] == "compression.grid_map" for layer in result.outputs["fusion.layers"]
+    )
+    assert (
+        result.outputs["fusion.availability"]["outputs"]["compression.grid_map"]["state"]
+        == "FAILED"
+    )
+    assert any(layer["detector_id"] == "copymove.mask" for layer in result.outputs["fusion.layers"])

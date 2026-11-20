@@ -614,17 +614,40 @@ encoder. Encoding bounds do not constrain the upstream algorithm's total RSS.
 
 `SamplingGrid` and `project_scores` preserve explicit measured cell footprints,
 partial border centres and boolean validity during decoded-to-working projection.
-Unsupported points receive an invalid mask, never zero-score evidence. The pure
-projection API is available; production normalization/fusion wiring remains in
-progress. See [ADR-016](../planning/adr-016-spatial-evidence-grids.md).
+Unsupported points receive an invalid mask, never zero-score evidence. The production normalization/fusion stages use this projection API. See [ADR-016](../planning/adr-016-spatial-evidence-grids.md).
 
-Binary evidence-layer transport is prototyped in
+Binary evidence-layer transport is specified in
 [ADR-017](../planning/adr-017-binary-evidence-layer-wire.md). Its score and validity
-artifacts keep explicit source and sampling provenance. Controller transport probes
-work; production normalization/fusion migration remains in progress.
+artifacts keep explicit source and sampling provenance. The native production stages use this transport; historical JSON-grid runs
+retain their recorded format and require reanalysis for the new pipeline.
 
 API1.6.0 also adds the declared host input `pipeline.upstream_status`, a versioned
 snapshot of planned producers and their actual scheduler states. It does not add
 missing numerical values. It distinguishes inapplicability/failure from measured
 zeros without exposing exception text or runtime handles. See
 [ADR-018](../planning/adr-018-upstream-execution-status.md).
+
+
+## Native evidence pipeline (API1.9)
+
+The registered normalization/fusion/assessment/regions/heatmap stages use version3
+source-bound binary records. See [ADR-020](../planning/adr-020-binary-fusion-migration.md)
+for exact policy, coordinate, validity and migration requirements. Historical raw
+JSON arrays, unverified masks, scalar summaries and counts are not accepted as
+current localized forensic evidence. Retain historical manifests and reanalyse
+immutable originals instead of relabelling their scores.
+
+The normalization YAML contains only actual native mappings. ELA/grid remain weak,
+DQ and reliable noise consistency are provisionally medium, and verified dense
+copy-move is capped by geometric quality and upstream cautions. All scores remain
+uncalibrated. Missing/failed/inapplicable outputs remain explicitly unavailable;
+context does not count as measured independent coverage. The default coverage
+minimum remains two independent non-low families; missing required measurements
+force an inconclusive assessment. No category establishes image provenance.
+
+Noise summary format2 stores no duplicated arrays: read the declared NPY score
+and nested valid_mask_artifact references with their recorded source and sampling.
+Preview format2 binds original hash, working dimensions and PNG digest. Native
+heatmaps require that exact derived preview and show unknown cells transparently,
+including at display threshold zero. The full region raster is retained when bounded
+boundary metadata is truncated, and that limitation is explicit in the legend.

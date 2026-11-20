@@ -1,18 +1,7 @@
-"""Processor wiring for fusion.assessment.
+"""Production entry point for source-bound binary evidence.
 
-Produces the run's overall assessment category based on coverage (which detectors
-were available and applicable). Missing evidence leads to ``inconclusive`` rather
-than an implied clean result.
-
-Output: ``fusion.assessment``: ``{category, reasons[], coverage{family: state},
-limitations[]}``.
-
-Categories (none contain "authentic", "genuine", or "real"):
-- ``manipulation_indicated``: strong evidence of manipulation found
-- ``differences_found`` (comparison mode only): differences between reference and target
-- ``no_indicators_found_with_sufficient_coverage``: sufficient coverage but no
-  manipulation indicators
-- ``inconclusive``: insufficient coverage, missing detectors, or all detectors failed
+The registered run uses the coordinated native implementation. Retained private
+numerical helpers are historical mathematical controls, not alternate wire readers.
 """
 
 from __future__ import annotations
@@ -23,12 +12,9 @@ import numpy as np
 
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.fusion.assessment import (
-    CATEGORY_INCONCLUSIVE,
-    CATEGORY_MANIPULATION_INDICATED,
-    CATEGORY_NO_INDICATORS_SUFFICIENT_COVERAGE,
     DETECTOR_FAMILIES,
 )
-from photoproof.plugins.fusion.assessment.schema import Config
+from photoproof.plugins.fusion.assessment.native_processor import assess_native
 
 
 def _compute_coverage(
@@ -93,69 +79,5 @@ def _count_available_families(coverage: dict[str, str]) -> int:
 
 
 def run(ctx: PluginContext) -> dict[str, object]:
-    """Assess evidence sufficiency and produce an assessment category.
-
-    Reads ``fusion.map`` and ``fusion.evidence`` (optional inputs from
-    ``fusion.rules``). Produces ``fusion.assessment``.
-    """
-    layers = ctx.inputs.get("fusion.layers", [])
-    unavailable = ctx.inputs.get("fusion.unavailable", [])
-
-    if not isinstance(layers, list):
-        layers = []
-    if isinstance(unavailable, tuple):
-        unavailable = list(unavailable)
-    if not isinstance(unavailable, list):
-        unavailable = ["invalid_availability_record"]
-
-    coverage = _compute_coverage(layers, unavailable)
-    available_families = _count_available_families(coverage)
-
-    config = ctx.config if isinstance(ctx.config, Config) else Config.model_validate(ctx.config)
-    reasons: list[str] = []
-    if available_families < config.minimum_families_for_sufficient_coverage:
-        reasons.append(
-            f"insufficient coverage: {available_families} families available, "
-            f"{config.minimum_families_for_sufficient_coverage} required"
-        )
-    if unavailable:
-        reasons.append("one or more detector outputs are unavailable")
-    try:
-        fused = np.asarray(ctx.inputs.get("fusion.map"), dtype=np.float32)
-        has_fused = (
-            fused.ndim == 2
-            and fused.size > 0
-            and np.isfinite(fused).all()
-            and np.all((fused >= 0) & (fused <= 1))
-        )
-    except (TypeError, ValueError, OverflowError):
-        has_fused = False
-    if not has_fused:
-        reasons.append("fused evidence is unavailable or invalid")
-    invalid_families = any(state == "applicable_unavailable" for state in coverage.values())
-    if invalid_families:
-        reasons.append("one or more detector families have no valid output")
-    if reasons:
-        category = CATEGORY_INCONCLUSIVE
-    elif float(fused.max()) > config.manipulation_confidence_threshold:
-        # Use accepted fusion, never raw keypoints or a free-text keyword search.
-        category = CATEGORY_MANIPULATION_INDICATED
-        reasons = ["fused heuristic indicators exceed the provisional threshold"]
-    else:
-        category = CATEGORY_NO_INDICATORS_SUFFICIENT_COVERAGE
-        reasons = ["no indicators above threshold in the available non-weak coverage"]
-
-    # Build limitations
-    limitations: list[str] = ["coverage and thresholds are provisional and uncalibrated"]
-    for fam, state in coverage.items():
-        if state != "applicable_available":
-            limitations.append(f"{fam}: {state}")
-
-    assessment = {
-        "category": category,
-        "reasons": reasons,
-        "coverage": coverage,
-        "limitations": limitations,
-    }
-
-    return {"fusion.assessment": assessment}
+    """Run the source-bound binary production pipeline."""
+    return assess_native(ctx)

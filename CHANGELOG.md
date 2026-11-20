@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** native normalization, fusion, assessment, regions and heatmaps now
+  transport measured scores and validity as source-bound artifacts. Reanalyse
+  historical JSON-grid runs; diagnostics no longer become localized evidence,
+  unknown pixels stay unavailable, and accepted contributions remain traceable
+  through cleanup and display (Refs #32, #33, #34, #35, #36).
+- **Breaking:** noise summary format2 separates validity into a bounded numerical
+  artifact; safe-preview format2 binds original source, working dimensions and
+  digest. Migrate normalization settings to the documented native mappings.
+
 - **Breaking:** copy-move masks now consume hash-bound verified inliers in working
   coordinates and emit semantic PNG labels, signed dense correlation with explicit
   validity, and traceable component boundaries. Preserve old results and reanalyse;
@@ -84,6 +93,13 @@ All notable changes to this project are documented here. The format follows
   lockfiles together, and preserve release-only versioning (Refs #78).
 
 ### Added
+
+- Provide exact working-to-decoded score reorientation and bounded binary fused
+  score/validity helpers in plugin API 1.9. Native adapters preserve provenance
+  and downgrade cautioned dense copy-move support (Refs #32).
+
+- Add a native robust-z anomaly adapter preserving detector sampling and validity;
+  coordinated production normalization wiring remains in progress (Refs #32).
 
 - Provide declared upstream execution-state snapshots separately from missing optional
   measurements, preserving failure/applicability distinctions (Refs #32, #34).

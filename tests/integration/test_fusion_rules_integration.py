@@ -1,108 +1,67 @@
-"""Integration tests for fusion.rules (#33) through the controller.
-
-Proves a normal controller analysis runs fusion.rules as a required plugin
-(after fusion.normalize), fusing available evidence layers into a heuristic
-suspicion map and per-region evidence summaries.
-"""
+"""Actual detector evidence, configured weights and accepted contribution artifacts."""
 
 import json
-from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
-import pytest
-from PIL import Image
 
-from photoproof.contracts.analysis import AnalysisRequest, AnalysisResult
-from photoproof.core.bootstrap import Application
+from photoproof.contracts.analysis import AnalysisRequest
+from photoproof.contracts.arrays import decode_npy
 from photoproof.core.controller import AnalysisController
-from photoproof.plugins.fusion.normalize import processor as normalize
-
-Factory = Callable[..., Application]
+from tests.fixtures.native_images import write_copy_image
 
 
-def _make_png(path: Path) -> Path:
-    pixels = np.zeros((16, 16, 3), dtype=np.uint8)
-    pixels[..., 0] = 200
-    pixels[..., 1] = 100
-    Image.fromarray(pixels, "RGB").save(path)
-    return path
+def _analyze(app, path):
+    target = app.ingestion().ingest_path(path, role="target")[0]
+    return AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
 
 
-def _analyze_ingested(app: Application, path: Path) -> AnalysisResult:
-    controller = AnalysisController(app)
-    target, _record = app.ingestion().ingest_path(path, role="target")
-    return controller.analyze(AnalysisRequest(target=target, use_cache=False))
-
-
-def test_fusion_rules_runs_through_controller(make_app: Factory, tmp_path: Path) -> None:
-    """fusion.rules runs after fusion.normalize and produces fused outputs.
-
-    The run may be INCOMPLETE (some detectors fail for format mismatch), but
-    fusion.rules itself must succeed and produce fusion.map / fusion.evidence
-    in the outputs.
-    """
+def test_fusion_rules_runs_through_controller(make_app, tmp_path):
     app = make_app("photoproof.plugins")
-    png = _make_png(tmp_path / "photo.png")
-    result = _analyze_ingested(app, png)
-
-    # fusion.rules must have run successfully (it requires fusion.normalize).
-    states = {p.plugin_id: p.state for p in result.plugins}
-    assert states.get("fusion.rules") == "SUCCESS", f"fusion.rules state: {states}"
-
-    outputs = result.outputs
-    assert "fusion.map" in outputs
-    assert "fusion.evidence" in outputs
-
-    fmap = outputs["fusion.map"]
-    if fmap is not None:
-        arr = np.array(fmap, dtype=np.float32)
-        assert arr.ndim == 2 and arr.size > 0
-        assert np.all((arr >= 0.0) & (arr <= 1.0))  # scores in [0, 1]
-
-    evidence = outputs["fusion.evidence"]
-    assert isinstance(evidence, list)
-    for entry in evidence:
-        # Unavailable entries have different keys than region entries.
-        if entry.get("reason") == "unavailable":
-            assert "detector_id" in entry
-            assert "score" in entry
-        else:
-            assert "contributing_detectors" in entry
-            assert "families" in entry
-            assert "rules_fired" in entry
-            assert "max_score" in entry
-
-    # No "probability" word anywhere in outputs.
-
-    outputs_json = json.dumps(outputs)
-    assert "probability" not in outputs_json.lower()
-
-
-def test_controller_applies_configured_fusion_weights(
-    make_app: Factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Controlled upstream fixture; actual fusion config loading and persistence."""
-    monkeypatch.setattr(
-        normalize,
-        "run",
-        lambda ctx: {
-            "fusion.layers": [
-                {
-                    "detector_id": "copymove.mask",
-                    "map": [[0.9]],
-                    "strength_class": "strong",
-                    "valid_mask": [[True]],
-                }
-            ],
-            "fusion.unavailable": [],
-        },
-    )
-    app = make_app("photoproof.plugins")
-    config = app.root / "configs" / "plugins" / "fusion.rules.yaml"
-    config.write_text("strength_weights:\n  strong: 0.0\n", encoding="utf-8")
-    result = _analyze_ingested(app, _make_png(tmp_path / "configured.png"))
+    result = _analyze(app, write_copy_image(tmp_path / "copy.png"))
     assert {p.plugin_id: p.state for p in result.plugins}["fusion.rules"] == "SUCCESS"
-    assert result.outputs["fusion.map"] == [[0.0]]
+    fused = result.outputs["fusion.map"]
+    assert fused is not None and fused["calibration"] == "uncalibrated"
+    ref = fused["scores"]["artifact"]
+    values = decode_npy(app.storage.blob_path("artifacts", ref["sha256"]).read_bytes())
+    assert values.ndim == 2 and values.size and np.all((values >= 0) & (values <= 1))
+    evidence = result.outputs["fusion.evidence"]
+    assert evidence["contributions"] and evidence["source_sha256"] == fused["source_sha256"]
+    for entry in evidence["contributions"]:
+        assert {
+            "detector_id",
+            "family",
+            "strength_class",
+            "scores",
+            "measured",
+            "effective_weight",
+        } <= set(entry)
+    assert "compression.dq_map" in evidence["unavailable"]
+    assert "probability" not in json.dumps(result.outputs["fusion.score_info"]).lower()
+
+
+def test_controller_applies_configured_fusion_weights(make_app, tmp_path):
+    app = make_app("photoproof.plugins")
+    (app.root / "configs" / "plugins" / "fusion.rules.yaml").write_text(
+        "strength_weights:\n  strong: 0.0\n", encoding="utf-8"
+    )
+    result = _analyze(app, write_copy_image(tmp_path / "copy.png"))
+    assert {p.plugin_id: p.state for p in result.plugins}["fusion.rules"] == "SUCCESS"
+    ref = result.outputs["fusion.map"]["scores"]["artifact"]
+    values = decode_npy(app.storage.blob_path("artifacts", ref["sha256"]).read_bytes())
+    # Disabling copy-move must not disable independent noise measurements. Native
+    # noise scores can differ across numeric builds; they are not a zero baseline.
+    assert np.isfinite(values).all() and np.all((values >= 0) & (values <= 1))
+    contribution = next(
+        e
+        for e in result.outputs["fusion.evidence"]["contributions"]
+        if e["detector_id"] == "copymove.mask"
+    )
+    assert contribution["effective_weight"] == 0
+    disabled_ref = contribution["scores"]["artifact"]
+    disabled = decode_npy(app.storage.blob_path("artifacts", disabled_ref["sha256"]).read_bytes())
+    assert not disabled.any()
+    assert result.outputs["fusion.assessment"]["coverage"]["geometry"] == "weight_disabled"
+    assert result.outputs["fusion.score_info"]["parameters"]["strength_weights"]["strong"] == 0
     manifest = app.storage.read_json("manifests", Path(result.manifest_path).name)
-    assert manifest["outputs"]["fusion.map"] == [[0.0]]
+    assert manifest["outputs"]["fusion.map"] == result.outputs["fusion.map"]

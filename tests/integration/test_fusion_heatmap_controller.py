@@ -12,6 +12,7 @@ from PIL import Image
 from photoproof.contracts.analysis import AnalysisRequest
 from photoproof.core.bootstrap import Application
 from photoproof.core.controller import AnalysisController
+from tests.fixtures.native_images import write_copy_image
 
 
 def test_heatmap_controller_artifacts_and_traceability(
@@ -19,9 +20,7 @@ def test_heatmap_controller_artifacts_and_traceability(
 ) -> None:
     app = make_app("photoproof.plugins")
     source = tmp_path / "input.png"
-    Image.fromarray(np.random.default_rng(36).integers(0, 256, (64, 96, 3), dtype=np.uint8)).save(
-        source
-    )
+    write_copy_image(source)
     original = source.read_bytes()
     target, _ = app.ingestion().ingest_path(source, role="target")
     controller = AnalysisController(app)
@@ -41,7 +40,7 @@ def test_heatmap_controller_artifacts_and_traceability(
         assert hashlib.sha256(data).hexdigest() == ref["sha256"]
         assert ref["sha256"] in json.dumps(manifest)
         with Image.open(io.BytesIO(data)) as image:
-            assert image.size == (96, 64) and not image.info
+            assert image.size == (512, 384) and not image.info
     assert source.read_bytes() == original
 
 
@@ -89,7 +88,7 @@ def test_tampered_stored_preview_is_not_regenerated(make_app, tmp_path, monkeypa
 
     monkeypatch.setattr(preview, "run", tamper_after_write)
     source = tmp_path / "tamper-test.png"
-    Image.fromarray(np.full((32, 32, 3), 120, dtype=np.uint8)).save(source)
+    write_copy_image(source)
     original = source.read_bytes()
     target = app.ingestion().ingest_path(source, role="target")[0]
     result = AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
