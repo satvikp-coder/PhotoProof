@@ -34,7 +34,14 @@ titles (`!`) are MAJOR. Plugin versions are independent.
    refuses duplicate releases, runs the tests, builds the sdist and wheel, and creates
    the GitHub release with the changelog section as notes.
 
-Nothing is published to PyPI. The attached wheel and sdist are build-verification
-artifacts: PhotoProof currently runs only from a repository checkout (bootstrap needs
-`app.toml`, the configuration directories and the `src/` layout). Running from an
-installed wheel is tracked as a backlog issue.
+Nothing is published to PyPI. Release wheels include fixed default configuration and
+can run outside a checkout after installation with the hash-pinned runtime dependencies.
+The matching requirements.lock is attached to the release and included in the sdist.
+Install dependencies with `python -m pip install --require-hashes --only-binary :all: -r requirements.lock`,
+then install the downloaded wheel with `python -m pip install --no-deps WHEEL_PATH`.
+CI exercises the installed artifact outside the checkout before release publication.
+Use `photoproof --root /path/to/private/home init` to create editable defaults, then
+`photoproof --root /path/to/private/home status` or `analyze IMAGE`. An explicit root
+or allowlisted absolute `PHOTOPROOF_HOME` keeps runtime data separate from site-packages.
+See [ADR-026](../planning/adr-026-installed-wheel-runtime.md) for fallback and migration
+rules. Source launches through `python main.py` keep their checkout configuration.

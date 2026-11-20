@@ -65,3 +65,28 @@ normal pipeline-health outcomes. Missing or rejected reference pixels yield INCO
 with an unavailable preflight. Combined image pixels share one configured budget rather
 than each receiving a full allowance. Registration and interpretation remain separate
 implementation stages; preflight alone is not a forensic assessment.
+
+
+## Installed wheels
+
+Install the release's matching requirements.lock with `--require-hashes --only-binary :all:`,
+then install its wheel with `--no-deps`; see the
+[release instructions](../development/releases.md). The installed CLI runs directly:
+
+```text
+photoproof --root PATH init
+photoproof --root PATH status
+photoproof --root PATH analyze IMAGE --no-cache --json
+```
+
+PATH selects configuration and runtime storage, not Python code or plugin locations.
+Init writes missing editable settings/profiles/plugin parameters without overwriting
+existing files. Installed identity always comes from the wheel's app.toml, so an old
+runtime copy cannot shadow an upgrade. Missing local configuration uses packaged
+defaults; malformed existing settings fail visibly. Without --root, absolute
+PHOTOPROOF_HOME or a platform user data directory selects installed storage.
+
+A successful installation or a recorded manifest does not imply every detector
+succeeded. Check RunStatus, per-plugin failures and evidence-sufficiency limitations;
+INCOMPLETE is an honest failure outcome, never evidence of a clean image. The installed
+mode retains isolated decoding and all normal evidence/storage checks.

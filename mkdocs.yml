@@ -103,3 +103,4 @@ nav:
       - ADR-016 Spatial Evidence Grids: planning/adr-016-spatial-evidence-grids.md
       - ADR-017 Binary Evidence Layers: planning/adr-017-binary-evidence-layer-wire.md
       - ADR-018 Upstream Execution Status: planning/adr-018-upstream-execution-status.md
+      - ADR-026 Installed Wheel Runtime: planning/adr-026-installed-wheel-runtime.md
