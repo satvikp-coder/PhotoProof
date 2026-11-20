@@ -94,6 +94,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Localized regions list accepted detector scores, independent families and fusion
+  gates, preserving original component attribution through cleanup (Refs #33).
+
 - Provide exact working-to-decoded score reorientation and bounded binary fused
   score/validity helpers in plugin API 1.9. Native adapters preserve provenance
   and downgrade cautioned dense copy-move support (Refs #32).

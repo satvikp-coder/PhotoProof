@@ -142,3 +142,21 @@ Initial branch controller baselines: a seed22 copy on a384x512 image completed t
 whole pipeline with union localization IoU0.889255 in both orientation1 and EXIF6.
 Original bytes remained unchanged; every rendered artifact carries the expected
 source/frame chain. These synthetic regressions do not validate forensic accuracy.
+
+
+## Auditable region explanations
+
+Region metadata version3.1 adds per-detector accepted-cell counts, maximum and mean
+accepted scores, family, strength, effective weight and the fusion gates that admitted
+the contribution. `strong_maximum` identifies the winning strong branch;
+`medium_high_or_independent_family_support` names the actual OR gate, without claiming
+which disjunct was necessary when both could hold. `weak_boost_existing_nonweak_support`
+requires accepted non-weak support. Non-strong winners also report
+`independent_family_maximum`. Actual provisional parameters remain in fusion.score_info.
+
+The statistics explicitly cover positive accepted cells in the original hysteresis
+components, including a seed removed by cleanup. They are not detector raw scores,
+calibrated confidence or necessarily statistics over the final polygon. This scope
+preserves traceability without inventing contribution in newly filled pixels. Missing,
+zero-weight, gated-out or family-suppressed contributions do not appear as fired rules.
+Raster values, fused-score transport and historical region records are unchanged.
