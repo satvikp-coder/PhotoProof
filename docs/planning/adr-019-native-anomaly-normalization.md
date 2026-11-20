@@ -3,8 +3,9 @@
 ## Status
 
 Adapter implemented and unit-tested against actual compression algorithm records.
-Production normalization/fusion wire migration and controller wiring are pending.
-This decision does not complete PP-032 or provide calibration evidence.
+The native integration branch now connects these adapters through the production
+controller and binary consumers. Full regression/CI and independent main-integration
+review remain required. This decision does not provide calibration evidence.
 
 ## Problem
 
@@ -44,9 +45,10 @@ The native-input reader recognizes actual ELA/grid records, the nested JPEG-DCT
 anomaly record, and the persisted noise-consistency NPY plus its companion
 `noise.variance_summary` sampling/validity metadata. Noise scores come through
 `ctx.artifact`, not the duplicated legacy JSON values. Missing companion metadata
-is unavailable; it never licenses a shape-based grid guess. The legacy noise
-summary still duplicates bulk values and must become compact during the coordinated
-producer migration; this adapter does not resolve that producer's output-size limit.
+is unavailable; it never licenses a shape-based grid guess. Noise summary format2 is now compact: source hash/decoded size, explicit grid shape,
+block/stride/scale and artifact references. A separate boolean validity NPY is read
+through the exact declared nested selector; no duplicated numerical grids remain.
+The direct consistency output must match the companion artifact reference.
 Noise reliability must also be present. Low-confidence native noise measurements
 are downgraded to weak context, with the reason retained; they cannot establish
 sufficient non-weak coverage. Configured strength is a maximum, with no quality-based
@@ -91,7 +93,7 @@ Working-pixel maps are reoriented exactly into decoded pixels for the existing
 SamplingGrid wire using the authoritative signed-permutation EXIF matrix. No
 resize, interpolated score or shape-based coordinate guess is used. The layer
 retains localized_search_scope: tested candidate windows do not provide whole-image
-negative coverage. Native normalization/fusion production activation is still pending.
+negative coverage. Native producer/consumer activation is described in ADR-020.
 
 Host API1.9 adds validate_pixel_transform and decoded_from_working plus the new
 fused-score/validity transport. It follows the integrated-chain API1.8 requirement;

@@ -1,216 +1,104 @@
-"""Tests for fusion.assessment (#34): evidence sufficiency and inconclusive results.
+"""Assessment policy controls use typed binary fusion, not unverified raw detector summaries.
 
-Covers:
-- Missing/failed/not-applicable detectors lead to ``inconclusive``, never a clean
-  category.
-- No category/template/UI string uses "authentic", "genuine" or "real".
-- Coverage table included in every assessment.
-- Sufficient coverage with no indicators → ``no_indicators_found_with_sufficient_coverage``.
-- Strong evidence → ``manipulation_indicated``.
-- Comparison mode with differences → ``differences_found``.
+Actual verified detector bindings and image pixels are covered by controller tests.
 """
-
-from __future__ import annotations
 
 import numpy as np
 
+from photoproof.contracts.arrays import encode_npy
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.fusion.assessment.processor import run
+from photoproof.plugins.fusion.rules.native_processor import run_native
+from tests.unit.test_native_assessment import _assessment
 
-# ------------------------------------------------------------------ helper
 
-
-def _make_ctx(inputs: dict[str, object]) -> PluginContext:
+def _empty():
     return PluginContext(
-        run_id="run-1",
+        run_id="coverage",
         plugin_id="fusion.assessment",
-        inputs=inputs,
+        inputs={},
         config={},
         seed=0,
-        write_artifact=lambda name, data, media_type: None,
-        logger=None,  # type: ignore[arg-type]
+        write_artifact=lambda *args: None,
+        logger=None,
     )
 
 
-def _make_layer(
-    det_id: str,
-    strength_class: str,
-    map_values: list[list[float]] | None = None,
-) -> dict[str, object]:
-    return {
-        "detector_id": det_id,
-        "map": map_values,
-        "regions": (),
-        "strength_class": strength_class,
-        "valid_mask": np.ones(np.asarray(map_values).shape, dtype=bool).tolist(),
-        "calibration": "uncalibrated",
-        "notes": (),
-    }
-
-
-# ------------------------------------------------------------------ insufficient coverage
-
-
-def test_insufficient_coverage_inconclusive() -> None:
-    """Only one family available → inconclusive."""
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [
-                    _make_layer("compression.ela_map", "weak", [[0.1, 0.2], [0.3, 0.4]])
-                ],
-                "fusion.evidence": [],
-                "fusion.unavailable": [
-                    "noise.sigma_map",
-                    "visual.sharpness_map",
-                    "copymove.verification",
-                ],
-            }
-        )
+def test_insufficient_coverage_inconclusive():
+    ctx = _assessment(low=True)
+    ctx.inputs["fusion.layers"] = ctx.inputs["fusion.layers"][:1]
+    ctx.inputs["fusion.unavailable"] = ["noise.consistency_map", "copymove.mask"]
+    ctx.inputs["fusion.availability"]["outputs"]["noise.consistency_map"].update(
+        available=False, state="FAILED", strength_class=None
     )
-    assert result["fusion.assessment"]["category"] == "inconclusive"
-    assert "insufficient coverage" in result["fusion.assessment"]["reasons"][0]
+    ctx.inputs.update(run_native(ctx))
+    result = run(ctx)["fusion.assessment"]
+    assert result["category"] == "inconclusive"
+    assert any("insufficient" in reason for reason in result["reasons"])
 
 
-def test_no_detectors_inconclusive() -> None:
-    """No detectors at all → inconclusive."""
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [],
-                "fusion.evidence": [],
-                "fusion.unavailable": [
-                    "compression.ela_map",
-                    "noise.sigma_map",
-                    "visual.sharpness_map",
-                    "copymove.verification",
-                ],
-            }
-        )
-    )
-    assert result["fusion.assessment"]["category"] == "inconclusive"
+def test_no_detectors_inconclusive():
+    result = run(_empty())["fusion.assessment"]
+    assert result["category"] == "inconclusive" and result["coverage"]
 
 
-def test_unavailable_detectors_inconclusive() -> None:
-    """All detectors unavailable → inconclusive."""
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [],
-                "fusion.evidence": [],
-                "fusion.unavailable": [
-                    "compression.ela_map",
-                    "noise.sigma_map",
-                    "visual.sharpness_map",
-                    "copymove.verification",
-                ],
-            }
-        )
-    )
-    assert result["fusion.assessment"]["category"] == "inconclusive"
+def test_unavailable_detectors_inconclusive():
+    ctx = _assessment()
+    ctx.inputs["fusion.map"] = ctx.inputs["fusion.evidence"] = None
+    for fact in ctx.inputs["fusion.availability"]["outputs"].values():
+        fact.update(available=False, state="FAILED", strength_class=None)
+    assert run(ctx)["fusion.assessment"]["category"] == "inconclusive"
 
 
-# ------------------------------------------------------------------ no authentic/genuine/real
-
-
-def test_no_forbidden_words() -> None:
-    """No category name contains 'authentic', 'genuine', or 'real'."""
-    for cat in [
+def test_no_forbidden_words():
+    for category in [
         "manipulation_indicated",
         "differences_found",
         "no_indicators_found_with_sufficient_coverage",
         "inconclusive",
     ]:
         for word in ["authentic", "genuine", "real"]:
-            assert word not in cat.lower()
+            assert word not in category.lower()
 
 
-# ------------------------------------------------------------------ manipulation_indicated
-
-
-def test_strong_evidence_manipulation_indicated() -> None:
-    """Strong evidence (copy-move) with high score → manipulation_indicated."""
-    strong_map = np.zeros((4, 4), dtype=np.float32)
-    strong_map[1:3, 1:3] = 0.9
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [
-                    _make_layer("copymove.verification", "strong", strong_map.tolist()),
-                    _make_layer("noise.sigma_map", "medium", [[0.1, 0.2], [0.3, 0.4]]),
-                ],
-                "fusion.map": strong_map.tolist(),
-                "fusion.evidence": [],
-                "fusion.unavailable": [],
-            }
-        )
+def test_strong_evidence_manipulation_indicated():
+    ctx = _assessment()
+    layer = ctx.inputs["fusion.layers"][0]
+    layer.update(
+        detector_id="copymove.mask",
+        strength_class="strong",
+        notes=[
+            "verified_dense_pixel_similarity",
+            "original_source_bound",
+            "localized_search_scope",
+            "mask_sha256:" + "a" * 64,
+            "verification_bindings_sha256:" + "b" * 64,
+        ],
     )
-    assert result["fusion.assessment"]["category"] == "manipulation_indicated"
-
-
-# ------------------------------------------------------------------ no indicators sufficient
-
-
-def test_sufficient_coverage_no_indicators() -> None:
-    """Two families with low scores → no_indicators_found_with_sufficient_coverage."""
-    low_map = np.zeros((4, 4), dtype=np.float32)
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [
-                    _make_layer("compression.dq_map", "medium", low_map.tolist()),
-                    _make_layer("noise.sigma_map", "medium", low_map.tolist()),
-                ],
-                "fusion.map": low_map.tolist(),
-                "fusion.evidence": [],
-                "fusion.unavailable": [],
-            }
-        )
+    layer["map"] = ctx.write_artifact(
+        "strong-policy-control.npy",
+        encode_npy(np.full((2, 3), 0.9, np.float32)),
+        "application/x-npy",
     )
-    assert result["fusion.assessment"]["category"] == "no_indicators_found_with_sufficient_coverage"
+    ctx.inputs["fusion.unavailable"] = []
+    outputs = ctx.inputs["fusion.availability"]["outputs"]
+    outputs["compression.dq_map"].update(available=False, state="NOT_PLANNED", strength_class=None)
+    outputs["copymove.mask"].update(available=True, state="SUCCESS", strength_class="strong")
+    ctx.inputs.update(run_native(ctx))
+    assert run(ctx)["fusion.assessment"]["category"] == "manipulation_indicated"
 
 
-# ------------------------------------------------------------------ coverage table
+def test_sufficient_coverage_no_indicators():
+    result = run(_assessment(low=True))["fusion.assessment"]
+    assert result["category"] == "no_indicators_found_with_sufficient_coverage"
+    assert result["calibration"] == "uncalibrated"
 
 
-def test_coverage_table_included() -> None:
-    """Every assessment includes a coverage table."""
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [
-                    _make_layer("compression.ela_map", "weak", [[0.1, 0.2], [0.3, 0.4]])
-                ],
-                "fusion.evidence": [],
-                "fusion.unavailable": [
-                    "noise.sigma_map",
-                    "visual.sharpness_map",
-                    "copymove.verification",
-                ],
-            }
-        )
-    )
-    assessment = result["fusion.assessment"]
-    assert "coverage" in assessment
-    assert isinstance(assessment["coverage"], dict)
-    assert "compression" in assessment["coverage"]
-    assert "noise" in assessment["coverage"]
-    assert "visual" in assessment["coverage"]
+def test_coverage_table_included():
+    coverage = run(_empty())["fusion.assessment"]["coverage"]
+    assert {"compression", "noise", "visual", "geometry"} <= set(coverage)
 
 
-def test_limitations_included() -> None:
-    """Limitations included for unavailable families."""
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [
-                    _make_layer("compression.ela_map", "weak", [[0.1, 0.2], [0.3, 0.4]])
-                ],
-                "fusion.evidence": [],
-                "fusion.unavailable": ["noise.sigma_map"],
-            }
-        )
-    )
-    assessment = result["fusion.assessment"]
-    assert "limitations" in assessment
-    assert any("noise" in lim for lim in assessment["limitations"])
+def test_limitations_included():
+    result = run(_empty())["fusion.assessment"]
+    assert any("noise" in limitation for limitation in result["limitations"])

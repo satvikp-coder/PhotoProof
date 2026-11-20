@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
 import io
-from typing import Any
 
 import cv2
 import numpy as np
 from PIL import Image
 
-from photoproof.contracts.artifacts import ArtifactRef
 from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.fusion.heatmap.colormap import CIVIDIS
+from photoproof.plugins.fusion.heatmap.native_processor import run_native
 from photoproof.plugins.fusion.heatmap.schema import Config
 
 
@@ -80,66 +78,5 @@ def render(
 
 
 def run(ctx: PluginContext) -> dict[str, object]:
-    """Produce PNG artifacts with an explicit uncalibrated legend and preview hash."""
-    config = ctx.config if isinstance(ctx.config, Config) else Config()
-    legend: dict[str, Any] = {
-        "colormap": "cividis",
-        "range": [0, 1],
-        "label": "heuristic suspicion score (uncalibrated)",
-        "notes": [
-            "Uncalibrated heuristic; requires corroboration and expert interpretation.",
-            "Thresholds are provisional until calibration (#37).",
-            "Derived preview context; transparent pixels are below the display threshold.",
-        ],
-        "display_threshold": config.display_threshold,
-        "opacity": config.opacity,
-    }
-    value = ctx.inputs.get("fusion.map")
-    if value is None or (isinstance(value, list) and not value):
-        legend.update(status="unavailable", message="no fused evidence available")
-        return {
-            "fusion.heatmap": None,
-            "fusion.overlay": None,
-            "fusion.outlines": None,
-            "fusion.legend": legend,
-        }
-    raw_ref = ctx.inputs.get("support.preview")
-    info = ctx.inputs.get("support.preview_info")
-    if not isinstance(raw_ref, dict) or not isinstance(info, dict):
-        raise InputRejectedError("heatmap: safe preview unavailable; enable support.preview")
-    ref = ArtifactRef.model_validate(raw_ref.get("artifact"))
-    max_edge = info.get("max_edge")
-    if isinstance(max_edge, bool) or not isinstance(max_edge, int) or not 1 <= max_edge <= 4096:
-        raise InputRejectedError("heatmap: invalid preview bound; rerun support.preview")
-    data = ctx.artifact("support.preview")
-    if hashlib.sha256(data).hexdigest() != ref.sha256:
-        raise InputRejectedError("heatmap: safe preview hash mismatch; preserve the artifact")
-    try:
-        with Image.open(io.BytesIO(data)) as image:
-            if (
-                image.format != "PNG"
-                or image.mode not in {"L", "RGB", "RGBA"}
-                or min(image.size) < 1
-                or max(image.size) > max_edge
-                or image.size != (info.get("width"), info.get("height"))
-            ):
-                raise InputRejectedError(
-                    "heatmap: preview header disagrees with bounded derived metadata"
-                )
-            preview = np.array(image)
-    except (OSError, ValueError) as error:
-        raise InputRejectedError("heatmap: invalid derived PNG; preserve the artifact") from error
-    try:
-        scores = np.asarray(value, dtype=np.float32)
-    except (TypeError, ValueError) as error:
-        raise InputRejectedError("heatmap: invalid fused map; inspect fusion.rules") from error
-    heat, overlay, outlines = render(
-        scores, preview, regions=ctx.inputs.get("fusion.regions"), config=config
-    )
-    legend.update(status="rendered", preview_sha256=ref.sha256, dimensions=list(preview.shape[:2]))
-    return {
-        "fusion.heatmap": ctx.write_artifact("heuristic-heatmap.png", heat, "image/png"),
-        "fusion.overlay": ctx.write_artifact("derived-overlay.png", overlay, "image/png"),
-        "fusion.outlines": ctx.write_artifact("region-outlines.png", outlines, "image/png"),
-        "fusion.legend": legend,
-    }
+    """Run the source-bound binary production pipeline."""
+    return run_native(ctx)

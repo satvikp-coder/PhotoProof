@@ -14,7 +14,9 @@ Covers:
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
+from photoproof.contracts.exceptions import InputRejectedError
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.fusion.rules.processor import (
     _connected_components,
@@ -22,6 +24,7 @@ from photoproof.plugins.fusion.rules.processor import (
     _resample_to_common_grid,
     run,
 )
+from tests.fixtures.native_fusion import fuse_controls
 
 # ------------------------------------------------------------------ noisy_or
 
@@ -119,283 +122,117 @@ def test_connected_components_connected() -> None:
 
 
 def test_run_no_layers() -> None:
-    """No layers → map is None, unavailable listed."""
-    result = run(_make_ctx({"fusion.layers": [], "fusion.unavailable": ["compression.ela_map"]}))
-    assert result["fusion.map"] is None
-    evidence = result["fusion.evidence"]
-    assert len(evidence) == 1
-    assert evidence[0]["detector_id"] == "compression.ela_map"
-    assert evidence[0]["reason"] == "unavailable"
+    result = run(
+        _make_ctx({"fusion.layers": [], "fusion.unavailable": ["compression.ela_anomaly"]})
+    )
+    assert result["fusion.map"] is None and result["fusion.evidence"] is None
+    assert result["fusion.score_info"]["unavailable_detectors"] == ["compression.ela_anomaly"]
 
 
 def test_run_no_layers_none_input() -> None:
-    """None layers → map is None."""
-    result = run(_make_ctx({"fusion.layers": None, "fusion.unavailable": []}))
-    assert result["fusion.map"] is None
-
-
-# ------------------------------------------------------------------ run: strong evidence alone
+    with pytest.raises(InputRejectedError):
+        run(_make_ctx({"fusion.layers": None, "fusion.unavailable": []}))
 
 
 def test_run_strong_alone_suspicious() -> None:
-    """Strong evidence alone marks a region suspicious."""
-    strong_map = np.zeros((4, 4), dtype=np.float32)
-    strong_map[1:3, 1:3] = 0.9
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [
-                    {
-                        "detector_id": "copymove.verification",
-                        "map": strong_map,
-                        "regions": (),
-                        "strength_class": "strong",
-                        "valid_mask": np.ones((4, 4), dtype=bool),
-                        "calibration": "uncalibrated",
-                        "notes": (),
-                    }
-                ],
-                "fusion.unavailable": [],
-            }
-        )
+    values = np.zeros((4, 4), np.float32)
+    values[1:3, 1:3] = 0.9
+    result = fuse_controls(
+        [{"detector_id": "copymove.mask", "strength_class": "strong", "map": values}]
     )
-    fmap = np.array(result["fusion.map"], dtype=np.float32)
-    assert fmap[1, 1] > 0.5
-    assert len(result["fusion.evidence"]) >= 1
-    region = result["fusion.evidence"][0]
-    assert "copymove.verification" in region["contributing_detectors"]
-    assert "geometry" in region["families"]
-
-
-# ------------------------------------------------------------------ run: weak only never suspicious
+    assert result.fused.scores[1, 1] > 0.5
+    assert result.contributions["copymove.mask"][1, 1] > 0
+    assert result.families["copymove.mask"] == "geometry"
 
 
 def test_run_weak_only_never_suspicious() -> None:
-    """Weak-only evidence never reaches suspicious (>= 0.5)."""
-    weak_map = np.full((4, 4), 0.9, dtype=np.float32)
-    result = run(
-        _make_ctx(
+    result = fuse_controls(
+        [
             {
-                "fusion.layers": [
-                    {
-                        "detector_id": "compression.ela_map",
-                        "map": weak_map,
-                        "regions": (),
-                        "strength_class": "weak",
-                        "valid_mask": np.ones((4, 4), dtype=bool),
-                        "calibration": "uncalibrated",
-                        "notes": (),
-                    }
-                ],
-                "fusion.unavailable": [],
+                "detector_id": "compression.ela_anomaly",
+                "strength_class": "weak",
+                "map": np.full((4, 4), 0.9, np.float32),
             }
-        )
+        ]
     )
-    fmap = np.array(result["fusion.map"], dtype=np.float32)
-    assert np.all(fmap < 0.5)
+    assert result.fused is None
 
 
 def test_run_weak_only_property_test() -> None:
-    """Property test: adding weak layers never makes weak-only suspicious."""
     for seed in range(10):
-        rng = np.random.default_rng(seed)
-        weak_map = rng.uniform(0.5, 1.0, (6, 6)).astype(np.float32)
-        result = run(
-            _make_ctx(
+        values = np.random.default_rng(seed).uniform(0.5, 1, (6, 6)).astype(np.float32)
+        result = fuse_controls(
+            [
+                {"detector_id": "compression.ela_anomaly", "strength_class": "weak", "map": values},
                 {
-                    "fusion.layers": [
-                        {
-                            "detector_id": "compression.ela_map",
-                            "map": weak_map,
-                            "regions": (),
-                            "strength_class": "weak",
-                            "valid_mask": np.ones((6, 6), dtype=bool),
-                            "calibration": "uncalibrated",
-                            "notes": (),
-                        },
-                        {
-                            "detector_id": "visual.sharpness_map",
-                            "map": weak_map * 0.8,
-                            "regions": (),
-                            "strength_class": "weak",
-                            "valid_mask": np.ones((6, 6), dtype=bool),
-                            "calibration": "uncalibrated",
-                            "notes": (),
-                        },
-                    ],
-                    "fusion.unavailable": [],
-                }
-            )
+                    "detector_id": "visual.sharpness_map",
+                    "strength_class": "weak",
+                    "map": values * 0.8,
+                },
+            ]
         )
-        fmap = np.array(result["fusion.map"], dtype=np.float32)
-        assert np.all(fmap < 0.5), f"seed {seed}: weak-only reached {fmap.max()}"
-
-
-# ------------------------------------------------------------------ run: medium needs support
+        assert result.fused is None, f"seed {seed} incorrectly supplied non-weak measured coverage"
 
 
 def test_run_medium_high_score_alone_suspicious() -> None:
-    """Medium layer with high score (> 0.8) is suspicious without family support."""
-    med_map = np.zeros((4, 4), dtype=np.float32)
-    med_map[1, 1] = 0.9
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [
-                    {
-                        "detector_id": "compression.dq_map",
-                        "map": med_map,
-                        "regions": (),
-                        "strength_class": "medium",
-                        "valid_mask": np.ones((4, 4), dtype=bool),
-                        "calibration": "uncalibrated",
-                        "notes": (),
-                    }
-                ],
-                "fusion.unavailable": [],
-            }
-        )
+    values = np.zeros((4, 4), np.float32)
+    values[1, 1] = 0.9
+    result = fuse_controls(
+        [{"detector_id": "compression.dq_map", "strength_class": "medium", "map": values}]
     )
-    fmap = np.array(result["fusion.map"], dtype=np.float32)
-    assert fmap[1, 1] > 0.5
+    assert result.fused.scores[1, 1] > 0.5
 
 
 def test_run_medium_low_score_alone_not_suspicious() -> None:
-    """Medium layer with low score (< 0.8) and no family support is NOT suspicious."""
-    med_map = np.zeros((4, 4), dtype=np.float32)
-    med_map[1, 1] = 0.4
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [
-                    {
-                        "detector_id": "compression.dq_map",
-                        "map": med_map,
-                        "regions": (),
-                        "strength_class": "medium",
-                        "valid_mask": np.ones((4, 4), dtype=bool),
-                        "calibration": "uncalibrated",
-                        "notes": (),
-                    }
-                ],
-                "fusion.unavailable": [],
-            }
-        )
+    values = np.zeros((4, 4), np.float32)
+    values[1, 1] = 0.4
+    result = fuse_controls(
+        [{"detector_id": "compression.dq_map", "strength_class": "medium", "map": values}]
     )
-    fmap = np.array(result["fusion.map"], dtype=np.float32)
-    assert fmap[1, 1] < 0.5
+    assert result.fused.scores[1, 1] == 0
 
 
 def test_run_medium_with_family_support_suspicious() -> None:
-    """Medium layer with support from another family is suspicious."""
-    med_map = np.zeros((4, 4), dtype=np.float32)
-    med_map[1, 1] = 0.4
-    strong_map = np.zeros((4, 4), dtype=np.float32)
-    strong_map[1, 1] = 0.6  # strong from another family (geometry)
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [
-                    {
-                        "detector_id": "compression.dq_map",
-                        "map": med_map,
-                        "regions": (),
-                        "strength_class": "medium",
-                        "valid_mask": np.ones((4, 4), dtype=bool),
-                        "calibration": "uncalibrated",
-                        "notes": (),
-                    },
-                    {
-                        "detector_id": "copymove.matches",
-                        "map": strong_map,
-                        "regions": (),
-                        "strength_class": "strong",
-                        "valid_mask": np.ones((4, 4), dtype=bool),
-                        "calibration": "uncalibrated",
-                        "notes": (),
-                    },
-                ],
-                "fusion.unavailable": [],
-            }
-        )
+    first = np.zeros((4, 4), np.float32)
+    first[1, 1] = 0.4
+    second = np.zeros_like(first)
+    second[1, 1] = 0.6
+    result = fuse_controls(
+        [
+            {"detector_id": "compression.dq_map", "strength_class": "medium", "map": first},
+            {"detector_id": "copymove.mask", "strength_class": "strong", "map": second},
+        ]
     )
-    fmap = np.array(result["fusion.map"], dtype=np.float32)
-    assert fmap[1, 1] > 0.5
-
-
-# ------------------------------------------------------------------ run: missing layers
+    assert result.fused.scores[1, 1] > 0.5
+    assert result.contributions["compression.dq_map"][1, 1] > 0
 
 
 def test_run_missing_layers_listed() -> None:
-    """Missing layers are listed in evidence with reason 'unavailable'."""
-    strong_map = np.zeros((4, 4), dtype=np.float32)
-    strong_map[1, 1] = 0.9
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [
-                    {
-                        "detector_id": "copymove.verification",
-                        "map": strong_map,
-                        "regions": (),
-                        "strength_class": "strong",
-                        "valid_mask": np.ones((4, 4), dtype=bool),
-                        "calibration": "uncalibrated",
-                        "notes": (),
-                    }
-                ],
-                "fusion.unavailable": ["noise.sigma_map", "visual.sharpness_map"],
-            }
-        )
-    )
-    fmap = np.array(result["fusion.map"], dtype=np.float32)
-    assert fmap[1, 1] > 0.5
-    unavailable_ids = [
-        e["detector_id"] for e in result["fusion.evidence"] if e.get("reason") == "unavailable"
-    ]
-    assert "noise.sigma_map" in unavailable_ids
-    assert "visual.sharpness_map" in unavailable_ids
+    from tests.unit.test_binary_native_fusion_entrypoint import _context
 
-
-# ------------------------------------------------------------------ run: no probability word
+    ctx, _ = _context()
+    result = run(ctx)
+    assert result["fusion.map"] is not None
+    assert "copymove.mask" in result["fusion.evidence"]["unavailable"]
+    assert "copymove.mask" in result["fusion.score_info"]["unavailable_detectors"]
 
 
 def test_run_no_probability_word() -> None:
-    """No output contains the word 'probability'."""
-    strong_map = np.zeros((4, 4), dtype=np.float32)
-    strong_map[1, 1] = 0.9
-    result = run(
-        _make_ctx(
-            {
-                "fusion.layers": [
-                    {
-                        "detector_id": "copymove.verification",
-                        "map": strong_map,
-                        "regions": (),
-                        "strength_class": "strong",
-                        "valid_mask": np.ones((4, 4), dtype=bool),
-                        "calibration": "uncalibrated",
-                        "notes": (),
-                    }
-                ],
-                "fusion.unavailable": [],
-            }
-        )
-    )
-    text = str(result)
-    assert "probability" not in text.lower()
+    from tests.unit.test_binary_native_fusion_entrypoint import _context
+
+    ctx, _ = _context()
+    result = run(ctx)
+    assert "probability" not in str(result).lower()
+    assert result["fusion.score_info"]["calibration"] == "uncalibrated"
 
 
-# ------------------------------------------------------------------ helper
-
-
-def _make_ctx(inputs: dict[str, object]) -> PluginContext:
+def _make_ctx(inputs):
     return PluginContext(
         run_id="run-1",
         plugin_id="fusion.rules",
         inputs=inputs,
         config={},
         seed=0,
-        write_artifact=lambda name, data, media_type: None,
-        logger=None,  # type: ignore[arg-type]
+        write_artifact=lambda *args: None,
+        logger=None,
     )

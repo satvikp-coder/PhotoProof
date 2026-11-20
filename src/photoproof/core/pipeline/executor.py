@@ -197,7 +197,7 @@ class SequentialExecutor:
         report = ExecutionReport({pid: PluginExecution(pid) for pid in plan.order})
         reasons = unavailable or {}
         abort_category: FailureCategory | None = None
-        for pid in plan.order:
+        for position, pid in enumerate(plan.order):
             ex = report.executions[pid]
             plugin = plan.nodes[pid]
             meta = plugin.metadata
@@ -218,7 +218,16 @@ class SequentialExecutor:
                             "state": producer_execution.state.value,
                             "failure_category": None if category is None else category.value,
                         }
-                snapshot: UpstreamStatus = {"format_version": 1, "outputs": producer_states}
+                snapshot: UpstreamStatus = {
+                    "format_version": 1,
+                    "outputs": producer_states,
+                    "required_prior_outputs": sorted(
+                        output
+                        for prior in plan.order[:position]
+                        if prior in plan.required
+                        for output in plan.nodes[prior].metadata.outputs
+                    ),
+                }
                 plugin_run_inputs = {**run_inputs, "pipeline.upstream_status": snapshot}
             ex.dependency_status = {
                 dep: report.executions[dep].state.value

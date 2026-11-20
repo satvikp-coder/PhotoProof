@@ -1,7 +1,7 @@
 """Normalize actual regional anomaly records without guessing their pixel footprint.
 
-This adapter is a prerequisite for the coordinated version-3 producer/consumer
-migration. The current production processor does not yet enable it.
+The version-3 production normalizer uses this adapter with migrated binary
+consumers; diagnostic values without native sampling remain unavailable.
 """
 
 import math
@@ -31,7 +31,6 @@ def read_native_anomaly(
     """Read existing producer records/artifacts, preserving their explicit scale.
 
     Missing companion sampling metadata is unavailable, never inferred from shape.
-    This does not enable production v3 output or migrate downstream consumers.
     """
     if name not in {
         "compression.ela_anomaly",
@@ -63,9 +62,40 @@ def read_native_anomaly(
             raise InputRejectedError("noise consistency has invalid reliability metadata")
         low_confidence = confidence == "low"
         record = dict(summary["consistency_map"])
-        # Read only the declared score artifact through the verified broker. The
-        # duplicated legacy JSON score values are not the authoritative payload.
-        record["values"] = decode_npy(ctx.artifact(name), expected_ndim=2)
+        # The declared binary score payload is authoritative, never duplicated values.
+        scores = decode_npy(ctx.artifact(name), expected_ndim=2)
+        if "format_version" in summary:
+            if (
+                type(summary["format_version"]) is not int
+                or summary["format_version"] != 2
+                or summary.get("schema") != "photoproof.noise.variance"
+                or summary.get("source_sha256") != geometry["source_sha256"]
+                or summary.get("image_size") != geometry["decoded_size"]
+                or summary.get("coordinate_space") != "decoded_pixels"
+                or summary.get("grid_shape") != list(scores.shape)
+            ):
+                raise InputRejectedError(
+                    "noise variance summary source, frame or format is invalid"
+                )
+            valid = decode_npy(
+                ctx.artifact("noise.variance_summary", selector=("valid_mask_artifact",)),
+                expected_ndim=2,
+            )
+            if scores.dtype != np.float32 or valid.dtype != np.bool_ or valid.shape != scores.shape:
+                raise InputRejectedError(
+                    "noise variance scores and validity must have matching typed grids"
+                )
+            # The companion record binds the direct score output to this exact metadata.
+            direct = ctx.inputs[name]
+            if hasattr(direct, "model_dump"):
+                direct = direct.model_dump(mode="json")
+            if direct != record.get("artifact"):
+                raise InputRejectedError(
+                    "noise consistency metadata refers to a different score artifact"
+                )
+            record = {k: v for k, v in record.items() if k != "artifact"}
+            record["valid_mask"] = valid
+        record["values"] = scores
     size = geometry["decoded_size"]
     if len(size) != 2:
         raise InputRejectedError("native anomaly geometry needs decoded [width,height]")

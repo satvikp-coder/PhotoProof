@@ -222,3 +222,67 @@ def test_raw_sigma_is_not_misrepresented_as_a_regional_anomaly():
             z0=3,
             k=1.5,
         )
+
+
+@pytest.mark.parametrize(
+    "fault", [None, "source", "frame", "version", "validity_shape", "reference"]
+)
+def test_compact_noise_metadata_uses_exact_declared_arrays(fault):
+    scores = np.array([[0, 3, -3]], dtype=np.float32)
+    valid = np.array([[True, True, False]])
+    ref = {"artifact": {"sha256": "a" * 64}}
+    record = _record([[1, 2, 3]])
+    record.pop("values")
+    record.pop("valid_mask")
+    record["artifact"] = ref
+    summary = {
+        "schema": "photoproof.noise.variance",
+        "format_version": 2,
+        "source_sha256": "a" * 64,
+        "image_size": [112, 80],
+        "coordinate_space": "decoded_pixels",
+        "grid_shape": [1, 3],
+        "consistency_map": record,
+        "confidence": "high",
+    }
+    if fault == "source":
+        summary["source_sha256"] = "b" * 64
+    elif fault == "frame":
+        summary["image_size"] = [113, 80]
+    elif fault == "version":
+        summary["format_version"] = True
+    elif fault == "validity_shape":
+        valid = np.ones((2, 3), bool)
+    elif fault == "reference":
+        record["artifact"] = {"artifact": {"sha256": "b" * 64}}
+    calls = []
+
+    def artifact(name, **kwargs):
+        calls.append((name, kwargs))
+        if name == "noise.consistency_map":
+            return encode_npy(scores)
+        assert name == "noise.variance_summary" and kwargs["selector"] == ("valid_mask_artifact",)
+        return encode_npy(valid)
+
+    ctx = SimpleNamespace(
+        inputs={"noise.consistency_map": ref, "noise.variance_summary": summary}, artifact=artifact
+    )
+    geometry = {"decoded_size": [112, 80], "source_sha256": "a" * 64}
+    if fault:
+        with pytest.raises(InputRejectedError):
+            read_native_anomaly(
+                ctx,
+                "noise.consistency_map",
+                geometry=geometry,
+                strength_class="medium",
+                z0=3.0,
+                k=1.5,
+            )
+    else:
+        result = read_native_anomaly(
+            ctx, "noise.consistency_map", geometry=geometry, strength_class="medium", z0=3.0, k=1.5
+        )
+        np.testing.assert_array_equal(result.layer.valid_mask, valid)
+        assert result.layer.map[0, 1] > result.layer.map[0, 0] == 0
+        assert result.layer.map[0, 2] == 0 and not result.layer.valid_mask[0, 2]
+        assert len(calls) == 2

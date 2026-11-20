@@ -43,7 +43,8 @@ def _size(value: object, *, label: str) -> tuple[int, int]:
     return value[0], value[1]
 
 
-def _validate(value: FusedScores) -> None:
+def validate_fused_scores(value: FusedScores) -> None:
+    """Validate source, frame, finite unit values and measured coverage before transport."""
     width, height = _size(value.working_size, label="working_size")
     if not isinstance(value.source_sha256, str) or not re.fullmatch(
         r"[0-9a-f]{64}", value.source_sha256
@@ -74,7 +75,7 @@ def _validate(value: FusedScores) -> None:
 
 def write_fused_scores(ctx: PluginContext, value: FusedScores) -> dict[str, object]:
     """Write compact provenance and canonical NPY arrays, without original access."""
-    _validate(value)
+    validate_fused_scores(value)
     scores = encode_npy(value.scores, max_elements=MAX_FUSED_CELLS)
     valid = encode_npy(value.valid_mask, max_elements=MAX_FUSED_CELLS)
     return {
@@ -123,5 +124,5 @@ def read_fused_scores(
     if scores.shape != (height, width):
         raise InputRejectedError("fused NPY shape disagrees with its explicit grid metadata")
     result = FusedScores(scores, valid, record["source_sha256"], size)
-    _validate(result)
+    validate_fused_scores(result)
     return result

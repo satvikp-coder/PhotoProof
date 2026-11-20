@@ -32,6 +32,12 @@ class Config(BaseModel):
         description="A medium layer scoring above this can mark a region "
         "suspicious without support from another family.",
     )
+    corroboration_floor: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Provisional raw-score floor for independent non-weak corroboration.",
+    )
     weak_boost_factor: float = Field(
         default=0.2,
         ge=0.0,
