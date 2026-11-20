@@ -49,12 +49,19 @@ def test_controller_applies_configured_fusion_weights(make_app, tmp_path):
     assert {p.plugin_id: p.state for p in result.plugins}["fusion.rules"] == "SUCCESS"
     ref = result.outputs["fusion.map"]["scores"]["artifact"]
     values = decode_npy(app.storage.blob_path("artifacts", ref["sha256"]).read_bytes())
-    assert not values.any()
+    # Disabling copy-move must not disable independent noise measurements. Native
+    # noise scores can differ across numeric builds; they are not a zero baseline.
+    assert np.isfinite(values).all() and np.all((values >= 0) & (values <= 1))
     contribution = next(
         e
         for e in result.outputs["fusion.evidence"]["contributions"]
         if e["detector_id"] == "copymove.mask"
     )
     assert contribution["effective_weight"] == 0
+    disabled_ref = contribution["scores"]["artifact"]
+    disabled = decode_npy(app.storage.blob_path("artifacts", disabled_ref["sha256"]).read_bytes())
+    assert not disabled.any()
+    assert result.outputs["fusion.assessment"]["coverage"]["geometry"] == "weight_disabled"
+    assert result.outputs["fusion.score_info"]["parameters"]["strength_weights"]["strong"] == 0
     manifest = app.storage.read_json("manifests", Path(result.manifest_path).name)
     assert manifest["outputs"]["fusion.map"] == result.outputs["fusion.map"]
