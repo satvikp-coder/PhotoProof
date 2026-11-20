@@ -65,3 +65,35 @@ do not measure forensic accuracy. Actual controller artifact transport, reliabil
 and source-coordinate integration must be completed before the coordinated v3
 normalizer/rules/assessment/regions/heatmap migration. Historical scores retain
 their old mapping and must not be relabeled with this definition.
+
+
+## Verified dense copy-move adapter
+
+The #24 producer now consumes actual verified inlier rows and publishes canonical
+PNG labels with an exact Mask sidecar, signed correlation, boolean validity and
+a hash-bound region manifest. The local normalization adapter reads all these
+artifacts, verifies their manifest digests and source/working frame, then checks
+verification binding digests and selected-row counts. Missing companions and
+all-invalid correlation yield unavailable evidence, never fabricated clean maps.
+Nonfinite/corrupt/contradictory payloads fail visibly.
+
+Positive labelled pixels use max(ZNCC,0) times the minimum verified geometric
+support across transforms. Other measured pixels have a measured zero indicator;
+unmeasured pixels remain invalid zero fill. This is a provisional heuristic, not
+a probability. Default geometric support floor0.8 and configured strength cap
+never override an upstream caution. Known RANSAC model markers and duplicate-row
+cleanup are informational; unknown markers, reflection, repetitive/insufficient
+texture or other cautions downgrade the aggregate layer to weak. A mixture of
+well-supported and cautioned transforms is conservatively downgraded as a whole;
+per-transform reliability attribution is not claimed by the aggregate raster.
+
+Working-pixel maps are reoriented exactly into decoded pixels for the existing
+SamplingGrid wire using the authoritative signed-permutation EXIF matrix. No
+resize, interpolated score or shape-based coordinate guess is used. The layer
+retains localized_search_scope: tested candidate windows do not provide whole-image
+negative coverage. Native normalization/fusion production activation is still pending.
+
+Host API1.9 adds validate_pixel_transform and decoded_from_working plus the new
+fused-score/validity transport. It follows the integrated-chain API1.8 requirement;
+it does not change the release-managed application version. All eight EXIF inverse
+roundtrips and budget-before-coordinate-allocation behavior have focused regressions.

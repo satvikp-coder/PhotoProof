@@ -85,6 +85,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Provide exact working-to-decoded score reorientation and bounded binary fused
+  score/validity helpers in plugin API 1.9. Native adapters preserve provenance
+  and downgrade cautioned dense copy-move support; production wiring remains in progress (Refs #32).
+
 - Add a native robust-z anomaly adapter preserving detector sampling and validity;
   coordinated production normalization wiring remains in progress (Refs #32).
 

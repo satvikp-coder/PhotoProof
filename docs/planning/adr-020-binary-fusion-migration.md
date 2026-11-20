@@ -12,7 +12,7 @@ Migrate producers and consumers together with explicit plugin version/migration
 notes and a breaking PR title. Existing manifests retain their recorded versions
 and score semantics. Do not enable a binary producer while leaving a JSON-grid
 consumer behind. Host helper availability requires the next additive plugin API
-after 1.6.0; the application release version remains release-managed.
+after 1.8.0 (API1.9); the application release version remains release-managed.
 
 Normalized layers carry source identity, explicit decoded sampling, canonical
 binary scores, boolean validity, uncalibrated semantics and documented strength.
@@ -74,6 +74,8 @@ Test orthogonal dimensions, flips/rotations, partial borders, gaps, measured zer
 large artifacts, wrong-source/corrupt payloads, low-confidence noise, disabled weights,
 low-positive independent cues, same-family correlation and region attribution after
 cleanup. Preserve originals and report every unavailable path honestly. Copy-move
-masks cannot gain strong status until their producer consumes actual verified
-geometric inliers; the current raw-match mask wiring does not establish that.
+masks cannot gain strong status from bare binary data. The #24 producer now reads
+actual verified inlier artifacts; the new local adapter checks its manifest,
+validity and geometric reliability before applying the configured strength cap.
+Its production activation and downstream consumer migration are still pending.
 These checks establish implementation behavior, not validated forensic accuracy.

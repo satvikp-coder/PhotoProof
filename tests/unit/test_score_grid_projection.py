@@ -194,3 +194,39 @@ def test_outside_sampling_cells_are_rejected_before_output_allocation(monkeypatc
             geometry=geometry,
             output_shape=(3, 4),
         )
+
+
+@pytest.mark.parametrize("orientation", range(1, 9))
+def test_working_score_inverse_preserves_each_actual_exif_pixel(orientation):
+    from photoproof.contracts.grids import decoded_from_working
+
+    values = np.arange(12, dtype=np.float32).reshape(3, 4) / 11
+    valid = np.ones(values.shape, bool)
+    valid[0, 1] = False
+    geometry = _geometry(4, 3, orientation)
+    working, measured = project_scores(
+        values,
+        valid,
+        grid=SamplingGrid((4, 3), (0, 0), (1, 1), (1, 1)),
+        geometry=geometry,
+        output_shape=tuple(geometry["working_size"][::-1]),
+    )
+    restored, restored_valid = decoded_from_working(working, measured, geometry=geometry)
+    np.testing.assert_array_equal(restored, np.where(valid, values, 0))
+    np.testing.assert_array_equal(restored_valid, valid)
+
+
+def test_inverse_budget_rejected_before_coordinate_allocation(monkeypatch):
+    from photoproof.contracts.grids import decoded_from_working
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("must reject budget before allocating pixel coordinates")
+
+    monkeypatch.setattr(np, "arange", forbidden)
+    with pytest.raises(InputRejectedError, match="bounded"):
+        decoded_from_working(
+            np.zeros((3, 4), np.float32),
+            np.ones((3, 4), bool),
+            geometry=_geometry(4, 3),
+            max_elements=1,
+        )

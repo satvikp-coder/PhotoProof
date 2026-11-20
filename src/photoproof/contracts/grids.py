@@ -103,6 +103,56 @@ def _axis(
     return indices, supported
 
 
+def validate_pixel_transform(geometry: ImageGeometry) -> np.ndarray:
+    """Validate exact decoded-to-working EXIF geometry before any coordinate allocation.
+
+    Returned integer matrix is backed by immutable bytes. This supports exact raster
+    reorientation; arbitrary registration, scaling or inferred alignment is rejected.
+    """
+    if (
+        not isinstance(geometry, dict)
+        or geometry.get("schema_version") != 1
+        or isinstance(geometry.get("schema_version"), bool)
+        or not {"decoded_size", "working_size", "decoded_to_working", "coordinate_convention"}
+        <= geometry.keys()
+    ):
+        raise InputRejectedError("score projection requires complete version-1 image geometry")
+    source_width, source_height = _positive_pair(geometry["decoded_size"], name="decoded_size")
+    working_width, working_height = _positive_pair(geometry["working_size"], name="working_size")
+    try:
+        matrix = np.asarray(geometry["decoded_to_working"])
+    except (TypeError, ValueError, OverflowError) as error:
+        raise InputRejectedError("score projection has an invalid pixel transform") from error
+    if (
+        geometry["coordinate_convention"] != "zero_based_pixel_centres_xy"
+        or matrix.shape != (3, 3)
+        or matrix.dtype.kind not in "iu"
+        or np.any((matrix[:2, :2] < -1) | (matrix[:2, :2] > 1))
+        or np.any((matrix[:2, 2] < 0) | (matrix[:2, 2] > max(source_width, source_height)))
+        or not np.array_equal(matrix[2], [0, 0, 1])
+        or not np.array_equal(matrix[:2, :2] @ matrix[:2, :2].T, np.eye(2, dtype=int))
+    ):
+        raise InputRejectedError("score projection requires an exact EXIF pixel transform")
+    corners = (
+        np.array(
+            [
+                [0, 0, 1],
+                [source_width - 1, 0, 1],
+                [0, source_height - 1, 1],
+                [source_width - 1, source_height - 1, 1],
+            ],
+            dtype=np.int64,
+        )
+        @ matrix.T
+    )
+    if tuple(corners[:, :2].min(axis=0)) != (0, 0) or tuple(corners[:, :2].max(axis=0)) != (
+        working_width - 1,
+        working_height - 1,
+    ):
+        raise InputRejectedError("score projection transform disagrees with image bounds")
+    return np.frombuffer(matrix.astype(np.int64).tobytes(), np.int64).reshape(3, 3)
+
+
 def project_scores(
     scores: np.ndarray,
     valid_mask: np.ndarray,
@@ -149,51 +199,10 @@ def project_scores(
         for axis, count in enumerate((scores.shape[1], scores.shape[0]))
     ):
         raise InputRejectedError("score grid has cells outside its source image")
-    if (
-        not isinstance(geometry, dict)
-        or geometry.get("schema_version") != 1
-        or isinstance(geometry.get("schema_version"), bool)
-        or not {"decoded_size", "working_size", "decoded_to_working", "coordinate_convention"}
-        <= geometry.keys()
-    ):
-        raise InputRejectedError("score projection requires complete version-1 image geometry")
-    if _positive_pair(geometry["decoded_size"], name="decoded_size") != (
-        source_width,
-        source_height,
-    ):
+    matrix = validate_pixel_transform(geometry)
+    if tuple(geometry["decoded_size"]) != (source_width, source_height):
         raise InputRejectedError("score grid source size disagrees with image geometry")
     working_width, working_height = _positive_pair(geometry["working_size"], name="working_size")
-    try:
-        matrix = np.asarray(geometry["decoded_to_working"])
-    except (TypeError, ValueError, OverflowError) as error:
-        raise InputRejectedError("score projection has an invalid pixel transform") from error
-    if (
-        geometry["coordinate_convention"] != "zero_based_pixel_centres_xy"
-        or matrix.shape != (3, 3)
-        or matrix.dtype.kind not in "iu"
-        or np.any((matrix[:2, :2] < -1) | (matrix[:2, :2] > 1))
-        or np.any((matrix[:2, 2] < 0) | (matrix[:2, 2] > max(source_width, source_height)))
-        or not np.array_equal(matrix[2], [0, 0, 1])
-        or not np.array_equal(matrix[:2, :2] @ matrix[:2, :2].T, np.eye(2, dtype=int))
-    ):
-        raise InputRejectedError("score projection requires an exact EXIF pixel transform")
-    corners = (
-        np.array(
-            [
-                [0, 0, 1],
-                [source_width - 1, 0, 1],
-                [0, source_height - 1, 1],
-                [source_width - 1, source_height - 1, 1],
-            ],
-            dtype=np.int64,
-        )
-        @ matrix.T
-    )
-    if tuple(corners[:, :2].min(axis=0)) != (0, 0) or tuple(corners[:, :2].max(axis=0)) != (
-        working_width - 1,
-        working_height - 1,
-    ):
-        raise InputRejectedError("score projection transform disagrees with image bounds")
     # Signed permutation matrices are separable: avoid a full float coordinate mesh.
     axes = (
         (np.arange(width, dtype=np.float64) + 0.5) * working_width / width - 0.5,
@@ -226,4 +235,47 @@ def project_scores(
     valid = valid_mask[np.ix_(iy, ix)] & valid_y[:, None] & valid_x[None, :]
     if inverse[0, 0] == 0:
         values, valid = values.T, valid.T
+    return np.where(valid, values, 0).astype(np.float32), valid
+
+
+def decoded_from_working(
+    scores: np.ndarray,
+    valid_mask: np.ndarray,
+    *,
+    geometry: ImageGeometry,
+    max_elements: int = 16_777_216,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Reorient actual working-pixel scores into decoded pixels without resampling.
+
+    Every EXIF transform is a signed integer permutation. No guessed resize or
+    interpolation is permitted; invalid storage fill remains unavailable.
+    """
+    matrix = validate_pixel_transform(geometry)
+    width, height = _positive_pair(geometry["decoded_size"], name="decoded_size")
+    working_width, working_height = _positive_pair(geometry["working_size"], name="working_size")
+    if (
+        isinstance(max_elements, bool)
+        or not isinstance(max_elements, int)
+        or max_elements < 1
+        or width * height > max_elements
+        or not isinstance(scores, np.ndarray)
+        or scores.shape != (working_height, working_width)
+        or scores.dtype != np.float32
+        or not np.isfinite(scores).all()
+        or np.any((scores < 0) | (scores > 1))
+        or not isinstance(valid_mask, np.ndarray)
+        or valid_mask.dtype != np.bool_
+        or valid_mask.shape != scores.shape
+    ):
+        raise InputRejectedError(
+            "working scores need bounded exact-frame float32 units and bool validity"
+        )
+    if matrix[0, 0] != 0:
+        x = matrix[0, 0] * np.arange(width, dtype=np.int64) + matrix[0, 2]
+        y = matrix[1, 1] * np.arange(height, dtype=np.int64) + matrix[1, 2]
+        values, valid = scores[np.ix_(y, x)], valid_mask[np.ix_(y, x)]
+    else:
+        x = matrix[0, 1] * np.arange(height, dtype=np.int64) + matrix[0, 2]
+        y = matrix[1, 0] * np.arange(width, dtype=np.int64) + matrix[1, 2]
+        values, valid = scores[np.ix_(y, x)].T, valid_mask[np.ix_(y, x)].T
     return np.where(valid, values, 0).astype(np.float32), valid
