@@ -273,14 +273,28 @@ scale/shear checks and actual-pixel repetitive-texture cautions are enforced.
 Scores are uncalibrated geometric heuristics; verified geometry is not proof of
 manipulation. See [ADR-024](../planning/adr-024-geometric-inlier-provenance.md).
 
-The copy-move mask algorithm generates source/target masks using bounded ZNCC correlation.
-The production processor still needs artifact and verified-inlier integration (#24);
-its present raw-match wiring must not be described as verified localization.
+The registered `copymove.mask` stage reads hash-bound verified transforms and their
+actual inlier rows, then performs bounded affine warping, dense local ZNCC,
+Euclidean hull dilation, morphological opening/closing and component selection.
+It runs after verification at priority 50. Source/target roles describe corresponding
+patches, not copying chronology. They do not establish forgery by themselves.
 
-* Outputs: `copymove.mask` (NPZ artifact with mask, source_mask, target_mask)
-  and `copymove.mask_stats` (summary statistics)
-* Config: `window_size` (default 11), `threshold` (default 0.5),
-  `min_cluster_size` (default 5)
+* Outputs: 8-bit `copymove.mask` PNG (0 background, 1 source, 2 target), exact
+  `copymove.mask_metadata` sidecar, signed float32 `copymove.correlation_map` NPY,
+  boolean `copymove.correlation_validity` NPY, `copymove.regions` JSON with actual
+  boundary rings/holes and pixel areas, and compact `copymove.mask_stats`.
+* Defaults: `zncc_window: 7`, `zncc_threshold: 0.9`, `dilate_hull_px: 32`,
+  `morphology_kernel: 3`, `min_displacement_px: 10.0`. Scores and thresholds remain
+  uncalibrated. Flat, transparent, unsupported, too-close and ambiguous-role pixels
+  are excluded. A zero stored outside validity is unavailable data.
+* Empty labels use `no_copy_move_found`: **no copy-move detected by this method**.
+  When correlation is unavailable, the summary records its reason. Neither outcome
+  establishes authenticity. New mask artifacts need a validity-aware native fusion
+  adapter; the existing normalizer does not yet interpret them as evidence.
+
+See [the wire formats](copymove-contracts.md#dense-localization-artifacts) and
+[ADR-025](../planning/adr-025-verified-dense-localization.md) for limits, baselines
+and migration from the old raw-match processor.
 
 The `visual.sharpness` plugin maps local focus and sharpness using the
 variance of the Laplacian, with optional contrast normalization and robust-z
