@@ -571,3 +571,20 @@ snapshot of planned producers and their actual scheduler states. It does not add
 missing numerical values. It distinguishes inapplicability/failure from measured
 zeros without exposing exception text or runtime handles. See
 [ADR-018](../planning/adr-018-upstream-execution-status.md).
+
+
+## Reference registration
+
+`comparison.registration` estimates geometry between user-supplied reference and
+target working images. The comparison profile requires it. Registered results contain
+source-bound transforms, geometric quality and typed aligned-reference/overlap/inlier
+artifacts; no result establishes which image should be trusted. Unrelated, low-texture
+or degenerate input can produce registration_failed without aligned pixels. A consumer
+must treat that outcome as NOT_APPLICABLE, never compare unaligned inputs silently.
+
+See [ADR-027](../planning/adr-027-reference-registration.md) for transform direction,
+NPY schema, resource limits, optional-refinement behavior and synthetic test evidence.
+The initial ceiling is4,194,304pixels per frame; it is numerical admission, not OS
+plugin isolation. SSIM/change masks and comparison interpretation remain separate
+implementation stages. Existing preflight still records the user-supplied reference
+trust statement and handles identical bytes informationally.

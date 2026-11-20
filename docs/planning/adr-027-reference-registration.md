@@ -2,10 +2,11 @@
 
 ## Status
 
-Pure algorithm stage for issue28 on an unmerged feature branch. This package has no
-METADATA and is not a runnable controller plugin yet. Controller wiring, source-bound
-artifact transport and downstream registration-failure handling follow in stage2.
-Do not describe a working comparison chain before those integrations land on main.
+Controller integration implemented on an unmerged feature branch stacked on algorithm
+PR172. Actual verified ingestion, isolated decoding, registration and artifact-broker
+consumption are tested. Full regression, latest-head CI, independent review and main
+integration remain required. SSIM, change masks and comparison interpretation remain
+separate issues29?31; a complete comparison chain is not claimed.
 
 ## Decision
 
@@ -72,3 +73,44 @@ These synthetic regressions do not establish real-image registration accuracy.
 - [OpenCV robust transformation estimation](https://docs.opencv.org/4.13.0/d9/d0c/group__calib3d.html).
 - [OpenCV image warp conventions](https://docs.opencv.org/4.13.0/da/d54/group__imgproc__transform.html).
 - [OpenCV ECC refinement](https://docs.opencv.org/4.13.0/dc/d6b/group__video__track.html).
+
+
+## Registered transport and applicability (API1.10)
+
+The host helper capability uses plugin API1.10, reserved after the pending native
+fusion API1.9 additions. Preserve the union of capabilities and highest API version
+when reconciling feature branches; branch-local validation does not establish merged
+integration. Application release version remains release-managed and unchanged.
+
+`comparison.registration` declares both working arrays, both host geometries and both
+input descriptors. Their role/hash/dimensions must agree before estimation. The
+production comparison profile requires this plugin. Source-byte identity retains
+preflight's informational shortcut; missing references use existing host applicability.
+Registration failure succeeds with an explicit unavailable transform and no pixels.
+Consumers use the existing NotApplicableError mechanism when no usable registration
+exists; a real consumer probe verifies that behavior through the controller.
+
+`comparison.transform` format1 binds target/reference original SHA256 values, their
+working dimensions, reference-to-target direction and zero-based pixel-center convention.
+It records requested/actual model, canonical3x3 matrix, scalar fit quality, parameters,
+flags and three owned artifact references. Each reference reaches the manifest and
+artifact inventory. This consistency binding is not authentication or forensic proof.
+
+| Artifact | Type and frame |
+|---|---|
+| comparison.aligned_reference | uint8 NPY, target height/width, reference L/RGB/RGBA channels |
+| comparison.overlap_mask | bool NPY, target height/width; unknown never becomes measured zero |
+| comparison.inlier_points | float32 NPY Nx4: reference_x,reference_y,target_x,target_y |
+
+The consumer verifies format, source/frame/direction, owned artifact references,
+per-kind byte/element budgets, dtype/shape, continuous donor coverage, zero invalid
+storage fill, unique bounded inlier coordinates and recomputed residual/count/ratio
+consistency with the recorded support/error gates. Missing companions and malformed
+metadata fail visibly; they are not substituted with a zero mask or identity transform.
+NPY parsing uses the declared host artifact capability with no filesystem access,
+object serialization or original image decoding.
+
+Preflight-only tests retain an explicit probe-owned profile rather than depending on
+production plugins absent from their fixture registry. Separate actual-builtin tests
+verify mandatory production registration and blocked forbidden/invalid configurations.
+This isolates framework scenarios while retaining production requirements.

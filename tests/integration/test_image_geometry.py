@@ -39,7 +39,15 @@ def test_optional_geometry_matches_every_actual_normalized_pixel(make_app, tmp_p
     assert json.loads(json.dumps(geometry)) == geometry
 
 
-def test_comparison_geometry_roles_remain_distinct(make_app, tmp_path):
+def test_comparison_geometry_roles_remain_distinct(make_app, app_root, tmp_path):
+    # This registry exposes geometry only; its fixture profile owns no builtin requirement.
+    profile = app_root / "configs" / "profiles" / "comparison.yaml"
+    profile.write_text(
+        profile.read_text(encoding="utf-8").replace(
+            "required_plugins: [comparison.registration]", "required_plugins: []"
+        ),
+        encoding="utf-8",
+    )
     app = make_app("mockplugins.geometryprobe")
     target = _image(app, tmp_path / "target.jpg", 6, "target")
     reference = _image(app, tmp_path / "reference.jpg", 8, "reference")
