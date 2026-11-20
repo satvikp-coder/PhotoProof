@@ -16,6 +16,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from photoproof.contracts.exceptions import ConfigurationError, IdentityError
+from photoproof.core.config.runtime import configuration_path
 from photoproof.core.config.validator import AppIdentity, Profile, Settings
 from photoproof.versioning.compatibility import config_schema_compatible
 
@@ -34,7 +35,9 @@ ENV_OVERRIDES: Mapping[str, tuple[str, str]] = {
     "PHOTOPROOF_ENVIRONMENT": ("environment", "mode"),
     "PHOTOPROOF_LOG_LEVEL": ("logging", "level"),
 }
-LAUNCHER_ENV = frozenset({"PHOTOPROOF_LAUNCHER_VERBOSE"})  # read by main.py, ignored here
+LAUNCHER_ENV = frozenset(
+    {"PHOTOPROOF_LAUNCHER_VERBOSE", "PHOTOPROOF_HOME"}
+)  # Launcher-only or root-selection variables; not settings fields.
 
 
 def _yaml() -> YAML:
@@ -77,7 +80,7 @@ def read_yaml(path: Path) -> object:
 
 
 def load_identity(root: Path) -> AppIdentity:
-    path = root / APP_FILE
+    path = configuration_path(root, APP_FILE)
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as error:
@@ -93,7 +96,7 @@ def load_identity(root: Path) -> AppIdentity:
 def load_settings(
     root: Path, identity: AppIdentity, environ: Mapping[str, str] | None = None
 ) -> Settings:
-    path = root / SETTINGS_FILE
+    path = configuration_path(root, SETTINGS_FILE)
     data = read_yaml(path)
     if not isinstance(data, dict):
         raise ConfigurationError(f"{path}: top level must be a mapping")
@@ -119,7 +122,7 @@ def load_settings(
 
 
 def load_profiles(root: Path) -> dict[str, Profile]:
-    directory = root / PROFILES_DIR
+    directory = configuration_path(root, PROFILES_DIR.as_posix())
     profiles: dict[str, Profile] = {}
     for path in sorted(directory.glob("*.yaml")):
         profile = _validate(Profile, read_yaml(path), path)
@@ -133,5 +136,5 @@ def load_profiles(root: Path) -> dict[str, Profile]:
 
 def load_plugin_config(root: Path, plugin_id: str) -> object:
     """Raw plugin configuration, or ``None`` if the plugin has no config file."""
-    path = root / PLUGIN_CONFIG_DIR / f"{plugin_id}.yaml"
+    path = configuration_path(root, f"{PLUGIN_CONFIG_DIR.as_posix()}/{plugin_id}.yaml")
     return read_yaml(path) if path.is_file() else None

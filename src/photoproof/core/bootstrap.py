@@ -9,6 +9,7 @@ import os
 import socket
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
 import photoproof
@@ -16,6 +17,7 @@ from photoproof.contracts.events import Event, EventType
 from photoproof.contracts.exceptions import ConfigurationError, DatabaseError, IdentityError
 from photoproof.core.config.flags import FeatureFlags
 from photoproof.core.config.loader import load_identity, load_profiles, load_settings
+from photoproof.core.config.runtime import resolve_root
 from photoproof.core.config.validator import AppIdentity, Profile, Settings
 from photoproof.core.database.store import Database
 from photoproof.core.events.bus import EventBus
@@ -27,6 +29,7 @@ from photoproof.core.logging.setup import (
 )
 from photoproof.core.pipeline.discovery import BUILTIN_PLUGIN_PACKAGE, discover
 from photoproof.core.pipeline.registry import PluginRegistry
+from photoproof.core.security.paths import safe_join
 from photoproof.core.services.jobs import JobQueue
 from photoproof.core.storage.evidence import EvidenceStore
 from photoproof.core.storage.store import RuntimeStorage
@@ -121,26 +124,33 @@ class Application:
 
 
 def validate_package_layout(identity: AppIdentity) -> None:
-    """The imported package must be ``src/<application.package>/`` (``src`` is a layout
-    directory, not part of the import name)."""
+    """Accept the source layout or this distribution's actual installed package."""
     package_dir = Path(photoproof.__file__).resolve().parent
     expected = identity.application.package
-    if package_dir.name != expected or package_dir.parent.name != "src":
-        raise IdentityError(
-            f"package directory {package_dir} does not correspond to src/{expected}/; "
-            "install PhotoProof in editable mode from the repository (python main.py)"
-        )
+    if package_dir.name != expected:
+        raise IdentityError(f"package directory {package_dir} does not match {expected}")
+    if package_dir.parent.name == "src":
+        return
+    try:
+        installed = distribution(expected)
+    except PackageNotFoundError as error:
+        raise IdentityError("install PhotoProof from its wheel or run python main.py") from error
+    declared = Path(str(installed.locate_file(f"{expected}/__init__.py"))).resolve()
+    if declared != package_dir / "__init__.py":
+        raise IdentityError("imported package differs from the installed PhotoProof distribution")
 
 
 def bootstrap(
-    root: Path = DEFAULT_ROOT,
+    root: Path | None = None,
     *,
     plugin_package: str = BUILTIN_PLUGIN_PACKAGE,
     environ: Mapping[str, str] | None = None,
 ) -> Application:
+    environment = os.environ if environ is None else environ
+    root = resolve_root(root, checkout_root=DEFAULT_ROOT, environ=environment)
     identity = load_identity(root)
     validate_package_layout(identity)
-    settings = load_settings(root, identity, os.environ if environ is None else environ)
+    settings = load_settings(root, identity, environment)
     profiles = load_profiles(root)
     if settings.profiles.default not in profiles:
         raise ConfigurationError(
@@ -148,7 +158,7 @@ def bootstrap(
         )
     configure_logging(settings.logging, None)
     bus = EventBus()
-    storage = RuntimeStorage(root / settings.runtime.root)
+    storage = RuntimeStorage(safe_join(root, settings.runtime.root))
     attach_event_logging(bus, storage.root / "logs")
 
     registry = PluginRegistry(

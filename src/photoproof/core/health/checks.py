@@ -158,6 +158,8 @@ def check_runtime_permissions(app: "Application") -> CheckResult:
 
 def check_disk_space(app: "Application") -> CheckResult:
     target = app.storage.root if app.storage.root.exists() else app.root
+    while not target.exists() and target != target.parent:
+        target = target.parent
     free_mb = shutil.disk_usage(target).free // (1024 * 1024)
     minimum = app.settings.resources.min_free_disk_mb
     if free_mb >= minimum:

@@ -107,7 +107,7 @@ class RuntimeSettings(_Strict):
     def _relative(cls, value: str) -> str:
         path = PurePosixPath(value.replace("\\", "/"))
         if path.is_absolute() or ".." in path.parts or not path.parts:
-            raise ValueError("runtime.root must be a relative path inside the repository")
+            raise ValueError("runtime.root must be a relative path inside the runtime home")
         return value
 
 

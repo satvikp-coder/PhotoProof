@@ -39,6 +39,9 @@ jobs:
         run: |
           python -m build --no-isolation
           python .github/scripts/governance.py version --dist dist
+          python -c "import shutil; shutil.copyfile('requirements.lock', 'dist/requirements.lock')"
+      - name: Verify installed wheel outside checkout
+        run: python .github/scripts/wheel_smoke.py --wheel-dir dist --lock requirements.lock
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release

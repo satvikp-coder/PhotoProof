@@ -62,3 +62,22 @@ A change that renames, removes or changes the meaning of a key is a breaking
 configuration change: bump `config_schema_version` in `app.toml`, bump
 `schema_version` here, document the migration in `CHANGELOG.md`, and follow the MAJOR
 version policy.
+
+
+## Installed runtime home
+
+`photoproof --root PATH COMMAND` selects the configuration/runtime home independently
+of the installed Python package. An embedding caller's explicit root takes priority
+over environment defaults; the CLI root takes priority over both. The allowlisted
+`PHOTOPROOF_HOME` environment variable selects an absolute home when neither is set.
+Other unknown `PHOTOPROOF_*` variables still fail validation. Checkout launches retain
+the repository default; installed wheels use a platform user data directory.
+
+Run `photoproof --root PATH init` to copy missing editable defaults. Existing files
+and links are not overwritten. Without a local settings file or profiles directory,
+installed mode reads packaged defaults; a malformed existing configuration fails.
+Installed application identity always comes from the distribution app.toml; init
+does not create an editable installed identity override.
+`runtime.root` remains relative to this home, and normal evidence/permissions rules
+still apply. Configuration never adds Python import paths. See
+[ADR-026](../planning/adr-026-installed-wheel-runtime.md).

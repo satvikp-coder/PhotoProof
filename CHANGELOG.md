@@ -46,6 +46,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Installed wheels include default configuration, accept an explicit runtime home,
+  and provide `init` to create editable defaults without overwriting files (Refs #79).
+
 - Provide declared upstream execution-state snapshots separately from missing optional
   measurements, preserving failure/applicability distinctions (Refs #32, #34).
 

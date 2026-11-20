@@ -7,6 +7,7 @@ INCOMPLETE).
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from collections.abc import Sequence
@@ -30,6 +31,7 @@ from photoproof.core.config.policy import (
     authorize_blacklist_override,
     decide_all,
 )
+from photoproof.core.config.runtime import initialize_configuration, resolve_root
 from photoproof.core.controller import AnalysisController
 from photoproof.core.database.store import Database
 from photoproof.core.health.checks import CheckResult, default_registry
@@ -56,7 +58,9 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="administrative: bypass plugins.blacklist for this invocation (audited)",
     )
+    parser.add_argument("--root", type=Path, help="configuration and runtime home directory")
     sub = parser.add_subparsers(dest="command")
+    sub.add_parser("init", help="write missing editable default configuration without overwriting")
     sub.add_parser("status", help="show identity and installed detectors (default)")
     sub.add_parser("version", help="print the application version")
     doctor = sub.add_parser("doctor", help="diagnose health; changes nothing")
@@ -673,11 +677,20 @@ def cmd_manifest_diff(app: Application, run_a: str, run_b: str, as_json: bool) -
     return EXIT_OK
 
 
-def main(argv: Sequence[str] | None = None, *, root: Path = DEFAULT_ROOT) -> int:
+def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
     args = _parser().parse_args(argv)
     command = args.command or "status"
     try:
-        app = bootstrap(root)
+        selected_root = resolve_root(
+            args.root or root, checkout_root=DEFAULT_ROOT, environ=os.environ
+        )
+        if command == "init":
+            created = initialize_configuration(selected_root, checkout_root=DEFAULT_ROOT)
+            print(f"configuration home: {selected_root}")
+            for name in created:
+                print(f"created {name}")
+            return EXIT_OK
+        app = bootstrap(selected_root)
     except PhotoProofError as error:  # identity, settings, profiles, duplicate plugins
         print(f"configuration error:\n{error}", file=sys.stderr)
         return EXIT_CONFIG

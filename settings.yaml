@@ -8,7 +8,7 @@ environment:
   mode: development            # development | testing | production
 
 runtime:
-  root: ARE                    # relative to the repository root
+  root: ARE                    # relative to the configuration/runtime home
   temp_max_age_hours: 24       # stale temporary files older than this are SAFE to remove
 
 scheduling:

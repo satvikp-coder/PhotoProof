@@ -42,6 +42,7 @@ from photoproof.core.config.policy import (
     authorize_blacklist_override,
     decide_all,
 )
+from photoproof.core.config.runtime import configuration_path
 from photoproof.core.config.validator import Profile
 from photoproof.core.image_geometry import describe_geometry
 from photoproof.core.pipeline.artifact_inputs import make_artifact_reader
@@ -679,7 +680,9 @@ class AnalysisController:
                 # Raw file bytes, not parsed YAML: a malformed config must fail only its
                 # plugin at run time, exactly as it does with the cache disabled.
                 "plugin_configs": {
-                    pid: _file_digest(root / PLUGIN_CONFIG_DIR / f"{pid}.yaml")
+                    pid: _file_digest(
+                        configuration_path(root, f"{PLUGIN_CONFIG_DIR.as_posix()}/{pid}.yaml")
+                    )
                     for pid in execution_plan.order
                 },
                 "application": app.identity.application.version,
