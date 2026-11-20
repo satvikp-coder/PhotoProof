@@ -4,7 +4,7 @@ METADATA = {
     "id": "fusion.regions",
     "name": "Region Segmentation",
     "description": "Segment fused heuristic scores with hysteresis and morphological cleanup.",
-    "version": "3.0.0",
+    "version": "3.1.0",
     "api_version": "1.9.0",
     "priority": 100,
     "required": False,

@@ -22,6 +22,7 @@ def segment_native(
     cv2.setNumThreads(1)
     initial = hysteresis(np.where(fused.valid_mask, fused.scores, 0), high=cfg.high, low=cfg.low)
     count_source, source_labels = cv2.connectedComponents(initial, connectivity=8)
+    component_evidence: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
     detectors: dict[str, np.ndarray] = {}
     contexts: dict[str, np.ndarray] = {}
     for entry in contributions:
@@ -30,6 +31,14 @@ def segment_native(
         present = np.zeros(count_source, bool)
         present[np.unique(source_labels[entry.scores > 0])] = True
         present[0] = False
+        positive = (entry.scores > 0) & (source_labels != 0)
+        component_ids = source_labels[positive]
+        values = entry.scores[positive]
+        counts = np.bincount(component_ids, minlength=count_source).astype(np.uint32)
+        sums = np.bincount(component_ids, weights=values, minlength=count_source)
+        maxima = np.zeros(count_source, np.float32)
+        np.maximum.at(maxima, component_ids, values)
+        component_evidence[entry.detector_id] = (counts, sums, maxima)
         (contexts if entry.scope == "global_context" else detectors)[entry.detector_id] = present
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (cfg.kernel_size,) * 2)
     binary = cv2.morphologyEx(initial, cv2.MORPH_OPEN, kernel) & fused.valid_mask.astype(np.uint8)
@@ -82,6 +91,38 @@ def segment_native(
             (ring + offset).tolist() for i, ring in enumerate(rings) if hierarchy[0, i, 3] >= 0
         ]
         values = fused.scores[y : y + height, x : x + width][local]
+        explanations: list[dict[str, object]] = []
+        region_rules: set[str] = set()
+        region_families: set[str] = set()
+        for entry in contributions:
+            counts, sums, maxima = component_evidence[entry.detector_id]
+            cells = int(counts[origins].sum())
+            if not cells:
+                continue
+            gate = {
+                "strong": "strong_maximum",
+                "medium": "medium_high_or_independent_family_support",
+                "weak": "weak_boost_existing_nonweak_support",
+            }[entry.strength_class]
+            rules = [gate]
+            if entry.strength_class != "strong":
+                rules.append("independent_family_maximum")
+            region_rules.update(rules)
+            region_families.add(entry.family)
+            explanations.append(
+                {
+                    "detector_id": entry.detector_id,
+                    "family": entry.family,
+                    "strength_class": entry.strength_class,
+                    "effective_weight": entry.effective_weight,
+                    "scope": entry.scope,
+                    "measurement_scope": "original_hysteresis_components",
+                    "accepted_cell_count": cells,
+                    "max_accepted_score": float(maxima[origins].max()),
+                    "mean_accepted_score": float(sums[origins].sum() / cells),
+                    "rules_fired": rules,
+                }
+            )
         regions.append(
             {
                 "id": len(regions) + 1,
@@ -95,6 +136,9 @@ def segment_native(
                 "max_score": float(values.max()),
                 "mean_score": float(values.mean()),
                 "contributing_detectors": names,
+                "contributions": explanations,
+                "families": sorted(region_families),
+                "rules_fired": sorted(region_rules),
                 "global_context_detectors": sorted(
                     name for name, present in contexts.items() if present[origins].any()
                 ),

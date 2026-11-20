@@ -84,3 +84,112 @@ def test_positive_region_without_spatial_attribution_is_rejected():
     fused, _ = _case(values)
     with pytest.raises(InputRejectedError, match="no spatial contribution"):
         segment_native(fused, ())
+
+
+def test_region_explanations_name_actual_accepted_gates_and_component_scope():
+    values = np.zeros((32, 32), np.float32)
+    values[8:24, 8:24] = 0.9
+    fused, entries = _case(values)
+    _, regions, _ = segment_native(fused, entries)
+    item = regions[0]["contributions"][0]
+    assert item["detector_id"] == "copymove.mask"
+    assert item["family"] == "geometry"
+    assert item["effective_weight"] == 1
+    assert item["rules_fired"] == ["strong_maximum"]
+    assert item["accepted_cell_count"] == 256
+    assert item["max_accepted_score"] == pytest.approx(0.9)
+    assert item["mean_accepted_score"] == pytest.approx(0.9)
+    assert item["measurement_scope"] == "original_hysteresis_components"
+    assert regions[0]["families"] == ["geometry"]
+    assert regions[0]["rules_fired"] == ["strong_maximum"]
+
+
+def test_removed_seed_statistics_are_not_relabelled_as_final_polygon_scores():
+    values = np.zeros((48, 48), np.float32)
+    values[8:32, 8:32] = 0.4
+    values[8, 8] = 0.9
+    contribution = np.zeros_like(values)
+    contribution[8, 8] = 0.9
+    fused, entries = _case(values, contribution=contribution)
+    mask, regions, _ = segment_native(fused, entries)
+    assert not mask[8, 8]
+    assert regions[0]["max_score"] == pytest.approx(0.4)
+    detail = regions[0]["contributions"][0]
+    assert detail["accepted_cell_count"] == 1
+    assert detail["max_accepted_score"] == pytest.approx(0.9)
+    assert detail["measurement_scope"] == "original_hysteresis_components"
+
+
+def test_zero_contributions_do_not_claim_rules_or_families():
+    from dataclasses import replace
+
+    values = np.zeros((32, 32), np.float32)
+    values[8:24, 8:24] = 0.9
+    fused, entries = _case(values)
+    suppressed = replace(
+        entries[0],
+        detector_id="noise.consistency_map",
+        family="noise",
+        strength_class="medium",
+        scores=np.zeros_like(values),
+    )
+    _, regions, _ = segment_native(fused, (*entries, suppressed))
+    assert regions[0]["families"] == ["geometry"]
+    assert [e["detector_id"] for e in regions[0]["contributions"]] == ["copymove.mask"]
+
+
+@pytest.mark.parametrize("strong", [False, True])
+def test_explanations_follow_native_medium_and_weak_gates(strong):
+    from photoproof.contracts.contributions import Contribution
+    from tests.fixtures.native_fusion import fuse_controls
+
+    shape = (24, 24)
+    specs = [
+        {
+            "detector_id": "compression.dq_map",
+            "strength_class": "medium",
+            "map": np.full(shape, 0.95, np.float32),
+        },
+        {
+            "detector_id": "compression.ela_anomaly",
+            "strength_class": "weak",
+            "map": np.full(shape, 0.9, np.float32),
+        },
+        {
+            "detector_id": "noise.consistency_map",
+            "strength_class": "weak",
+            "map": np.full(shape, 0.9, np.float32),
+        },
+    ]
+    if strong:
+        specs.append(
+            {
+                "detector_id": "copymove.mask",
+                "strength_class": "strong",
+                "map": np.full(shape, 0.9, np.float32),
+            }
+        )
+    outcome = fuse_controls(specs)
+    entries = tuple(
+        Contribution(
+            name,
+            outcome.families[name],
+            outcome.strengths[name],
+            1.0,
+            "spatial",
+            (),
+            scores,
+            outcome.measured[name],
+        )
+        for name, scores in outcome.contributions.items()
+    )
+    _, regions, _ = segment_native(outcome.fused, entries, config=Config(high=0.5, low=0.3))
+    details = {e["detector_id"]: e for e in regions[0]["contributions"]}
+    assert (
+        "medium_high_or_independent_family_support" in details["compression.dq_map"]["rules_fired"]
+    )
+    assert "independent_family_maximum" in details["compression.dq_map"]["rules_fired"]
+    # Correlated ELA cannot double-count its winning compression-family medium cue.
+    assert "compression.ela_anomaly" not in details
+    assert "weak_boost_existing_nonweak_support" in details["noise.consistency_map"]["rules_fired"]
+    assert ("strong_maximum" in regions[0]["rules_fired"]) is strong

@@ -52,3 +52,20 @@ def test_planted_upstream_evidence_through_controller(make_app, tmp_path):
     ) as image:
         mask = np.array(image)
     assert mask[64, 64] == mask[280, 280] == 255 and mask[0, 0] == 0
+
+
+def test_actual_controller_regions_explain_accepted_copy_move(make_app, tmp_path):
+    app = make_app("photoproof.plugins")
+    target = app.ingestion().ingest_path(write_copy_image(tmp_path / "explain.png"), role="target")[
+        0
+    ]
+    result = AnalysisController(app).analyze(AnalysisRequest(target=target, use_cache=False))
+    assert {p.plugin_id: p.state for p in result.plugins}["fusion.regions"] == "SUCCESS"
+    for region in result.outputs["fusion.regions"]:
+        assert "geometry" in region["families"]
+        assert "strong_maximum" in region["rules_fired"]
+        detail = next(e for e in region["contributions"] if e["detector_id"] == "copymove.mask")
+        assert detail["accepted_cell_count"] > 0
+        assert detail["max_accepted_score"] > 0.7
+        assert detail["measurement_scope"] == "original_hysteresis_components"
+        assert 0 < detail["mean_accepted_score"] <= detail["max_accepted_score"] <= 1
