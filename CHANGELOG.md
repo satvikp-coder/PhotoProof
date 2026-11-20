@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Breaking:** copy-move masks now consume hash-bound verified inliers in working
+  coordinates and emit semantic PNG labels, signed dense correlation with explicit
+  validity, and traceable component boundaries. Preserve old results and reanalyse;
+  flat or unavailable pixels never become clean evidence (Refs #24).
+
 - **Breaking:** copy-move verification now consumes canonical source-bound artifacts
   and publishes typed transforms, exact original-row inliers, hash bindings and
   explicit diagnostics. Host API 1.8 adds the binding contract; preserve historical

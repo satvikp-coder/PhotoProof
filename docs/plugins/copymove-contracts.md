@@ -5,9 +5,10 @@ The canonical models are in `photoproof.contracts.copymove`. The historical
 that module does not select a legacy wire format. Extraction and matching use the
 version-2 models through the actual controller. Clustering now consumes their
 artifacts and emits candidate hypotheses. Verification now publishes seeded
-geometrically consistent transforms and exact inlier rows. The mask processor still
-requires migration; their presence alone does not establish a
-working verified copy-move chain.
+geometrically consistent transforms and exact inlier rows. Dense localization now
+consumes those actual verified artifacts through the controller. Geometric and pixel
+similarity remain heuristic evidence; independent fusion and real-image evaluation
+are separate requirements.
 
 ## Common fields and coordinates
 
@@ -186,5 +187,49 @@ Rotation follows working image axes, positive clockwise. Configuration supports
 (or the mutually exclusive `scale_range: [minimum,maximum]` alias),
 `max_shear_deg`, sampling confidence, texture controls and work budgets.
 See [ADR-024](../planning/adr-024-geometric-inlier-provenance.md) for exact limits
-and caveats. Dense verified masks, independent fusion and real-image evaluation
-remain separate requirements. Historical prototype outputs require reanalysis.
+and caveats. Independent fusion and real-image evaluation remain separate requirements.
+Historical prototype outputs require reanalysis.
+
+
+## Dense localization artifacts
+
+`copymove.mask` is the canonical 8-bit label PNG, paired with the exact
+`copymove.mask_metadata` JSON from `Mask.to_json()`. Decode with
+`Mask.from_png(png_bytes, metadata=sidecar_text, source_sha256=original_hash)`.
+Source/target labels are deterministic geometric roles, not evidence of which patch
+was copied first. The sidecar contains one aggregate bounding envelope and actual
+pixel area per present role; it does not claim rectangular manipulation.
+
+`copymove.regions` is separate bounded JSON: schema
+`photoproof.copymove.dense-regions`, `format_version=1`, original hash, working
+`image_size`, `coordinate_space=working_pixels`, `calibration=uncalibrated`, and
+hashes of the PNG, sidecar, correlation, validity and verification bindings.
+`regions` records each connected component's `kind`, half-open `[y0,x0,y1,x1]`
+box, `area_pixels`, outer ring and holes. Rings contain `[x,y]` pixel centers;
+degenerate thin components can have fewer than three vertices. These are raster
+boundary descriptions, not continuous polygon areas. The PNG remains authoritative.
+
+`copymove.correlation_map` is finite float32 NPY `[height,width]`, raw signed ZNCC
+in `[-1,1]`. It is a similarity map, not a probability or normalized forensic
+score. Its mandatory boolean companion `copymove.correlation_validity` has the
+same dimensions. Untested, undefined flat, transparent, interpolation-border,
+too-small-displacement and ambiguous-role pixels are false; stored zeros there
+must not become negative evidence. Scores transported to source coordinates use
+nearest-neighbor sampling; when transforms overlap, the greatest available
+correlation is retained. Existing fusion needs a native adapter that validates the
+manifest and validity before constructing an EvidenceLayer.
+
+No verified transforms produce empty labels and all-invalid correlation. Summary
+status `no_copy_move_found` means no copy-move detected by this method. A failed
+provenance/budget check instead fails the plugin and publishes no mask outputs.
+Use #66 metrics directly on `(mask.mask != 0)` for union localization; evaluate
+source/target separately if role correspondence matters. Controller tests decode
+the actual PNG and pass it to `tools.metrics.iou`.
+
+### Migration
+
+Mask plugin 2.0 replaces prototype raw inline matches/decoded coordinates and NPZ
+mask output. Preserve historical results and reanalyse; do not relabel them.
+Replace old `window_size`, `threshold`, `min_cluster_size` settings with documented
+ZNCC/dilation/morphology settings. There is no automatic format conversion.
+Existing host API 1.8 capabilities suffice; no additional host capability is added.

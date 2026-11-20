@@ -108,3 +108,4 @@ nav:
       - ADR-022 Source-bound Copy-move Contracts: planning/adr-022-source-bound-copymove.md
       - ADR-023 Candidate Clustering: planning/adr-023-candidate-clustering.md
       - ADR-024 Geometric Inlier Provenance: planning/adr-024-geometric-inlier-provenance.md
+      - ADR-025 Verified Dense Localization: planning/adr-025-verified-dense-localization.md
