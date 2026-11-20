@@ -46,8 +46,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- Add a bounded, seeded reference-registration algorithm with explicit overlap and
-  unreliable-transform rejection; controller integration remains pending (Refs #28).
+- Register bounded reference-to-target alignment through the actual controller, with
+  source-bound typed artifacts, geometric quality and explicit unavailable results.
+  Comparison requires registration; no unaligned fallback is fabricated (Refs #28).
 
 - Provide declared upstream execution-state snapshots separately from missing optional
   measurements, preserving failure/applicability distinctions (Refs #32, #34).

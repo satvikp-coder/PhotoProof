@@ -86,7 +86,15 @@ def test_deterministic_manifests(make_app: Factory) -> None:
     assert first.run_id != second.run_id  # type: ignore[attr-defined]
 
 
-def test_comparison_profile(make_app: Factory) -> None:
+def test_comparison_profile(make_app: Factory, app_root: Path) -> None:
+    # Require the mock comparison implementation this framework scenario actually owns.
+    profile = app_root / "configs" / "profiles" / "comparison.yaml"
+    profile.write_text(
+        profile.read_text(encoding="utf-8").replace(
+            "required_plugins: [comparison.registration]", "required_plugins: [demo.comparison]"
+        ),
+        encoding="utf-8",
+    )
     app = make_app()
     result = _analyze(app, profile="comparison", reference=REFERENCE)
     assert {p.plugin_id: p.state for p in result.plugins}["demo.comparison"] == "SUCCESS"  # type: ignore[attr-defined]

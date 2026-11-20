@@ -4,5 +4,5 @@ mode: comparison
 plugins:
   enable: []
   disable: []
-required_plugins: []
+required_plugins: [comparison.registration]
 required_outputs: []

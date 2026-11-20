@@ -1,0 +1,20 @@
+# Registration establishes relative alignment, never trust in either input.
+model: homography
+ratio: 0.75
+ransac_threshold: 3.0
+max_iterations: 2000
+min_inliers: 12
+min_inlier_ratio: 0.25
+max_rmse: 2.0
+max_condition: 1000
+min_support_fraction: 0.005
+max_features: 4000
+max_edge: 1600
+max_pixels: 4194304
+contrast_threshold: 0.04
+edge_threshold: 10.0
+rootsift: true
+affine_fallback: true
+allow_reflection: false
+refine_ecc: false
+ecc_iterations: 50

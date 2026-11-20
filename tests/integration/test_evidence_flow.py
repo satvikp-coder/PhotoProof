@@ -71,8 +71,25 @@ def test_reference_is_stored_too(
 ) -> None:
     reference = tmp_path / "reference.bin"
     reference.write_bytes(b"\xff\xd8\xff\xe0 a different reference image")
-    analyze_json(
-        app_root, capsys, str(target_file), "--reference", str(reference), "--profile", "comparison"
+    code = _invoke(
+        app_root,
+        "analyze",
+        str(target_file),
+        "--reference",
+        str(reference),
+        "--profile",
+        "comparison",
+        "--json",
+    )
+    result = json.loads(capsys.readouterr().out)
+    # Invalid pixels cannot satisfy newly mandatory registration. Storage still
+    # preserves both originals and the run truthfully aborts under required policy.
+    assert code == 7 and result["status"] == "ABORTED"
+    assert result["outputs"]["comparison.preflight"]["status"] == "unavailable"
+    assert "comparison.transform" not in result["outputs"]
+    assert (
+        next(p for p in result["plugins"] if p["plugin_id"] == "comparison.registration")["state"]
+        == "SKIPPED"
     )
     assert len(objects(app_root)) == 2
 
