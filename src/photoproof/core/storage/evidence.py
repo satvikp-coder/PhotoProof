@@ -126,8 +126,8 @@ class EvidenceStore:
             self._storage.publish_blob("objects", temporary, sha256)
         except OSError as error:
             raise StorageError(
-                f"{label}: could not store the original: {error}. Nothing was stored; "
-                "check free disk space and the permissions of the runtime directory."
+                f"{label}: could not store the original: {error}. Existing blobs were not "
+                "overwritten; preserve runtime files and check free disk space and permissions."
             ) from error
         finally:  # a hard kill skips this; runtime.stale_temp cleans up after that
             _remove_temporary(temporary)

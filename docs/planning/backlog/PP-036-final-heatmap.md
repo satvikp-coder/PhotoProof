@@ -2,9 +2,9 @@
 id: PP-036
 title: "feat(plugins): generate the final forensic heatmap artifact"
 milestone: M4
-labels: [type:feature, priority:P1, area:plugins, effort:medium, status:blocked]
+labels: [type:feature, priority:P1, area:plugins, effort:medium, status:in-progress]
 depends_on: [PP-032]
-integrates_with: [PP-035, PP-010]
+integrates_with: [PP-035, PP-010, PP-084]
 ---
 ## Summary
 

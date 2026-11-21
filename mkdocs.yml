@@ -97,3 +97,9 @@ nav:
       - ADR-003 Optional Plugin Inputs: planning/adr-003-optional-inputs.md
       - ADR-004 Rule-Based Evidence Fusion: planning/adr-004-rule-based-fusion.md
       - ADR-005 Evidence Sufficiency: planning/adr-005-evidence-sufficiency.md
+      - ADR-013 Reference Comparison: planning/adr-013-reference-comparison-preflight.md
+      - ADR-014 Verified Artifact Inputs: planning/adr-014-verified-artifact-inputs.md
+      - ADR-015 Image Coordinates: planning/adr-015-image-coordinate-contract.md
+      - ADR-016 Spatial Evidence Grids: planning/adr-016-spatial-evidence-grids.md
+      - ADR-017 Binary Evidence Layers: planning/adr-017-binary-evidence-layer-wire.md
+      - ADR-018 Upstream Execution Status: planning/adr-018-upstream-execution-status.md

@@ -17,6 +17,20 @@ No test touches the real `.venv/`, `ARE/` or settings.
 Coverage is reported (branch coverage) but there is no arbitrary percentage gate.
 Critical configuration, policy, planner and executor branches have explicit tests.
 
+## Copy-move ground truth
+
+The synthetic `copy_move` helper applies `translate=(dy,dx)` to the source origin,
+including negative offsets, and records the actual bounding boxes. A zero-offset,
+unrotated, unscaled copy is unchanged and has an all-zero ground-truth mask. The
+0/1/2 role mask cannot represent overlapping source/target roles, so overlapping
+nonidentity requests are rejected, as are out-of-image placements. Scaling is
+bounded before allocating the resized patch. The input pixels are never modified.
+
+Older generated fixtures always placed the target near a fixed corner, regardless
+of the requested translation. Regenerate those fixtures before using their declared
+translation as evaluation ground truth; do not relabel old measurements or claim
+previous accuracy results remain validated.
+
 ## Not covered by automated tests
 
 - Real dependency installation inside a fresh venv is exercised by the CI

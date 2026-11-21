@@ -200,6 +200,16 @@ class RuntimeStorage:
                 clear_file_read_only(str(source))
             return self._existing_blob_is_intact(kind, sha256, target)
         except OSError as error:
+            if (
+                _WINDOWS
+                and error.errno in {errno.EACCES, errno.EPERM}
+                and (target.exists() or target.is_symlink())
+            ):
+                # Windows can report access denied, rather than already exists,
+                # when a competing publisher has installed a read-only winner.
+                # Only our unpublished scratch file may have its attributes cleared.
+                clear_file_read_only(str(source))
+                return self._existing_blob_is_intact(kind, sha256, target)
             if error.errno in _NO_HARD_LINKS:
                 raise StorageError(
                     f"{target.parent}: this filesystem has no hard links, so blobs cannot be "
@@ -210,8 +220,20 @@ class RuntimeStorage:
         return True
 
     def _existing_blob_is_intact(self, kind: BlobKind, sha256: str, target: Path) -> bool:
-        if self.verify_blob(kind, sha256):
-            return False
+        for attempt in range(6):
+            try:
+                intact = self.verify_blob(kind, sha256)
+            except PermissionError:
+                # A competing Windows publisher may temporarily deny opening the
+                # winner while its rename handle is live. Wait at most 150 ms;
+                # persistent denial still fails, and integrity is never assumed.
+                if not _WINDOWS or attempt == 5:
+                    raise
+                time.sleep(0.01 * (attempt + 1))
+                continue
+            if intact:
+                return False
+            break  # A missing/corrupt blob is not a transient permission failure.
         raise StorageError(f"{target}: existing blob fails verification; run --doctor")
 
     def verify_blob(self, kind: BlobKind, sha256: str) -> bool:

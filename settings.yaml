@@ -53,6 +53,7 @@ resources:
   max_input_bytes: 104857600   # 100 MiB per input file
   max_image_pixels: 178956970  # decompression-bomb ceiling for future decoders
   min_free_disk_mb: 1024
+  max_artifact_read_bytes: 67108864  # 64 MiB per declared derived-artifact read
 
 retention:
   cache_days: 7        # cache entries older than this are disposable
@@ -67,7 +68,7 @@ quotas:
 
 jobs:
   lease_seconds: 300        # job lease expires after 5 minutes; stale leases are re-queued
-  max_attempts: 3           # a failed job is retried up to this many times
+  max_attempts: 1           # one execution by default; explicitly opt in to retries
 
 security:
   forbidden_plugins: []        # non-bypassable; --ignore-blacklist does not affect these

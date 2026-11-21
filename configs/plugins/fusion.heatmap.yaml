@@ -1,0 +1,3 @@
+# Display only; thresholds remain provisional until #37.
+display_threshold: 0.3
+opacity: 0.5

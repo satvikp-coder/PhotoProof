@@ -2,7 +2,7 @@
 id: PP-027
 title: "feat(core): accept and validate target-versus-reference analysis requests"
 milestone: M3
-labels: [type:feature, priority:P1, area:core, effort:medium, status:blocked]
+labels: [type:feature, priority:P1, area:core, effort:medium, status:in-progress]
 depends_on: [PP-011, PP-012]
 ---
 ## Summary

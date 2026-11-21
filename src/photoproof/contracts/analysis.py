@@ -44,7 +44,7 @@ class PluginSummary(BaseModel):
 
 class AnalysisResult(BaseModel):
     """What a run produced. It deliberately carries no authenticity verdict field:
-    evidence fusion is not implemented, and absent detector output is not evidence."""
+    forensic assessment is separate, and absent detector output is not evidence."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

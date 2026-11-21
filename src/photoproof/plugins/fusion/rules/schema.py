@@ -6,11 +6,13 @@ MINOR or MAJOR bump.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StrengthWeights(BaseModel):
     """Weight per strength class in the weighted noisy-OR."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     strong: float = Field(default=1.0, ge=0.0, le=1.0)
     medium: float = Field(default=0.6, ge=0.0, le=1.0)
@@ -19,6 +21,8 @@ class StrengthWeights(BaseModel):
 
 class Config(BaseModel):
     """Fusion rules configuration."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     strength_weights: StrengthWeights = Field(default_factory=StrengthWeights)
     medium_high_score_threshold: float = Field(
@@ -39,8 +43,8 @@ class Config(BaseModel):
         default=0.4,
         ge=0.0,
         le=1.0,
-        description="Maximum score a weak-only combination can reach. Weak "
-        "evidence alone must never reach 'suspicious' (>= 0.5).",
+        description="Compatibility ceiling for weak-only evidence. The implemented "
+        "gate always returns zero for weak-only inputs, within this ceiling.",
     )
 
     @field_validator("medium_high_score_threshold", "weak_boost_factor", "weak_only_max_score")

@@ -35,6 +35,7 @@ feature flags) must be real YAML booleans: `true`/`false`, not `"yes"`, `1` or
 | `recovery.auto_repair_safe` | `true` | bool | Apply SAFE repairs during preflight. CONTROLLED repairs always need `--repair`. |
 | `resources.max_input_bytes` | `104857600` | ≥ 1 | Inputs larger than this are rejected before being fully read. |
 | `resources.max_image_pixels` | `178956970` | ≥ 1 | Decompression-bomb ceiling for future decoders (`DecodeLimits.max_pixels`). |
+| `resources.max_artifact_read_bytes` | `67108864` | integer 1-2147483648 | Host ceiling per declared derived-artifact read; caller may request a smaller maximum. Bytes are size/hash verified before return. |
 | `resources.min_free_disk_mb` | `1024` | ≥ 0 | Health check threshold for the runtime root. |
 | `security.forbidden_plugins` | `[]` | unique plugin IDs | **Non-bypassable** denial. Not affected by `--ignore-blacklist`. |
 | `security.allow_blacklist_bypass` | `true` | bool | Whether `--ignore-blacklist` is honoured at all. **Must be `false` in production.** |
@@ -61,3 +62,13 @@ A change that renames, removes or changes the meaning of a key is a breaking
 configuration change: bump `config_schema_version` in `app.toml`, bump
 `schema_version` here, document the migration in `CHANGELOG.md`, and follow the MAJOR
 version policy.
+
+
+## Queue retry policy
+
+`jobs.lease_seconds` bounds a live queue claim. `jobs.max_attempts` is the total
+execution budget, including the first claim, and defaults to **1** in the shipped
+settings. A failed or expired first attempt therefore fails the job rather than
+silently repeating a forensic analysis. Raising the value (maximum 10) explicitly
+opts in to at-least-once execution. Existing persisted jobs retain the budget stored
+when they were submitted; changing the setting applies to new jobs.

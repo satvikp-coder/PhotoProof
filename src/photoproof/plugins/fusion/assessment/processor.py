@@ -23,13 +23,12 @@ import numpy as np
 
 from photoproof.contracts.plugins import PluginContext
 from photoproof.plugins.fusion.assessment import (
-    CATEGORY_DIFFERENCES_FOUND,
     CATEGORY_INCONCLUSIVE,
     CATEGORY_MANIPULATION_INDICATED,
     CATEGORY_NO_INDICATORS_SUFFICIENT_COVERAGE,
     DETECTOR_FAMILIES,
-    SUFFICIENT_COVERAGE_MIN_FAMILIES,
 )
+from photoproof.plugins.fusion.assessment.schema import Config
 
 
 def _compute_coverage(
@@ -43,28 +42,44 @@ def _compute_coverage(
     - ``applicable_unavailable``: detector exists but produced no output
     - ``not_applicable``: detector not applicable to this input format
     """
-    coverage: dict[str, str] = {}
-    for det_id in DETECTOR_FAMILIES:
-        fam = DETECTOR_FAMILIES[det_id]
-        # Check if this detector produced a layer
-        layer = next(
-            (layer_entry for layer_entry in layers if layer_entry.get("detector_id") == det_id),
-            None,
-        )
-        if layer is not None:
-            layer_map = layer.get("map")
-            if layer_map is not None and len(layer_map) > 0:
-                # Only set applicable_available; don't downgrade from a previous
-                # applicable_available for the same family.
-                if coverage.get(fam) != "applicable_available":
-                    coverage[fam] = "applicable_available"
-            elif fam not in coverage:
-                coverage[fam] = "applicable_unavailable"
-        elif det_id in unavailable:
-            if fam not in coverage:
-                coverage[fam] = "applicable_unavailable"
-        elif fam not in coverage:
-            coverage[fam] = "not_applicable"
+    coverage = dict.fromkeys(DETECTOR_FAMILIES.values(), "not_applicable")
+    ranks = {
+        "not_applicable": 0,
+        "applicable_unavailable": 1,
+        "low_confidence": 2,
+        "applicable_available": 3,
+    }
+    for det_id, family in DETECTOR_FAMILIES.items():
+        state = "applicable_unavailable" if det_id in unavailable else "not_applicable"
+        for layer in layers:
+            if not isinstance(layer, dict) or layer.get("detector_id") != det_id:
+                continue
+            try:
+                values = np.asarray(layer.get("map"), dtype=np.float32)
+                valid = np.asarray(layer.get("valid_mask"))
+                usable = (
+                    values.ndim == 2
+                    and values.size > 0
+                    and np.isfinite(values).all()
+                    and np.all((values >= 0) & (values <= 1))
+                    and valid.dtype == np.bool_
+                    and valid.shape == values.shape
+                    and valid.any()
+                )
+            except (TypeError, ValueError, OverflowError):
+                usable = False
+            if usable:
+                state = (
+                    "applicable_available"
+                    if layer.get("strength_class") in {"medium", "strong"}
+                    else "low_confidence"
+                )
+            else:
+                state = "applicable_unavailable"
+            if ranks[state] > ranks[coverage[family]]:
+                coverage[family] = state
+        if ranks[state] > ranks[coverage[family]]:
+            coverage[family] = state
     return coverage
 
 
@@ -77,18 +92,6 @@ def _count_available_families(coverage: dict[str, str]) -> int:
     return len(families)
 
 
-def _has_manipulation_indicators(layers: list[dict[str, Any]]) -> bool:
-    """Check if any strong evidence layer indicates manipulation."""
-    for layer in layers:
-        if layer.get("strength_class") == "strong":
-            layer_map = layer.get("map")
-            if layer_map is not None:
-                arr = np.array(layer_map, dtype=np.float32)
-                if arr.size > 0 and float(arr.max()) > 0.5:
-                    return True
-    return False
-
-
 def run(ctx: PluginContext) -> dict[str, object]:
     """Assess evidence sufficiency and produce an assessment category.
 
@@ -96,43 +99,54 @@ def run(ctx: PluginContext) -> dict[str, object]:
     ``fusion.rules``). Produces ``fusion.assessment``.
     """
     layers = ctx.inputs.get("fusion.layers", [])
-    evidence = ctx.inputs.get("fusion.evidence", [])
     unavailable = ctx.inputs.get("fusion.unavailable", [])
 
     if not isinstance(layers, list):
         layers = []
-    if not isinstance(evidence, list):
-        evidence = []
+    if isinstance(unavailable, tuple):
+        unavailable = list(unavailable)
     if not isinstance(unavailable, list):
-        unavailable = []
+        unavailable = ["invalid_availability_record"]
 
     coverage = _compute_coverage(layers, unavailable)
     available_families = _count_available_families(coverage)
 
-    # Determine category
-    if available_families < SUFFICIENT_COVERAGE_MIN_FAMILIES:
-        category = CATEGORY_INCONCLUSIVE
-        reasons = [
+    config = ctx.config if isinstance(ctx.config, Config) else Config.model_validate(ctx.config)
+    reasons: list[str] = []
+    if available_families < config.minimum_families_for_sufficient_coverage:
+        reasons.append(
             f"insufficient coverage: {available_families} families available, "
-            f"{SUFFICIENT_COVERAGE_MIN_FAMILIES} required"
-        ]
-    elif _has_manipulation_indicators(layers):
-        category = CATEGORY_MANIPULATION_INDICATED
-        reasons = ["manipulation indicators detected"]
-    else:
-        # Check if this is comparison mode (fusion.evidence may have comparison info)
-        has_comparison = any(
-            "comparison" in str(e).lower() or "reference" in str(e).lower() for e in evidence
+            f"{config.minimum_families_for_sufficient_coverage} required"
         )
-        if has_comparison:
-            category = CATEGORY_DIFFERENCES_FOUND
-            reasons = ["differences found between reference and target"]
-        else:
-            category = CATEGORY_NO_INDICATORS_SUFFICIENT_COVERAGE
-            reasons = ["no manipulation indicators found with sufficient coverage"]
+    if unavailable:
+        reasons.append("one or more detector outputs are unavailable")
+    try:
+        fused = np.asarray(ctx.inputs.get("fusion.map"), dtype=np.float32)
+        has_fused = (
+            fused.ndim == 2
+            and fused.size > 0
+            and np.isfinite(fused).all()
+            and np.all((fused >= 0) & (fused <= 1))
+        )
+    except (TypeError, ValueError, OverflowError):
+        has_fused = False
+    if not has_fused:
+        reasons.append("fused evidence is unavailable or invalid")
+    invalid_families = any(state == "applicable_unavailable" for state in coverage.values())
+    if invalid_families:
+        reasons.append("one or more detector families have no valid output")
+    if reasons:
+        category = CATEGORY_INCONCLUSIVE
+    elif float(fused.max()) > config.manipulation_confidence_threshold:
+        # Use accepted fusion, never raw keypoints or a free-text keyword search.
+        category = CATEGORY_MANIPULATION_INDICATED
+        reasons = ["fused heuristic indicators exceed the provisional threshold"]
+    else:
+        category = CATEGORY_NO_INDICATORS_SUFFICIENT_COVERAGE
+        reasons = ["no indicators above threshold in the available non-weak coverage"]
 
     # Build limitations
-    limitations: list[str] = []
+    limitations: list[str] = ["coverage and thresholds are provisional and uncalibrated"]
     for fam, state in coverage.items():
         if state != "applicable_available":
             limitations.append(f"{fam}: {state}")
