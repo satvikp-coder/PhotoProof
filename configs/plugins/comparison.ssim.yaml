@@ -1,0 +1,5 @@
+sigma: 1.5
+multiscale: false
+photometric_normalization: none
+edge_erosion: 1
+max_pixels: 4194304

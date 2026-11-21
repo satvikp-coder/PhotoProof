@@ -2,10 +2,11 @@
 
 ## Status
 
-Pure algorithm implemented on an unmerged feature branch for issue29. It has no
-METADATA and cannot run as a detector yet. Controller activation, source-bound
-artifact transport and the full comparison chain remain separate integration work.
-The branch builds on PR173's registration contract; no main integration is claimed.
+Controller integration implemented on an unmerged feature branch for issue29,
+stacked on algorithm PR174 and registration PR173. Real ingested pixels pass isolated
+decoding, source-bound registration and numerical comparison; a downstream probe
+reads the actual verified artifacts. Main integration, independent review and the
+remaining change-mask/interpretation stages are still required.
 
 ## Decision
 
@@ -56,6 +57,25 @@ never silently change the number of scales. This documented implementation is no
 claimed to match every external MS-SSIM library's boundary/filter conventions.
 
 ## Bounds and validation
+
+API1.11 adds `write_similarity` and `read_similarity`. Version1 records both source
+hashes and working sizes, plus a digest of the exact upstream matrix and three
+registration artifact hashes. Four typed NPY companions contain float32 D/raw absolute
+difference and boolean validity/suppression. Metadata repeats references for traceable
+manifest serialization. Readers validate every companion's producer, media type and
+byte/element ceiling before requesting bytes through declared fixed broker selectors.
+They validate source/frame/direction/version binding and reread the actual registered
+overlap; integral window counts reject validity expanded beyond fully measured11x11
+support. Recompute global SSIM and verify recorded validity/suppression counts when
+present. Reject nonfinite/range/dtype/shape contradictions, including positive storage
+fill outside validity. Hash binding establishes consistency, not authentication.
+
+`comparison.ssim` runs at priority20 and requires registration. It consumes actual
+target pixels and the verified registered reference, never original image bytes or
+an unaligned fallback. Failed/unavailable registration raises NotApplicableError
+without emitting any pixel map. API1.11 is additive; reconcile the union of pending
+capabilities and retain the highest host version during main integration. Production
+comparison still requires registration; future issue30 adds mandatory change outputs.
 
 Reject invalid dtype/channel/geometry/mask and frames over4,194,304pixels before
 float copies or filtering. Configuration cannot raise the hard pixel or erosion
