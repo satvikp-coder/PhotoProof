@@ -62,3 +62,13 @@ A change that renames, removes or changes the meaning of a key is a breaking
 configuration change: bump `config_schema_version` in `app.toml`, bump
 `schema_version` here, document the migration in `CHANGELOG.md`, and follow the MAJOR
 version policy.
+
+
+## Queue retry policy
+
+`jobs.lease_seconds` bounds a live queue claim. `jobs.max_attempts` is the total
+execution budget, including the first claim, and defaults to **1** in the shipped
+settings. A failed or expired first attempt therefore fails the job rather than
+silently repeating a forensic analysis. Raising the value (maximum 10) explicitly
+opts in to at-least-once execution. Existing persisted jobs retain the budget stored
+when they were submitted; changing the setting applies to new jobs.

@@ -10,7 +10,7 @@ import os
 import sqlite3
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from photoproof.contracts.exceptions import DatabaseError, MigrationRequiredError
@@ -364,15 +364,17 @@ class Database:
         """
         try:
             self._conn.execute("BEGIN IMMEDIATE")
+            now = datetime.now(UTC)
+            until = (now + timedelta(seconds=lease_seconds)).isoformat()
             try:
                 row = self._conn.execute(
                     """
                     UPDATE jobs
                     SET state = 'running',
                         worker_id = ?,
-                        lease_until = datetime('now', ? || ' seconds'),
+                        lease_until = ?,
                         attempts = attempts + 1,
-                        updated_at = datetime('now')
+                        updated_at = ?
                     WHERE job_id = (
                         SELECT job_id FROM jobs
                         WHERE state = 'queued'
@@ -383,7 +385,7 @@ class Database:
                               lease_until, worker_id, idempotency_key,
                               created_at, updated_at, error_message
                     """,
-                    (worker_id, str(lease_seconds)),
+                    (worker_id, until, now.isoformat()),
                 ).fetchone()
                 self._conn.execute("COMMIT")
                 return dict(row) if row else None
@@ -393,6 +395,110 @@ class Database:
                 raise
         except sqlite3.Error as error:
             raise DatabaseError(f"{self.path}: job claim failed: {error}") from error
+
+    def submit_job(
+        self, *, job_id: str, payload: str, max_attempts: int, idempotency_key: str
+    ) -> str:
+        """Atomically insert or return the existing idempotent submission."""
+        now = _now()
+        try:
+            self._conn.execute(
+                "INSERT INTO jobs (job_id,state,payload,attempts,max_attempts,"
+                "idempotency_key,created_at,updated_at) VALUES (?, 'queued', ?, 0, ?, ?, ?, ?) "
+                "ON CONFLICT(idempotency_key) DO NOTHING",
+                (job_id, payload, max_attempts, idempotency_key, now, now),
+            )
+            row = self._conn.execute(
+                "SELECT job_id FROM jobs WHERE idempotency_key = ?", (idempotency_key,)
+            ).fetchone()
+            return str(row[0])
+        except sqlite3.Error as error:
+            raise DatabaseError(f"{self.path}: job submission failed: {error}") from error
+
+    def get_job(self, job_id: str) -> dict[str, object] | None:
+        """Return one job without changing its lease or execution state."""
+        try:
+            row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+            return dict(row) if row is not None else None
+        except sqlite3.Error as error:
+            raise DatabaseError(f"{self.path}: job lookup failed: {error}") from error
+
+    def transition_claimed_job(
+        self, job_id: str, *, worker_id: str, attempt: int, error_message: str | None = None
+    ) -> bool:
+        """Fence completion/failure by owner, attempt and a live lease.
+
+        Claiming alone increments attempts. Returning a failed attempt to the queue
+        does not consume a second attempt. Duplicate completion by the same owner
+        is harmless; stale workers cannot change a newer claim.
+        """
+        now = _now()
+        try:
+            if error_message is None:
+                updated = self._conn.execute(
+                    "UPDATE jobs SET state='succeeded', updated_at=? "
+                    "WHERE job_id=? AND state='running' AND worker_id=? AND attempts=? "
+                    "AND julianday(lease_until) > julianday(?)",
+                    (now, job_id, worker_id, attempt, now),
+                )
+                if updated.rowcount:
+                    return True
+                row = self._conn.execute(
+                    "SELECT state,worker_id,attempts FROM jobs WHERE job_id=?", (job_id,)
+                ).fetchone()
+                return bool(row and tuple(row) == ("succeeded", worker_id, attempt))
+            updated = self._conn.execute(
+                "UPDATE jobs SET state=CASE WHEN attempts < max_attempts THEN 'queued' "
+                "ELSE 'failed' END, error_message=?, updated_at=?, lease_until=NULL, "
+                "worker_id=CASE WHEN attempts < max_attempts THEN NULL ELSE worker_id END "
+                "WHERE job_id=? AND state='running' AND worker_id=? AND attempts=? "
+                "AND julianday(lease_until) > julianday(?)",
+                (error_message, now, job_id, worker_id, attempt, now),
+            )
+            return updated.rowcount == 1
+        except sqlite3.Error as error:
+            raise DatabaseError(f"{self.path}: fenced job transition failed: {error}") from error
+
+    def renew_job_claim(
+        self, job_id: str, *, worker_id: str, attempt: int, lease_seconds: int
+    ) -> bool:
+        """Renew only a still-live claim held by this worker and attempt."""
+        now = datetime.now(UTC)
+        try:
+            cursor = self._conn.execute(
+                "UPDATE jobs SET lease_until=?, updated_at=? WHERE job_id=? "
+                "AND state='running' AND worker_id=? AND attempts=? "
+                "AND julianday(lease_until) > julianday(?)",
+                (
+                    (now + timedelta(seconds=lease_seconds)).isoformat(),
+                    now.isoformat(),
+                    job_id,
+                    worker_id,
+                    attempt,
+                    now.isoformat(),
+                ),
+            )
+            return cursor.rowcount == 1
+        except sqlite3.Error as error:
+            raise DatabaseError(f"{self.path}: lease renewal failed: {error}") from error
+
+    def recover_expired_jobs(self) -> list[str]:
+        """Atomically recover expired claims; parse legacy and ISO timestamps alike."""
+        now = _now()
+        try:
+            with self.transaction() as conn:
+                rows = conn.execute(
+                    "UPDATE jobs SET state=CASE WHEN attempts < max_attempts THEN 'queued' "
+                    "ELSE 'failed' END, worker_id=NULL, lease_until=NULL, updated_at=?, "
+                    "error_message='lease expired' WHERE state='running' "
+                    "AND (julianday(lease_until) IS NULL "
+                    "OR julianday(lease_until) <= julianday(?)) "
+                    "RETURNING job_id",
+                    (now, now),
+                ).fetchall()
+            return [str(row[0]) for row in rows]
+        except sqlite3.Error as error:
+            raise DatabaseError(f"{self.path}: stale job recovery failed: {error}") from error
 
     def unfinished_runs(self, *, older_than: str) -> list[dict[str, object]]:
         """Runs without ``finished_at`` created before the ISO timestamp ``older_than``,

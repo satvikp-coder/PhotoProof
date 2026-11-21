@@ -55,7 +55,7 @@ def test_job_submission_creates_queued_job(tmp_path: Path) -> None:
         assert job.lease_until is not None
         assert job.request.target.sha256 == SHA256_PLACEHOLDER
 
-        queue.complete(job_id)
+        queue.complete(job_id, claim=job)
         job2 = queue.claim("worker-2")
         assert job2 is None  # no more queued jobs
     finally:
@@ -111,7 +111,7 @@ def test_complete_marks_job_succeeded(tmp_path: Path) -> None:
         assert job is not None
         assert job.state == RUNNING
 
-        queue.complete(job_id)
+        queue.complete(job_id, claim=job)
 
         # Job should no longer be claimable
         job2 = queue.claim("worker-2")
@@ -136,7 +136,7 @@ def test_fail_marks_failed_after_max_attempts(tmp_path: Path) -> None:
         job = queue.claim("worker-1")
         assert job is not None
         # Default max_attempts is 1, so this fail should mark as failed
-        queue.fail(job_id, "permanent error")
+        queue.fail(job_id, "permanent error", claim=job)
 
         # Should not be claimable again
         job2 = queue.claim("worker-2")
@@ -154,37 +154,21 @@ def test_fail_marks_failed_after_max_attempts(tmp_path: Path) -> None:
 
 
 def test_fail_requeues_when_attempts_remain(tmp_path: Path) -> None:
-    """Fail with attempts < max_attempts re-queues the job."""
-    db = _open_db(tmp_path)
-    try:
-        queue = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=1))
-
-        # Insert a job directly with max_attempts=3 so fail can re-queue
-        job_id = "manual-job"
-        payload = _json_dumps(
-            {
-                "target": {"role": "target", "sha256": SHA256_PLACEHOLDER, "size": 1},
-                "profile": "default",
-                "use_cache": True,
-            }
-        )
-        db._conn.execute(
-            "INSERT INTO jobs (job_id, state, payload, attempts, max_attempts, "
-            "lease_until, worker_id, idempotency_key, created_at, updated_at, error_message) "
-            "VALUES (?, 'running', ?, 0, 3, NULL, NULL, ?, ?, ?, NULL)",
-            (job_id, payload, "manual-key", _now(), _now()),
-        )
-
-        # Fail with attempts < max_attempts (0 < 3) should re-queue
-        queue.fail(job_id, "transient error")
-
-        # Should be claimable again (re-queued)
-        job2 = queue.claim("worker-2")
-        assert job2 is not None
-        assert job2.job_id == job_id
-        assert job2.attempts == 2  # fail incremented to 1, claim incremented to 2
-    finally:
-        db.close()
+    """Each actual claim consumes exactly one attempt, including after a failure."""
+    with _open_db(tmp_path) as db:
+        queue = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=3))
+        job_id = queue.submit(_make_request(), "retry")
+        first = queue.claim("worker-1")
+        assert first is not None and first.attempts == 1
+        queue.fail(job_id, "transient error", claim=first)
+        second = queue.claim("worker-2")
+        assert second is not None and second.attempts == 2
+        queue.fail(job_id, "transient error", claim=second)
+        third = queue.claim("worker-3")
+        assert third is not None and third.attempts == 3
+        queue.fail(job_id, "last attempt", claim=third)
+        assert queue.claim("worker-4") is None
+        assert queue.get(job_id).state == FAILED
 
 
 def test_stale_lease_requeued(tmp_path: Path) -> None:
@@ -299,6 +283,92 @@ def test_queue_survives_restart(tmp_path: Path) -> None:
         assert job2 is not None
         assert job2.job_id == job_id
         assert job2.state == RUNNING
-        assert job2.attempts == 3  # submit(0) + claim(1) + requeue(2) + claim(3)
+        assert job2.attempts == 2  # Only actual claims consume attempts.
     finally:
         db2.close()
+
+
+def test_live_lease_is_not_recovered_as_expired(tmp_path: Path) -> None:
+    with _open_db(tmp_path) as db:
+        queue = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=1))
+        job_id = queue.submit(_make_request(), "live")
+        job = queue.claim("worker-1")
+        assert job is not None
+        assert queue.requeue_stale() == []
+        assert queue.get(job_id).state == RUNNING
+        assert queue.renew(job_id, claim=job)
+        queue.complete(job_id, claim=job)
+        queue.complete(job_id, claim=job)  # Duplicate completion is harmless.
+        assert queue.get(job_id).state == SUCCEEDED
+
+
+def test_replaced_worker_cannot_complete_fail_or_renew(tmp_path: Path) -> None:
+    import pytest
+
+    from photoproof.contracts.exceptions import StorageError
+
+    with _open_db(tmp_path) as db:
+        old = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=2))
+        new = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=2))
+        job_id = old.submit(_make_request(), "fencing")
+        first = old.claim("same-worker-id")
+        db._conn.execute("UPDATE jobs SET lease_until='2000-01-01 00:00:00'")
+        assert new.requeue_stale() == [job_id]
+        second = new.claim("same-worker-id")
+        assert first.attempts == 1 and second.attempts == 2
+        with pytest.raises(StorageError, match="expired or replaced"):
+            old.complete(job_id, claim=first)
+        with pytest.raises(StorageError, match="expired or replaced"):
+            old.fail(job_id, "late failure", claim=first)
+        assert not old.renew(job_id, claim=first)
+        assert new.get(job_id).state == RUNNING
+        new.complete(job_id, claim=second)
+        assert new.get(job_id).state == SUCCEEDED
+
+
+def test_legacy_space_timestamp_live_lease_is_supported(tmp_path: Path) -> None:
+    with _open_db(tmp_path) as db:
+        queue = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=1))
+        job_id = queue.submit(_make_request(), "legacy")
+        job = queue.claim("worker")
+        db._conn.execute("UPDATE jobs SET lease_until=datetime('now','+300 seconds')")
+        assert queue.requeue_stale() == []
+        queue.complete(job_id, claim=job)
+        assert queue.get(job_id).state == SUCCEEDED
+
+
+def test_parallel_submit_and_claim_are_atomic(tmp_path: Path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    path = tmp_path / "parallel.db"
+    with Database.open(path):
+        pass
+
+    def submit(_):
+        with Database.open(path) as db:
+            return JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=1)).submit(
+                _make_request(), "same-submission"
+            )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        submitted = list(pool.map(submit, range(24)))
+    assert len(set(submitted)) == 1
+    with Database.open(path) as db:
+        q = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=1))
+        for i in range(39):
+            q.submit(_make_request(), f"job-{i}")
+
+    def claim(worker_id):
+        claimed = []
+        with Database.open(path) as db:
+            q = JobQueue(db, JobsSettings(lease_seconds=300, max_attempts=1))
+            while (job := q.claim(worker_id)) is not None:
+                claimed.append(job.job_id)
+                q.complete(job.job_id, claim=job)
+        return claimed
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        all_claimed = [
+            job for batch in pool.map(claim, [f"w-{i}" for i in range(8)]) for job in batch
+        ]
+    assert len(all_claimed) == len(set(all_claimed)) == 40

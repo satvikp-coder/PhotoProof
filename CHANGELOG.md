@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Default queued analyses to one attempt; further automatic execution requires an
+  explicit configured retry budget (Refs #50).
+
 - Apply requested signed copy-move fixture translations and label identity copies as
   unchanged; reject unrepresentable ground truth instead of silently relocating it (Refs #72).
 
@@ -43,6 +46,14 @@ All notable changes to this project are documented here. The format follows
 
 - Restore parsing and bounded execution of dependency-update automation, regenerate all
   lockfiles together, and preserve release-only versioning (Refs #78).
+
+- Keep live background-job leases active, fence stale-worker transitions, count retries
+  once per actual claim, and make concurrent duplicate submissions idempotent (#50).
+
+### Changed
+
+- Job completion, failure and renewal require the original claim token; callers must
+  migrate as documented in the operations guide (breaking queue API change, #50).
 
 ### Added
 

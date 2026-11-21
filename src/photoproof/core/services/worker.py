@@ -20,11 +20,12 @@ import time
 from pathlib import Path
 
 from photoproof.contracts.analysis import AnalysisRequest
+from photoproof.contracts.exceptions import StorageError
 from photoproof.core.bootstrap import Application, bootstrap
 from photoproof.core.config.validator import JobsSettings
 from photoproof.core.controller import AnalysisController
 from photoproof.core.database.store import Database
-from photoproof.core.services.jobs import JobQueue
+from photoproof.core.services.jobs import Job, JobQueue
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class Worker:
         self.lease_seconds = lease_seconds
         self._running = True
         self._current_job_id: str | None = None
+        self._current_claim: Job | None = None
 
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGTERM, self._handle_signal)
@@ -78,6 +80,9 @@ class Worker:
 
         Returns True if the job completed successfully, False otherwise.
         """
+        claim = self._current_claim
+        if claim is None or claim.job_id != job_id:
+            raise StorageError("worker has no original claim token; claim the job first")
         db = app.database()
 
         # Read the job payload from the database
@@ -93,11 +98,11 @@ class Worker:
         result = controller.analyze(request)
 
         if result.status.value in ("COMPLETED", "NOT_APPLICABLE"):
-            queue.complete(job_id)
+            queue.complete(job_id, claim=claim)
             logger.info("Job %s completed successfully", job_id)
             return True
         else:
-            queue.fail(job_id, f"Analysis failed: {result.status.value}")
+            queue.fail(job_id, f"Analysis failed: {result.status.value}", claim=claim)
             logger.warning("Job %s failed with status %s", job_id, result.status.value)
             return False
 
@@ -120,6 +125,7 @@ class Worker:
                 return False
 
             self._current_job_id = job.job_id
+            self._current_claim = job
             logger.info("Worker %s processing job %s", self.worker_id, job.job_id)
 
             try:
@@ -130,13 +136,13 @@ class Worker:
                 app.stop()
         except Exception as e:
             logger.exception("Worker %s error processing job: %s", self.worker_id, e)
-            if self._current_job_id is not None:
+            if self._current_job_id is not None and self._current_claim is not None:
                 try:
                     queue = JobQueue(
                         app.database(),
                         JobsSettings(lease_seconds=self.lease_seconds, max_attempts=1),
                     )
-                    queue.fail(self._current_job_id, str(e))
+                    queue.fail(self._current_job_id, str(e), claim=self._current_claim)
                 except Exception as exc:  # noqa: BLE001 - intentionally swallow queue failure
                     logger.debug("Failed to report job failure: %s", exc)
             return False
