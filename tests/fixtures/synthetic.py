@@ -14,6 +14,7 @@ Every generator is seeded so the same seed produces identical bytes.
 from __future__ import annotations
 
 import io
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -114,37 +115,67 @@ def copy_move(
         raise ValueError(f"copy_move expects an RGB image (3 channels), got {spec.channels}")
     h, w = img.shape[:2]
 
-    # Source region: central square of roughly 1/9 of the image.
+    if (
+        not isinstance(translate, (tuple, list))
+        or len(translate) != 2
+        or any(isinstance(v, bool) or not isinstance(v, (int, np.integer)) for v in translate)
+    ):
+        raise ValueError("translate must contain integer (dy, dx) pixel offsets")
+    dy, dx = (int(v) for v in translate)
+    if any(
+        isinstance(v, bool) or not isinstance(v, (int, float, np.integer, np.floating))
+        for v in (rotate_deg, scale)
+    ):
+        raise ValueError("rotation and scale must be numeric fixture parameters")
+    try:
+        angle, factor = float(rotate_deg), float(scale)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError("rotation and scale must be finite numeric fixture parameters") from error
+    if not math.isfinite(angle) or not math.isfinite(factor) or factor <= 0:
+        raise ValueError("rotation must be finite and scale must be finite and positive")
+    # Leave room for the requested signed displacement, rather than silently
+    # placing every target at a fixed corner unrelated to translate.
     src_size = min(h, w) // 3
-    src_y0 = h // 4
-    src_x0 = w // 4
+    if src_size < 1:
+        raise ValueError("copy-move fixtures need image dimensions of at least three pixels")
+    src_y0 = min(max(h // 4, -dy), max(0, h - src_size - max(dy, 0)))
+    src_x0 = min(max(w // 4, -dx), max(0, w - src_size - max(dx, 0)))
     source = np.ascontiguousarray(
         img[src_y0 : src_y0 + src_size, src_x0 : src_x0 + src_size]
     ).copy()
 
     # Transform: rotate then scale.
     src_img = Image.fromarray(source)
-    if rotate_deg != 0.0:
-        src_img = src_img.rotate(rotate_deg, resample=Image.BICUBIC, expand=True)
-    if scale != 1.0:
-        new_w = max(1, int(src_img.width * scale))
-        new_h = max(1, int(src_img.height * scale))
+    if angle != 0.0:
+        src_img = src_img.rotate(angle, resample=Image.BICUBIC, expand=True)
+    if factor != 1.0:
+        if factor > min(w / src_img.width, h / src_img.height):
+            raise ValueError("scaled copy would exceed the fixture image; choose a smaller scale")
+        new_w = max(1, int(src_img.width * factor))
+        new_h = max(1, int(src_img.height * factor))
         src_img = src_img.resize((new_w, new_h), resample=Image.BICUBIC)
     target_arr = np.asarray(src_img.convert("RGB"))
     th, tw = target_arr.shape[:2]
 
-    # Place target in the bottom-right corner, clipped to the image bounds.
-    tgt_y0 = h - th - src_size // 4
-    tgt_x0 = w - tw - src_size // 4
-    tgt_y0 = max(0, min(tgt_y0, h - th))
-    tgt_x0 = max(0, min(tgt_x0, w - tw))
+    tgt_y0, tgt_x0 = src_y0 + dy, src_x0 + dx
+    if not (0 <= tgt_y0 <= h - th and 0 <= tgt_x0 <= w - tw):
+        raise ValueError("translated copy lies outside the fixture image; choose a smaller offset")
+    identity = dy == dx == 0 and angle % 360 == 0 and factor == 1
+    overlap = max(src_y0, tgt_y0) < min(src_y0 + src_size, tgt_y0 + th) and max(
+        src_x0, tgt_x0
+    ) < min(src_x0 + src_size, tgt_x0 + tw)
+    if overlap and not identity:
+        raise ValueError(
+            "overlapping source/target roles need separate masks; choose a disjoint offset"
+        )
 
     out = img.copy()
     out[tgt_y0 : tgt_y0 + th, tgt_x0 : tgt_x0 + tw] = target_arr
 
     mask = np.zeros((h, w), dtype=np.uint8)
-    mask[src_y0 : src_y0 + src_size, src_x0 : src_x0 + src_size] = 1
-    mask[tgt_y0 : tgt_y0 + th, tgt_x0 : tgt_x0 + tw] = 2
+    if not identity:
+        mask[src_y0 : src_y0 + src_size, src_x0 : src_x0 + src_size] = 1
+        mask[tgt_y0 : tgt_y0 + th, tgt_x0 : tgt_x0 + tw] = 2
 
     meta = {
         "generator": "copy_move",
@@ -154,6 +185,7 @@ def copy_move(
         "translate": translate,
         "rotate_deg": rotate_deg,
         "scale": scale,
+        "identity": identity,
     }
     return ForgeryFixture(image=out, mask=mask, meta=meta)
 

@@ -2,7 +2,7 @@
 id: PP-035
 title: "feat(plugins): segment suspicious regions with morphological cleanup"
 milestone: M4
-labels: [type:feature, priority:P1, area:plugins, effort:medium, status:blocked]
+labels: [type:feature, priority:P1, area:plugins, effort:medium, status:in-progress]
 depends_on: [PP-032]
 integrates_with: [PP-033]
 ---
@@ -80,3 +80,10 @@ A fusion page section on segmentation.
 ## Priority and Effort
 
 P1, medium.
+
+## Integration progress
+
+Segmentation implementation is integrated at main84173b3. Pure algorithm and
+actual-controller fixtures validate localization, deterministic masks and contributor
+traceability. Full closure remains pending the complete upstream spatial-artifact
+normalization/fusion integration; this is not a forensic-accuracy or production claim.

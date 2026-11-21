@@ -34,7 +34,10 @@ def main() -> int:
                 source / name, root / name, ignore=shutil.ignore_patterns("__pycache__")
             )
         settings = root / "settings.yaml"
-        settings.write_text(settings.read_text().replace("port: 8501", f"port: {args.port}"))
+        settings.write_text(
+            settings.read_text(encoding="utf-8").replace("port: 8501", f"port: {args.port}"),
+            encoding="utf-8",
+        )
         print(f"Disposable preview: http://127.0.0.1:{args.port}", flush=True)
         result = subprocess.run(
             [sys.executable, str(root / "main.py"), "web"], cwd=root, check=False

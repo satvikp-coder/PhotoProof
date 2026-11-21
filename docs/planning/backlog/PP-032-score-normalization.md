@@ -2,7 +2,7 @@
 id: PP-032
 title: "feat(pipeline): normalize detector scores to a common documented scale"
 milestone: M4
-labels: [type:feature, priority:P1, area:pipeline, area:plugins, effort:medium, status:needs-design]
+labels: [type:feature, priority:P1, area:pipeline, area:plugins, effort:medium, status:in-progress]
 depends_on: [PP-013]
 integrates_with: [PP-015, PP-019]
 ---
@@ -48,7 +48,7 @@ the label must say so.
 (ordering-only) on every detector, plus a dynamic read of the outputs that are present.
 Since contracts are static, this needs a design decision: either an `optional_inputs`
 metadata field (API addition) or explicit `requires` on a fixed detector list. Decide in
-the design discussion; status:needs-design.
+the design discussion; status:in-progress.
 
 ## Integration Requirements
 

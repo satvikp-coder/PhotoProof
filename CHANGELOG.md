@@ -10,6 +10,76 @@ All notable changes to this project are documented here. The format follows
 
 - A loopback-only web foundation with accessible navigation, honest workflow placeholders,
   cached read-only diagnostics and application identity from configuration (#38).
+
+- Lock the FastAPI/Uvicorn runtime and HTTP test client needed by the existing WebKit
+  foundation; web routes and CLI activation remain in their separate PR (Refs #38).
+
+### Changed
+
+- **Breaking:** assessment version 2.0.0 consumes actual coverage inputs, applies
+  configured thresholds, excludes weak/invalid coverage and reports missing evidence
+  as inconclusive. Historical categories retain their old semantics; see ADR-005 (#34).
+
+- **Breaking:** corrected fusion rule version 2.0.0 applies configured weights, counts
+  each detector family once, and prevents rejected medium cues from enabling weak
+  boosts. Unavailable evidence uses a null score. Historical results retain their old
+  semantics; see ADR-004 for migration and re-analysis guidance (#33).
+
+- **Breaking:** normalization version 2.0.0 reports unusable outputs as unavailable,
+  accepts serialized numeric maps, applies validated per-detector configuration and
+  preserves verified unit-interval masks. Unverified feature/count cues are weak context;
+  historical manifests retain old semantics and require re-analysis (#32).
+
+### Fixed
+
+- Apply requested signed copy-move fixture translations and label identity copies as
+  unchanged; reject unrepresentable ground truth instead of silently relocating it (Refs #72).
+
+- Recheck existing Windows evidence blobs after bounded transient sharing denials;
+  persistent denial and hash mismatches still fail without changing evidence (Refs #82).
+
+- Verify and reuse the winning evidence blob when simultaneous Windows ingests of
+  identical bytes encounter a read-only destination (Refs #82).
+
+- Create runtime coordination files with owner-only POSIX permissions (Refs #81).
+
+- Consume persisted noise residuals in the variance detector through verified bounded
+  numerical reads instead of requiring an in-memory array (Refs #19, #32).
+
+- Preserve Unicode issue bodies and milestone names when publishing the backlog from
+  Windows locales that do not use UTF-8 (Refs #78).
+
+- Restore parsing and bounded execution of dependency-update automation, regenerate all
+  lockfiles together, and preserve release-only versioning (Refs #78).
+
+### Added
+
+- Provide declared upstream execution-state snapshots separately from missing optional
+  measurements, preserving failure/applicability distinctions (Refs #32, #34).
+
+- Add explicit measured-cell score projection that preserves invalid sampling gaps,
+  partial border footprints and EXIF coordinates (Refs #32; integration in progress).
+
+- Render deterministic cividis heuristic heatmaps, safe-preview overlays and region
+  outlines with uncalibrated legends and explicit unavailable-evidence messaging (#36).
+
+- Generate bounded, metadata-free derived PNG previews from normalized working pixels,
+  retaining alpha and preserving original evidence (#10).
+
+- Expose explicit decoded-to-working pixel transforms and separate reference geometry
+  so forensic maps can retain correct EXIF orientation and source traceability (Refs #32).
+
+- Segment fused heuristic maps into cleaned suspicious regions with traceable detector
+  references, immutable binary PNG masks, and explicit unavailable/truncation status (#35).
+
+- Read declared upstream artifacts through a bounded, size/hash-verified byte capability
+  with current-run producer authorization and a separate configurable read ceiling (#153).
+
+- Resolve verified reference pixels once per unique image, record comparison relationship
+  checks and trust limitations, and enforce a shared image-buffer budget. Identical byte
+  comparisons produce an informational result without fabricated difference evidence (#27).
+
+
 - A run resolves its media contracts from stored evidence, once per run, and hands them to
   plugins that declare them in `inputs`: `input.original_bytes` (the stored original),
   `image.decoded` (the pixels as decoded) and `image.working` (the normalized working

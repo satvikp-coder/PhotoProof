@@ -12,11 +12,12 @@ PhotoProof is a modular framework for **digital image forgery detection and
 localization**. Detectors are independent plugins that a dependency-aware pipeline
 plans, runs, records and caches reproducibly.
 
-> **Status: foundation stage.** The architecture is implemented and tested.
-> **No forensic detector exists yet.** Core decoding and normalization exist but are
-> not yet connected to the analysis pipeline. The web foundation provides
-> navigation and read-only diagnostics, with workflow pages explicitly marked unavailable. An analysis
-> reports `NO_DETECTORS` and never produces an authenticity verdict. The remaining
+> **Status: implementation and integration in progress.** The core pipeline uses
+> ingestion, isolated decoding and working pixels with built-in classical plugins.
+> Coverage, unavailable results and remaining issue acceptance require separate
+> verification; successful execution does not prove authenticity. The web foundation
+> provides navigation and read-only diagnostics, with workflow pages explicitly
+> marked unavailable. The remaining
 > work is tracked as [GitHub issues](https://github.com/satvikp-coder/PhotoProof/issues)
 > and summarized in [docs/planning](docs/planning/index.md).
 
@@ -55,7 +56,7 @@ python3.12 main.py                   # set up the environment and show status
 python3.12 main.py --doctor          # diagnose; changes nothing
 python3.12 main.py plugins           # registered plugins and effective policy
 python3.12 main.py web               # local web foundation: http://127.0.0.1:8501
-python3.12 main.py analyze photo.jpg # runs the pipeline (currently: NO_DETECTORS)
+python3.12 main.py analyze photo.jpg # runs selected plugins; inspect coverage and limitations
 python3.12 main.py manifest <run-id> # inspect the execution manifest
 ```
 
@@ -79,8 +80,7 @@ ARE/               runtime data (generated, Git-ignored)
 
 ## Documentation
 
-The docs are built with MkDocs Material (`mkdocs serve`). Read the Docs hosting is
-configured (`.readthedocs.yaml`) but not yet connected. Key pages:
+The docs are built with MkDocs Material (`mkdocs serve`) and validated in CI. Key pages:
 
 - [Architecture](docs/architecture/index.md) and [execution lifecycle](docs/architecture/lifecycle.md)
 - [Plugin development](docs/plugins/index.md)

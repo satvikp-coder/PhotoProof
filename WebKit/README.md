@@ -3,7 +3,7 @@
 The server-rendered web foundation uses FastAPI, Jinja2 and local CSS. Run
 `python main.py web`, then open `http://127.0.0.1:8501`. Identity, version and release
 channel come from `app.toml`; the binding comes from validated `settings.yaml` `ui.*`.
-See [ADR-011](../docs/architecture/decisions.md#adr-011-server-rendered-webkit-foundation).
+See [ADR-012](../docs/architecture/decisions.md#adr-012-server-rendered-webkit-foundation).
 
 Analyze, Compare and History are explicitly labelled placeholders. Diagnostics shows
 real quick health checks and installed plugin policy; About explains limitations.

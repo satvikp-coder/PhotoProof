@@ -14,8 +14,8 @@ misleading result is as serious as a crash.
 **Current state:** the core launcher, configuration, plugin pipeline, storage,
 database, health checks, CLI, ingestion, isolated decoding and working-pixel access
 are implemented. Analysis can execute built-in classical detector and fusion plugins;
-applicability and failures are recorded, and unavailable detectors are never clean
-evidence. The web foundation offers navigation and read-only diagnostics; workflow
+applicability and failures must be recorded, and unavailable detectors must never be
+treated as clean evidence. The web foundation offers navigation and read-only diagnostics; workflow
 pages remain labelled placeholders. Remaining issue acceptance, calibration and
 forensic accuracy must be verified separately. Never describe planned behaviour as
 implemented, in code or docs.
@@ -30,7 +30,7 @@ implemented, in code or docs.
 | `src/photoproof/contracts/` | Stable shared types and exceptions. Imports nothing from `core`. |
 | `src/photoproof/core/` | Bootstrap, controller, config, pipeline, storage, database, events, health. |
 | `src/photoproof/core/security/` | `safe_join` and input-size enforcement. |
-| `src/photoproof/imaging/` | Decoder contracts, Pillow adapter and normalization; not yet used by the pipeline. |
+| `src/photoproof/imaging/` | Isolated decoding, header limits, normalization and derived previews. |
 | `src/photoproof/plugins/` | Trusted built-in detector and fusion implementations. |
 | `src/photoproof/cli.py` | Command-line interface. |
 | `WebKit/` | FastAPI/Jinja2 web foundation, local CSS, read-only diagnostics. |

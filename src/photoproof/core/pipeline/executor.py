@@ -23,6 +23,7 @@ from photoproof.contracts.exceptions import (
     NotApplicableError,
     PluginLoadError,
 )
+from photoproof.contracts.execution import UpstreamOutputStatus, UpstreamStatus
 from photoproof.core.events.bus import EventBus
 from photoproof.core.pipeline.planner import ExecutionPlan
 from photoproof.core.pipeline.registry import RegisteredPlugin
@@ -59,6 +60,7 @@ class ExecutionReport:
     executions: dict[str, PluginExecution]
     outputs: dict[str, object] = field(default_factory=dict)
     aborted: bool = False
+    preflight_satisfied: set[str] = field(default_factory=set)
 
     def status(self, required: frozenset[str]) -> RunStatus:
         if self.aborted:
@@ -66,7 +68,9 @@ class ExecutionReport:
         for pid, ex in self.executions.items():
             if ex.state is S.SUCCESS:
                 continue
-            if ex.state is S.NOT_APPLICABLE and pid not in required:
+            if ex.state is S.NOT_APPLICABLE and (
+                pid not in required or pid in self.preflight_satisfied
+            ):
                 continue
             return RunStatus.INCOMPLETE
         return RunStatus.COMPLETED
@@ -135,6 +139,11 @@ def _unsupported_format(plugin: RegisteredPlugin, run_inputs: Mapping[str, objec
     if not supported:
         return None
     declared = [n for n in plugin.metadata.inputs if n in ("input.target", "input.reference")]
+    media = set(plugin.metadata.inputs)
+    if media & {"input.original_bytes", "image.decoded", "image.working", "image.geometry"}:
+        declared.append("input.target")
+    if media & {"image.reference_decoded", "image.reference_working", "image.reference_geometry"}:
+        declared.append("input.reference")
     for name in declared or ["input.target"]:
         descriptor = run_inputs.get(name)
         found = descriptor.get("media_format") if isinstance(descriptor, Mapping) else None
@@ -192,6 +201,25 @@ class SequentialExecutor:
             ex = report.executions[pid]
             plugin = plan.nodes[pid]
             meta = plugin.metadata
+            plugin_run_inputs = run_inputs
+            if "pipeline.upstream_status" in (*meta.inputs, *meta.optional_inputs):
+                # A fresh snapshot has no exception text, paths or mutable runtime handles.
+                # Optional missing output values stay absent; their actual producer state
+                # is available separately, never converted into zero-score evidence.
+                producer_states: dict[str, UpstreamOutputStatus] = {}
+                for other_id, other in plan.nodes.items():
+                    if other_id == pid:
+                        continue
+                    producer_execution = report.executions[other_id]
+                    category = producer_execution.failure_category
+                    for output in other.metadata.outputs:
+                        producer_states[output] = {
+                            "plugin_id": other_id,
+                            "state": producer_execution.state.value,
+                            "failure_category": None if category is None else category.value,
+                        }
+                snapshot: UpstreamStatus = {"format_version": 1, "outputs": producer_states}
+                plugin_run_inputs = {**run_inputs, "pipeline.upstream_status": snapshot}
             ex.dependency_status = {
                 dep: report.executions[dep].state.value
                 if dep in report.executions
@@ -200,6 +228,16 @@ class SequentialExecutor:
             }
             if abort_category is not None:
                 self._finish(run_id, ex, S.ABORTED, abort_category, "run aborted before start")
+                continue
+            preflight = run_inputs.get("comparison.preflight")
+            if (
+                pid.startswith("comparison.")
+                and isinstance(preflight, Mapping)
+                and preflight.get("status") == "identical_inputs"
+                and preflight.get("identical_bytes") is True
+            ):
+                self._finish(run_id, ex, S.NOT_APPLICABLE, None, "inputs are identical")
+                report.preflight_satisfied.add(pid)
                 continue
             failed_deps = [d for d in meta.requires if ex.dependency_status[d] != S.SUCCESS.value]
             if failed_deps:
@@ -211,11 +249,16 @@ class SequentialExecutor:
                     FailureCategory.DEPENDENCY_UNAVAILABLE,
                     f"required dependencies did not succeed: {detail}",
                 )
-            elif "input.reference" in meta.inputs and "input.reference" not in run_inputs:
+            elif {
+                "input.reference",
+                "image.reference_decoded",
+                "image.reference_working",
+                "image.reference_geometry",
+            } & set(meta.inputs) and "input.reference" not in run_inputs:
                 self._finish(run_id, ex, S.NOT_APPLICABLE, None, "no reference image supplied")
-            elif (unsupported := _unsupported_format(plugin, run_inputs)) is not None:
+            elif (unsupported := _unsupported_format(plugin, plugin_run_inputs)) is not None:
                 self._finish(run_id, ex, S.NOT_APPLICABLE, None, unsupported)
-            elif missing := _missing_inputs(meta.inputs, run_inputs, report.outputs):
+            elif missing := _missing_inputs(meta.inputs, plugin_run_inputs, report.outputs):
                 detail = "; ".join(
                     reasons.get(name, f"input contract {name!r} is unavailable") for name in missing
                 )
@@ -223,9 +266,11 @@ class SequentialExecutor:
             else:
                 input_names = list(meta.inputs)
                 for name in meta.optional_inputs:
-                    if name in run_inputs or name in report.outputs:
+                    if name in plugin_run_inputs or name in report.outputs:
                         input_names.append(name)
-                inputs = {name: _lookup(name, run_inputs, report.outputs) for name in input_names}
+                inputs = {
+                    name: _lookup(name, plugin_run_inputs, report.outputs) for name in input_names
+                }
                 ex.transition(S.READY)
                 interrupted = self._run_one(run_id, plugin, ex, inputs, invoke, report)
                 if interrupted:

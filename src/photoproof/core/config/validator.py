@@ -177,6 +177,7 @@ class ResourceSettings(_Strict):
     max_input_bytes: int = Field(ge=1)
     max_image_pixels: int = Field(ge=1)
     min_free_disk_mb: int = Field(ge=0)
+    max_artifact_read_bytes: int = Field(default=64 << 20, ge=1, le=2 << 30)
 
 
 class RetentionSettings(_Strict):
