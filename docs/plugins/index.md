@@ -603,10 +603,13 @@ numerical conventions, resource limits and synthetic validation.
 
 ## Discrete comparison differences
 
-The pure `comparison/change_mask/algorithm.py` extracts discrete differences from
+`comparison.change_mask` extracts discrete differences from
 actual SSIM dissimilarity and validity. Default Otsu selection has a0.15 minimum;
 recorded cleanup and minimum target-area filtering retain only supported pixels.
 Every region is labelled `difference`; no measured support remains unavailable.
-This algorithm is not registered in the controller yet. See
+It runs through the actual controller at priority30. The comparison profile requires
+its PNG mask and source-bound region outputs. Typed NPY labels, true statistics and
+exact PNG pixels are verified by the downstream reader against actual measured
+similarity support; registration failure cannot become a clean empty comparison. See
 [ADR-029](../planning/adr-029-comparison-change-regions.md) for exact coordinate,
 threshold, metadata truncation and interpretation conventions.

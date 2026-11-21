@@ -2,10 +2,11 @@
 
 ## Status
 
-Pure algorithm stage for issue30 on an unmerged branch stacked on SSIM integration
-PR175. It has no METADATA and is not a controller plugin yet. Typed artifact transport,
-mandatory comparison-profile outputs, independent review and main integration remain
-required. Reports/UI and issue31 interpretation are not implemented by this stage.
+Controller integration for issue30 on an unmerged branch stacked on algorithmPR176
+and SSIM integrationPR175. Actual generated images pass verified ingestion, isolated
+decoding, registration, SSIM, change extraction and a downstream artifact consumer.
+Independent review and main integration remain required. Reports/UI and issue31
+interpretation are not implemented by this stage.
 
 ## Decision
 
@@ -48,6 +49,41 @@ kernel, measured/target/changed counts and truncation. Recompression quality,
 registration error and chosen thresholds can change the result.
 
 ## Validation and limits
+
+API1.12 adds typed DifferenceRecord/DifferenceRegion, encode_change_mask and
+read_changes. The summary carries both source hashes, target working size and a
+digest of all four exact upstream similarity artifacts. Its finite, bounded facts
+record actual threshold/floor/quantization, cleanup, filtering, counts and limitations.
+Companion references contain the PNG mask and int32 component-label NPY. Positive
+labels preserve their actual component ids, including gaps after area filtering;
+unselected/background pixels remain zero and do not imply unknown support was tested.
+
+The reader validates schema, sources, frames, ownership and byte/element bounds before
+any numerical read. It reads actual upstream similarity/registration support through
+declared broker selectors, rejects labels outside measured coverage and recomputes
+counts, area fractions, means and true bounding boxes. Extrema are aggregated once
+in bounded row chunks, avoiding a full-image rescan per reported component. Counts,
+status, truncation, low specificity and sensitivity must agree with actual pixels.
+
+The PNG encoder handles only bounded derived boolean pixels. It uses a fixed minimal
+grayscale8-bit noninterlaced IHDR/one-IDAT/IEND format with zero row filters and no
+metadata. No native image-byte decoder is invoked. The reader checks exact chunks,
+CRC, dimensions/mode, bounded deflate output and every decoded pixel against the
+label raster. Trailing/oversized/compressed inconsistencies are rejected. Other valid
+PNG encodings are outside this specific versioned derived-mask wire schema. An
+independent Pillow test confirms ordinary PNG viewers can read the generated mask.
+
+`comparison.change_mask` runs at priority30 and explicitly requires registration and
+SSIM. The production comparison profile requires this plugin and its mask/region
+outputs. Unsupported registration therefore cannot silently produce an empty clean
+comparison: missing required outputs abort that profile. Constant-image CLI fixtures
+assert this outcome while preserving both ingested sources. Mock-only framework
+probes own explicit fixture profiles rather than weakening production requirements.
+
+Future main integration must reconcile pending API capabilities and keep the highest
+host version. This branch is stacked for review and must never merge into its feature
+base; retarget main only after parent integration and green main, then rerun all
+required checks and obtain legitimate independent review. No bypass is authorized.
 
 Synthetic controls pass real SSIM output into extraction and record planted-edit IoU.
 Separate tests recompress unchanged synthetic luminance images to actual JPEG at

@@ -1,0 +1,6 @@
+threshold: otsu
+min_threshold: 0.15
+min_region_area: 0.0005
+kernel_size: 3
+max_regions: 256
+max_pixels: 4194304

@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Run measured change extraction through the controller with source-bound region
+  statistics, verified derived PNG/component labels and mandatory comparison outputs;
+  failed registration cannot become an empty clean comparison (Refs #30).
+
 - Extract measured comparison differences with bounded Otsu selection, recorded
   cleanup, explicit validity and region statistics; controller integration remains
   separate (Refs #30).
