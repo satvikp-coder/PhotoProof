@@ -11,11 +11,14 @@ PhotoProof is a modular framework for detecting and localizing digital image for
 processes untrusted images, and people may rely on its output for forensic judgement. A
 misleading result is as serious as a crash.
 
-**Current state:** the foundation only. The launcher, configuration, plugin pipeline,
-storage, database, health checks and CLI are implemented and tested. No forensic
-detector, image decoder or web interface exists yet, and an analysis reports
-`NO_DETECTORS`. Everything else is planned in the GitHub issues. Never describe planned
-behaviour as implemented, in code or docs.
+**Current state:** the core launcher, configuration, plugin pipeline, storage,
+database, health checks, CLI, ingestion, isolated decoding and working-pixel access
+are implemented. Analysis can execute built-in classical detector and fusion plugins;
+applicability and failures must be recorded, and unavailable detectors must never be
+treated as clean evidence. The web foundation offers navigation and read-only diagnostics; workflow
+pages remain labelled placeholders. Remaining issue acceptance, calibration and
+forensic accuracy must be verified separately. Never describe planned behaviour as
+implemented, in code or docs.
 
 ## Repository map
 
@@ -27,10 +30,10 @@ behaviour as implemented, in code or docs.
 | `src/photoproof/contracts/` | Stable shared types and exceptions. Imports nothing from `core`. |
 | `src/photoproof/core/` | Bootstrap, controller, config, pipeline, storage, database, events, health. |
 | `src/photoproof/core/security/` | `safe_join` and input-size enforcement. |
-| `src/photoproof/imaging/` | Decoder security interface (`DecodeLimits`, `ImageDecoder`). No decoder yet. |
-| `src/photoproof/plugins/` | Trusted built-in detectors. None yet. |
+| `src/photoproof/imaging/` | Isolated decoding, header limits, normalization and derived previews. |
+| `src/photoproof/plugins/` | Trusted built-in detector and fusion implementations. |
 | `src/photoproof/cli.py` | Command-line interface. |
-| `WebKit/` | Web interface (planned). |
+| `WebKit/` | FastAPI/Jinja2 web foundation, local CSS, read-only diagnostics. |
 | `tests/` | `unit`, `integration`, `resilience`, `security`, `e2e`, `fixtures/mockplugins`. |
 | `docs/` | MkDocs site. `docs/planning/backlog/PP-*.md` are the issue sources. |
 | `.github/` | Workflows, `CODEOWNERS`, templates, governance and backlog scripts. |
@@ -61,7 +64,7 @@ ruff check .
 mypy
 pytest
 mkdocs build --strict             # if docs changed
-bandit -c pyproject.toml -r src main.py
+bandit -c pyproject.toml -r src WebKit main.py
 pytest tests/security -q
 python -m photoproof config --json > /dev/null
 python -m photoproof plugins
@@ -204,7 +207,7 @@ Priorities:
   their context.
 - A blacklist bypass stays local-CLI-only, gated by `security.allow_blacklist_bypass`,
   audited and rejected in production. `security.forbidden_plugins` is never bypassable.
-  `ui.host` stays loopback until WebKit has authentication.
+  `ui.host` stays loopback in every environment until WebKit has authentication.
 
 ### Supply chain and automation
 

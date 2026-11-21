@@ -60,7 +60,7 @@ jobs:
           python -m pip install --require-hashes --only-binary :all: -r requirements-tools.lock
           python -m pip install --no-deps --no-build-isolation -e .
       - name: Bandit
-        run: bandit -c pyproject.toml -r src main.py
+        run: bandit -c pyproject.toml -r src WebKit main.py
       - name: Security-relevant configuration tests
         run: pytest tests/security -q
 

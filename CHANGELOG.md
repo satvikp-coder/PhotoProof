@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A loopback-only web foundation with accessible navigation, honest workflow placeholders,
+  cached read-only diagnostics and application identity from configuration (#38).
+
+- Lock the FastAPI/Uvicorn runtime and HTTP test client needed by the existing WebKit
+  foundation; web routes and CLI activation remain in their separate PR (Refs #38).
+
 ### Changed
 
 - **Breaking:** assessment version 2.0.0 consumes actual coverage inputs, applies

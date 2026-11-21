@@ -117,7 +117,15 @@ def decide_all(
     flags: FeatureFlags,
     profile: Profile,
     override: BlacklistOverride | None,
+    origin: OverrideOrigin | None = None,
 ) -> dict[str, PolicyDecision]:
+    if override is not None:
+        # The caller's boundary wins even if a CLI-origin token is passed accidentally.
+        if origin is None:
+            raise PolicyError("blacklist override requires an explicit local CLI request origin")
+        if origin is not OverrideOrigin.LOCAL_CLI:
+            authorize_blacklist_override(settings, BlacklistOverride(origin))
+        authorize_blacklist_override(settings, override)
     return {
         meta.id: decide(meta, settings=settings, flags=flags, profile=profile, override=override)
         for meta in plugins

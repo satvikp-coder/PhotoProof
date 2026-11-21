@@ -168,21 +168,32 @@ class Database:
     # --------------------------------------------------------------- lifecycle
 
     @classmethod
-    def open(cls, path: Path, *, allow_migration: bool = False) -> "Database":
+    def open(
+        cls, path: Path, *, allow_migration: bool = False, read_only: bool = False
+    ) -> "Database":
         """Open and, when safe, migrate the database.
 
         A new (empty) database is always initialized. Migrating an existing database
         requires ``allow_migration`` (the CONTROLLED ``--repair`` path).
         """
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if not read_only:
+            path.parent.mkdir(parents=True, exist_ok=True)
         conn = None
         try:
-            conn = sqlite3.connect(
-                path, isolation_level=None, timeout=30.0
-            )  # explicit transactions
+            conn = (
+                sqlite3.connect(
+                    path.resolve().as_uri() + "?mode=ro",
+                    uri=True,
+                    isolation_level=None,
+                    timeout=30.0,
+                )
+                if read_only
+                else sqlite3.connect(path, isolation_level=None, timeout=30.0)
+            )
             conn.execute("PRAGMA foreign_keys = ON")
             conn.execute("PRAGMA busy_timeout = 30000")
-            conn.execute("PRAGMA journal_mode=WAL")
+            if not read_only:
+                conn.execute("PRAGMA journal_mode=WAL")
             conn.row_factory = sqlite3.Row
         except sqlite3.Error as error:
             if conn is not None:
@@ -210,6 +221,12 @@ class Database:
                 "Run `python main.py --repair` (a backup is taken first)."
             )
         if version < LATEST_VERSION:
+            if read_only:
+                conn.close()
+                _open_connections.discard(conn)
+                raise MigrationRequiredError(
+                    "database needs initialization or migration; run local repair"
+                )
             try:
                 db._migrate(version)
             except DatabaseError:

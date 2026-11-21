@@ -38,6 +38,7 @@ from photoproof.core.cache.run_cache import RunCache, cache_key
 from photoproof.core.config.loader import PLUGIN_CONFIG_DIR
 from photoproof.core.config.policy import (
     BlacklistOverride,
+    OverrideOrigin,
     PolicyDecision,
     authorize_blacklist_override,
     decide_all,
@@ -106,6 +107,7 @@ class AnalysisController:
             flags=app.flags,
             profile=profile,
             override=override,
+            origin=OverrideOrigin.LOCAL_CLI,
         )
         if override is not None:
             bypassed = sorted(

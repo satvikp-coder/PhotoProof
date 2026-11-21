@@ -19,7 +19,7 @@ PhotoProof/
 │   ├── core/               bootstrap, controller and services
 │   ├── imaging/            format detection, decoder interface and adapters
 │   └── plugins/            trusted built-in detectors (none yet)
-├── WebKit/                 web interface (planned)
+├── WebKit/                 server-rendered web foundation
 ├── models/                 pretrained model weights (planned; Git-ignored)
 ├── media/                  repository-managed images via Git LFS
 ├── ARE/                    Application Runtime Environment (generated, Git-ignored)

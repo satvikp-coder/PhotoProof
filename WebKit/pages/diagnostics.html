@@ -1,0 +1,13 @@
+{% extends 'components/base.html' %}
+{% block introduction %}<p class="lede">Live, read-only information from the application's health and plugin registries.</p>{% endblock %}
+{% block content %}
+<section class="panel diagnostics" aria-labelledby="health-title"><div class="section-heading"><div><p class="overline">Application health</p><h2 id="health-title">{{ health_summary }}</h2></div><span class="timestamp">Checked {{ checked_at }}</span></div>
+<p>Quick structural checks, not a full evidence-integrity scan. Detailed findings remain in the local CLI doctor. No repairs run from this page.</p>
+{% if health_rows %}<dl class="health-grid">{% for row in health_rows %}<div><dt>{{ row.label }}</dt><dd class="severity severity-{{ row.severity }}">{{ row.severity | capitalize }}</dd></div>{% endfor %}</dl>{% else %}<p class="empty-state">Health information is unavailable. No successful result has been inferred.</p>{% endif %}
+</section>
+<section class="panel diagnostics" aria-labelledby="plugins-title"><div class="section-heading"><div><p class="overline">Installed capabilities</p><h2 id="plugins-title">Plugin registry</h2></div><span class="tag">Read-only policy</span></div>
+<p>Policy for the configured default profile. Enabled describes eligibility, not a detector result.</p>
+{% if plugins %}<div class="table-scroll" role="region" aria-label="Installed plugin policy" tabindex="0"><table><caption>Installed plugins and effective policy decisions</caption><thead><tr><th scope="col">Plugin</th><th scope="col">Version</th><th scope="col">Policy</th><th scope="col">Decision source</th></tr></thead><tbody>{% for plugin in plugins %}<tr><th scope="row">{{ plugin.name }}<span class="plugin-id">{{ plugin.id }}</span></th><td>{{ plugin.version }}</td><td>{{ 'Enabled' if plugin.enabled else 'Disabled' }}</td><td>{{ plugin.source }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty-state"><h3>No installed plugins</h3><p>No production forensic detectors are registered. This is not an authenticity result.</p></div>{% endif %}
+{% if unavailable_plugins %}<h3>Unavailable plugins</h3><ul>{% for plugin in unavailable_plugins %}<li>{{ plugin }} · registration unavailable; inspect the local CLI doctor.</li>{% endfor %}</ul>{% endif %}
+</section>
+{% endblock %}

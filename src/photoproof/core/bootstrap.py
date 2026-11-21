@@ -7,8 +7,9 @@ that need runtime directories: file logging, the audit trail, and state persiste
 
 import os
 import socket
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import photoproof
@@ -51,6 +52,7 @@ class Application:
     _db: Database | None = field(default=None, repr=False)
     _job_queue: JobQueue | None = field(default=None, repr=False)
     started: bool = False
+    _read_only_database: bool = field(default=False, repr=False)
 
     @property
     def database_path(self) -> Path:
@@ -59,8 +61,22 @@ class Application:
     def database(self) -> Database:
         """Open (and initialize if new) the database. Raises ``DatabaseError``."""
         if self._db is None:
-            self._db = Database.open(self.database_path)
+            self._db = Database.open(self.database_path, read_only=self._read_only_database)
         return self._db
+
+    @contextmanager
+    def diagnostic_view(self) -> Iterator["Application"]:
+        """Borrow configuration/services with an independent read-only database connection.
+
+        Construct and close on the calling thread. Never starts logging, emits lifecycle
+        events, migrates a database or closes the running application's services.
+        """
+        view = replace(self, _db=None, _job_queue=None, started=False, _read_only_database=True)
+        try:
+            yield view
+        finally:
+            if view._db is not None:
+                view._db.close()
 
     def database_or_none(self) -> Database | None:
         try:
