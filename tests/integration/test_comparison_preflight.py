@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from helpers import write_profile
 from PIL import Image
 
 from photoproof.cli import main as cli_main
@@ -19,12 +20,8 @@ def probe_app(make_app, app_root):
     Production-profile mandatory registration is tested separately against the actual
     builtin registry. Existing required-probe cases keep their explicit requirement.
     """
-    profile = app_root / "configs" / "profiles" / "comparison.yaml"
-    profile.write_text(
-        profile.read_text(encoding="utf-8").replace(
-            "required_plugins: [comparison.registration]", "required_plugins: []"
-        ),
-        encoding="utf-8",
+    write_profile(
+        app_root, "comparison", mode="comparison", required_plugins=[], required_outputs=[]
     )
     return make_app
 
@@ -187,14 +184,16 @@ def test_cli_ingests_both_inputs_and_persists_preflight(app_root, tmp_path, caps
         root=app_root,
     )
     result = json.loads(capsys.readouterr().out)
-    # Other detector integration can still be incomplete; this test makes no accuracy claim.
-    assert result["status"] in {"COMPLETED", "INCOMPLETE"}
-    assert code == (0 if result["status"] == "COMPLETED" else 7)
+    # Constant frames have no registration support. Mandatory comparison outputs
+    # cannot be fabricated; the profile aborts while preserving both submissions.
+    assert result["status"] == "ABORTED" and code == 7
     manifest = json.loads(Path(result["manifest_path"]).read_text())
     assert {entry["role"] for entry in manifest["inputs"]} == {"target", "reference"}
     info = manifest["outputs"]["comparison.preflight"]
     assert info["status"] == "ready"
     assert info["reference_statement"] == "reference: user-supplied comparison material"
+    assert manifest["outputs"]["comparison.transform"]["status"] == "registration_failed"
+    assert "comparison.change_mask" not in manifest["outputs"]
 
 
 @pytest.mark.parametrize("field,value", [("size", 1), ("media_format", "jpeg")])

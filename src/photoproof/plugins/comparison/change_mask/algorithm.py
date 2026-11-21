@@ -17,6 +17,7 @@ class ChangeRegions:
     mask: np.ndarray
     regions: tuple[Mapping[str, object], ...]
     summary: Mapping[str, object]
+    labels: np.ndarray | None = None
 
 
 def extract_changes(
@@ -111,6 +112,7 @@ def extract_changes(
         "category": "difference",
         "threshold_method": "otsu" if automatic is not None else "fixed",
         "threshold": threshold,
+        "min_threshold": cfg.min_threshold,
         "automatic_threshold": automatic,
         "otsu_quantization": "nearest_uint8_divided_by_255" if automatic is not None else None,
         "min_region_area_fraction": cfg.min_region_area,
@@ -134,4 +136,6 @@ def extract_changes(
         ],
     }
     mask.setflags(write=False)
-    return ChangeRegions(mask, tuple(regions), MappingProxyType(summary))
+    retained_labels = np.where(mask, labels, 0).astype(np.int32)
+    retained_labels.setflags(write=False)
+    return ChangeRegions(mask, tuple(regions), MappingProxyType(summary), retained_labels)

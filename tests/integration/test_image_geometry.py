@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from helpers import write_profile
 from PIL import Image
 
 from photoproof.contracts.analysis import AnalysisRequest
@@ -41,12 +42,8 @@ def test_optional_geometry_matches_every_actual_normalized_pixel(make_app, tmp_p
 
 def test_comparison_geometry_roles_remain_distinct(make_app, app_root, tmp_path):
     # This registry exposes geometry only; its fixture profile owns no builtin requirement.
-    profile = app_root / "configs" / "profiles" / "comparison.yaml"
-    profile.write_text(
-        profile.read_text(encoding="utf-8").replace(
-            "required_plugins: [comparison.registration]", "required_plugins: []"
-        ),
-        encoding="utf-8",
+    write_profile(
+        app_root, "comparison", mode="comparison", required_plugins=[], required_outputs=[]
     )
     app = make_app("mockplugins.geometryprobe")
     target = _image(app, tmp_path / "target.jpg", 6, "target")
