@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Run aligned SSIM through the actual controller with source-bound typed difference,
+  validity and suppression artifacts; failed registration stays unavailable (Refs #29).
+
 - Add an overlap-aware SSIM algorithm with explicit unknown support, recorded
   photometric normalization, raw absolute differences and optional five-scale
   summary; controller integration remains separate (Refs #29).
