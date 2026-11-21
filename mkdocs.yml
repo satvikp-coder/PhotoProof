@@ -104,3 +104,4 @@ nav:
       - ADR-017 Binary Evidence Layers: planning/adr-017-binary-evidence-layer-wire.md
       - ADR-018 Upstream Execution Status: planning/adr-018-upstream-execution-status.md
       - ADR-027 Reference Registration: planning/adr-027-reference-registration.md
+      - ADR-028 Overlap SSIM: planning/adr-028-overlap-ssim.md

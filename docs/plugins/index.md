@@ -588,3 +588,13 @@ The initial ceiling is4,194,304pixels per frame; it is numerical admission, not 
 plugin isolation. SSIM/change masks and comparison interpretation remain separate
 implementation stages. Existing preflight still records the user-supplied reference
 trust statement and handles identical bytes informationally.
+
+## Aligned similarity algorithm
+
+The pure `comparison/ssim/algorithm.py` compares actual aligned pixels inside fully
+supported overlap windows. It produces single-scale dissimilarity, raw luminance
+absolute difference, validity and a separate edge-suppression mask. Optional real
+photometric normalization and five-scale pooling record their parameters and limits.
+It is not registered in the controller yet and cannot establish forgery or authenticity.
+See [ADR-028](../planning/adr-028-overlap-ssim.md) for unknown-pixel semantics,
+numerical conventions, resource limits and synthetic validation.
