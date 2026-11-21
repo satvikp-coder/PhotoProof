@@ -105,3 +105,4 @@ nav:
       - ADR-018 Upstream Execution Status: planning/adr-018-upstream-execution-status.md
       - ADR-027 Reference Registration: planning/adr-027-reference-registration.md
       - ADR-028 Overlap SSIM: planning/adr-028-overlap-ssim.md
+      - ADR-029 Comparison Change Regions: planning/adr-029-comparison-change-regions.md
