@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Add an overlap-aware SSIM algorithm with explicit unknown support, recorded
+  photometric normalization, raw absolute differences and optional five-scale
+  summary; controller integration remains separate (Refs #29).
+
 ### Changed
 
 - **Breaking:** assessment version 2.0.0 consumes actual coverage inputs, applies
