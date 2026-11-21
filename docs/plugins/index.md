@@ -600,3 +600,13 @@ without any maps. Typed artifacts retain both source identities, exact upstream
 alignment binding and actual valid support. It cannot establish forgery or authenticity.
 See [ADR-028](../planning/adr-028-overlap-ssim.md) for unknown-pixel semantics,
 numerical conventions, resource limits and synthetic validation.
+
+## Discrete comparison differences
+
+The pure `comparison/change_mask/algorithm.py` extracts discrete differences from
+actual SSIM dissimilarity and validity. Default Otsu selection has a0.15 minimum;
+recorded cleanup and minimum target-area filtering retain only supported pixels.
+Every region is labelled `difference`; no measured support remains unavailable.
+This algorithm is not registered in the controller yet. See
+[ADR-029](../planning/adr-029-comparison-change-regions.md) for exact coordinate,
+threshold, metadata truncation and interpretation conventions.

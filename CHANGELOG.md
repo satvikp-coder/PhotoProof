@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Extract measured comparison differences with bounded Otsu selection, recorded
+  cleanup, explicit validity and region statistics; controller integration remains
+  separate (Refs #30).
+
 - Run aligned SSIM through the actual controller with source-bound typed difference,
   validity and suppression artifacts; failed registration stays unavailable (Refs #29).
 
