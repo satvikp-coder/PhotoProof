@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Refresh hash-pinned dependency lockfiles (Refs #78).
+
+### Changed
+
 - **Breaking:** assessment version 2.0.0 consumes actual coverage inputs, applies
   configured thresholds, excludes weak/invalid coverage and reports missing evidence
   as inconclusive. Historical categories retain their old semantics; see ADR-005 (#34).
